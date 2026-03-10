@@ -9,19 +9,26 @@ from cal_monitor.monitor import CalendarMonitor
 from storage.local_db import init_db, get_recent_meetings
 from ui.floating_indicator import FloatingIndicator
 
+MENU_TITLE_IDLE = "M"
+MENU_TITLE_RECORDING = "M*"
+MENU_TITLE_TRANSCRIBING = "M~"
+MENU_TITLE_MEETING = "MM"
+
 
 class MuesliApp(rumps.App):
     def __init__(self):
         super().__init__(
             "Muesli",
-            title="\U0001f3a4",  # microphone emoji as icon
+            title=MENU_TITLE_IDLE,
             quit_button=None,
         )
         # Dictation
         self.mic = MicCapture()
         self.hotkey = HoldToRecord(
+            on_prepare=self._on_dictation_prepare,
             on_start=self._on_dictation_start,
             on_stop=self._on_dictation_stop,
+            on_cancel=self._on_dictation_cancel,
         )
         self._transcribing = False
         self._indicator = FloatingIndicator()
@@ -51,8 +58,8 @@ class MuesliApp(rumps.App):
 
     # ---------- Status ----------
 
-    def _set_status(self, text: str, icon: str = "\U0001f3a4", overlay_state: str = "idle"):
-        self.title = icon
+    def _set_status(self, text: str, menu_title: str = MENU_TITLE_IDLE, overlay_state: str = "idle"):
+        self.title = menu_title
         for item in self.menu.values():
             if hasattr(item, "title") and item.title.startswith("Status:"):
                 item.title = f"Status: {text}"
@@ -60,11 +67,16 @@ class MuesliApp(rumps.App):
 
     # ---------- Dictation ----------
 
+    def _on_dictation_prepare(self):
+        if self._meeting and self._meeting.is_recording:
+            return
+        self.mic.prepare()
+
     def _on_dictation_start(self):
         if self._meeting and self._meeting.is_recording:
             return  # don't dictate during meeting recording
-        self._set_status("Recording...", "\U0001f534", "listening")  # red circle
         self.mic.start()
+        self._set_status("Recording...", MENU_TITLE_RECORDING, "listening")
         print("[muesli] Dictation started")
 
     def _on_dictation_stop(self):
@@ -78,7 +90,7 @@ class MuesliApp(rumps.App):
             self._set_status("Idle")
             return
 
-        self._set_status("Transcribing...", "\U0001f7e1", "transcribing")  # yellow circle
+        self._set_status("Transcribing...", MENU_TITLE_TRANSCRIBING, "transcribing")
         self._transcribing = True
 
         def do_transcribe():
@@ -95,6 +107,11 @@ class MuesliApp(rumps.App):
 
         threading.Thread(target=do_transcribe, daemon=True).start()
 
+    def _on_dictation_cancel(self):
+        if self._meeting and self._meeting.is_recording:
+            return
+        self.mic.cancel()
+
     # ---------- Meeting ----------
 
     def _toggle_meeting(self, sender):
@@ -106,7 +123,7 @@ class MuesliApp(rumps.App):
     def _start_meeting(self, title: str = "Meeting"):
         self._meeting = MeetingSession(title=title)
         self._meeting.start()
-        self._set_status(f"Meeting: {title}", "\U0001f7e2", "meeting")  # green circle
+        self._set_status(f"Meeting: {title}", MENU_TITLE_MEETING, "meeting")
         # Update menu item text
         for item in self.menu.values():
             if hasattr(item, "title") and "Meeting Recording" in item.title:
@@ -115,7 +132,7 @@ class MuesliApp(rumps.App):
     def _stop_meeting(self):
         if not self._meeting:
             return
-        self._set_status("Processing meeting...", "\U0001f7e1", "processing")
+        self._set_status("Processing meeting...", MENU_TITLE_TRANSCRIBING, "processing")
 
         def process():
             try:
