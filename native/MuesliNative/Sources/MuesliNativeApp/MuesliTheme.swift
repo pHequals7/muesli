@@ -34,8 +34,8 @@ enum MuesliTheme {
 
     // MARK: - Accent
 
-    static let accent           = Color(hex: 0x6BA3F7)
-    static let accentSubtle     = Color(hex: 0x6BA3F7).opacity(0.15)
+    static let accent           = Color.adaptive(dark: 0x6BA3F7, light: 0x2563EB)
+    static let accentSubtle     = Color.adaptive(dark: 0x6BA3F7, light: 0x2563EB).opacity(0.15)
 
     // MARK: - Semantic
 
