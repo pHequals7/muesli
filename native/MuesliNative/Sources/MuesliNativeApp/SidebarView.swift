@@ -30,6 +30,12 @@ struct SidebarView: View {
             )
 
             sidebarItem(
+                tab: .dictionary,
+                icon: "character.book.closed",
+                label: "Dictionary"
+            )
+
+            sidebarItem(
                 tab: .shortcuts,
                 icon: "keyboard",
                 label: "Shortcuts"

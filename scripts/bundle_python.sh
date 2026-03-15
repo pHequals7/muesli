@@ -160,6 +160,7 @@ ESSENTIAL_PACKAGES=(
     packaging
     tokenizers
     hf_xet
+    jellyfish
 )
 
 for pkg in "${ESSENTIAL_PACKAGES[@]}"; do
@@ -207,6 +208,7 @@ DIST_INFO_PREFIXES=(
     packaging
     tokenizers
     hf_xet
+    jellyfish
 )
 
 for prefix in "${DIST_INFO_PREFIXES[@]}"; do

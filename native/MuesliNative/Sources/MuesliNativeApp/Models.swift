@@ -59,6 +59,23 @@ struct MeetingSummaryBackendOption: Equatable {
     static let all: [MeetingSummaryBackendOption] = [.openAI, .openRouter]
 }
 
+struct CustomWord: Codable, Equatable, Identifiable {
+    var id = UUID()
+    var word: String
+    var replacement: String?
+
+    var displayLabel: String {
+        if let replacement, !replacement.isEmpty {
+            return "\(word) → \(replacement)"
+        }
+        return word
+    }
+
+    var targetWord: String {
+        replacement ?? word
+    }
+}
+
 struct HotkeyConfig: Codable, Equatable {
     var keyCode: UInt16 = 55
     var label: String = "Left Cmd"
@@ -100,6 +117,7 @@ struct AppConfig: Codable {
     var openRouterModel: String = ""
     var summaryModel: String = ""
     var meetingSummaryModel: String = ""
+    var customWords: [CustomWord] = []
 
     enum CodingKeys: String, CodingKey {
         case dictationHotkey = "dictation_hotkey"
@@ -120,6 +138,7 @@ struct AppConfig: Codable {
         case openRouterModel = "openrouter_model"
         case summaryModel = "summary_model"
         case meetingSummaryModel = "meeting_summary_model"
+        case customWords = "custom_words"
     }
 
     init() {}
@@ -145,6 +164,7 @@ struct AppConfig: Codable {
         openRouterModel = (try? c.decode(String.self, forKey: .openRouterModel)) ?? defaults.openRouterModel
         summaryModel = (try? c.decode(String.self, forKey: .summaryModel)) ?? defaults.summaryModel
         meetingSummaryModel = (try? c.decode(String.self, forKey: .meetingSummaryModel)) ?? defaults.meetingSummaryModel
+        customWords = (try? c.decode([CustomWord].self, forKey: .customWords)) ?? defaults.customWords
     }
 }
 

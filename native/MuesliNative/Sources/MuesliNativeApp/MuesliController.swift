@@ -222,6 +222,14 @@ final class MuesliController: NSObject {
         }
     }
 
+    func addCustomWord(_ word: CustomWord) {
+        updateConfig { $0.customWords.append(word) }
+    }
+
+    func removeCustomWord(id: UUID) {
+        updateConfig { $0.customWords.removeAll { $0.id == id } }
+    }
+
     func updateDictationHotkey(_ hotkey: HotkeyConfig) {
         updateConfig { $0.dictationHotkey = hotkey }
         hotkeyMonitor.configure(keyCode: hotkey.keyCode)
@@ -478,7 +486,8 @@ final class MuesliController: NSObject {
             do {
                 let result = try await self.transcriptionCoordinator.transcribeDictation(
                     at: wavURL,
-                    backend: self.selectedBackend
+                    backend: self.selectedBackend,
+                    customWords: self.serializedCustomWords()
                 )
                 let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else {
@@ -513,6 +522,16 @@ final class MuesliController: NSObject {
         fputs("[muesli-native] meeting soon: \(event.title)\n", stderr)
         if config.autoRecordMeetings, !isMeetingRecording() {
             startMeetingRecording(title: event.title)
+        }
+    }
+
+    func serializedCustomWords() -> [[String: Any]] {
+        config.customWords.map { word in
+            var dict: [String: Any] = ["word": word.word]
+            if let replacement = word.replacement {
+                dict["replacement"] = replacement
+            }
+            return dict
         }
     }
 }

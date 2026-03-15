@@ -9,17 +9,17 @@ extension PythonWorkerClient {
         }
     }
 
-    func transcribeFileAsync(wavURL: URL, option: BackendOption) async throws -> [String: Any] {
+    func transcribeFileAsync(wavURL: URL, option: BackendOption, customWords: [[String: Any]] = []) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
-            transcribeFile(wavURL: wavURL, option: option) { result in
+            transcribeFile(wavURL: wavURL, option: option, customWords: customWords) { result in
                 continuation.resume(with: result)
             }
         }
     }
 
-    func transcribeMeetingChunkAsync(wavURL: URL, option: BackendOption) async throws -> [String: Any] {
+    func transcribeMeetingChunkAsync(wavURL: URL, option: BackendOption, customWords: [[String: Any]] = []) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
-            transcribeMeetingChunk(wavURL: wavURL, option: option) { result in
+            transcribeMeetingChunk(wavURL: wavURL, option: option, customWords: customWords) { result in
                 continuation.resume(with: result)
             }
         }

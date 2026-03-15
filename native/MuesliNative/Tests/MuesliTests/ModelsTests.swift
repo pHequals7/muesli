@@ -91,7 +91,7 @@ struct AppConfigTests {
         #expect(config.openRouterAPIKey.isEmpty)
         #expect(config.openAIModel.isEmpty)
         #expect(config.openRouterModel.isEmpty)
-        #expect(config.hotkey == "left_command_hold")
+        #expect(config.dictationHotkey == .default)
         #expect(config.showFloatingIndicator == true)
         #expect(config.autoRecordMeetings == false)
     }

@@ -28,18 +28,18 @@ actor TranscriptionCoordinator {
         }
     }
 
-    func transcribeDictation(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
-        let payload = try await workerClient.transcribeFileAsync(wavURL: url, option: backend)
+    func transcribeDictation(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+        let payload = try await workerClient.transcribeFileAsync(wavURL: url, option: backend, customWords: customWords)
         return mapResult(payload)
     }
 
-    func transcribeMeeting(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
-        let payload = try await workerClient.transcribeFileAsync(wavURL: url, option: backend)
+    func transcribeMeeting(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+        let payload = try await workerClient.transcribeFileAsync(wavURL: url, option: backend, customWords: customWords)
         return mapResult(payload)
     }
 
-    func transcribeMeetingChunk(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
-        let payload = try await workerClient.transcribeMeetingChunkAsync(wavURL: url, option: backend)
+    func transcribeMeetingChunk(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+        let payload = try await workerClient.transcribeMeetingChunkAsync(wavURL: url, option: backend, customWords: customWords)
         let isSilent = payload["is_silent"] as? Bool ?? false
         if isSilent {
             return SpeechTranscriptionResult(text: "", segments: [])

@@ -51,6 +51,16 @@ final class MeetingSession {
         self.transcriptionCoordinator = transcriptionCoordinator
     }
 
+    private var serializedCustomWords: [[String: Any]] {
+        config.customWords.map { word in
+            var dict: [String: Any] = ["word": word.word]
+            if let replacement = word.replacement {
+                dict["replacement"] = replacement
+            }
+            return dict
+        }
+    }
+
     func start() throws {
         try micRecorder.prepare()
         try micRecorder.start()
@@ -92,7 +102,7 @@ final class MeetingSession {
             let chunkOffset = lastChunkStart.timeIntervalSince(meetingStart)
             fputs("[meeting] transcribing final mic chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
             do {
-                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastMicURL, backend: backend)
+                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastMicURL, backend: backend, customWords: serializedCustomWords)
                 if !result.text.isEmpty {
                     accumulatedMicSegments.append(SpeechSegment(start: chunkOffset, end: chunkOffset, text: result.text))
                 }
@@ -106,7 +116,7 @@ final class MeetingSession {
         let systemResult: SpeechTranscriptionResult
         if let systemAudioURL {
             fputs("[meeting] transcribing system audio (batch)\n", stderr)
-            systemResult = try await transcriptionCoordinator.transcribeMeeting(at: systemAudioURL, backend: backend)
+            systemResult = try await transcriptionCoordinator.transcribeMeeting(at: systemAudioURL, backend: backend, customWords: serializedCustomWords)
             try? FileManager.default.removeItem(at: systemAudioURL)
         } else {
             systemResult = SpeechTranscriptionResult(text: "", segments: [])
@@ -180,7 +190,7 @@ final class MeetingSession {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend)
+                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend, customWords: self.serializedCustomWords)
                 if !result.text.isEmpty {
                     self.accumulatedMicSegments.append(SpeechSegment(start: chunkOffset, end: chunkOffset, text: result.text))
                     fputs("[meeting] chunk transcribed: \"\(String(result.text.prefix(60)))...\"\n", stderr)

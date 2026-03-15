@@ -80,25 +80,27 @@ final class PythonWorkerClient {
         )
     }
 
-    func transcribeFile(wavURL: URL, option: BackendOption, completion: @escaping ResponseCompletion) {
+    func transcribeFile(wavURL: URL, option: BackendOption, customWords: [[String: Any]] = [], completion: @escaping ResponseCompletion) {
         send(
             method: "transcribe_file",
             params: [
                 "wav_path": wavURL.path,
                 "backend": option.backend,
                 "model": option.model,
+                "custom_words": customWords,
             ],
             completion: completion
         )
     }
 
-    func transcribeMeetingChunk(wavURL: URL, option: BackendOption, completion: @escaping ResponseCompletion) {
+    func transcribeMeetingChunk(wavURL: URL, option: BackendOption, customWords: [[String: Any]] = [], completion: @escaping ResponseCompletion) {
         send(
             method: "transcribe_meeting_chunk",
             params: [
                 "wav_path": wavURL.path,
                 "backend": option.backend,
                 "model": option.model,
+                "custom_words": customWords,
             ],
             completion: completion
         )

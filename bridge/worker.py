@@ -86,6 +86,61 @@ class SpeechWorker:
             "model": self._backend_model,
         }
 
+    def _apply_custom_words(self, text: str, custom_words: list[dict]) -> str:
+        if not custom_words or not text:
+            return text
+
+        try:
+            from jellyfish import metaphone, jaro_winkler_similarity
+        except ImportError:
+            return text
+
+        words = text.split()
+        result = []
+
+        for word in words:
+            # Strip trailing punctuation for matching
+            stripped = word.rstrip(".,!?;:")
+            trailing = word[len(stripped):]
+            word_lower = stripped.lower()
+
+            best_match = None
+            best_score = 0.0
+
+            for entry in custom_words:
+                target = entry.get("word", "")
+                replacement = entry.get("replacement") or target
+                target_lower = target.lower()
+
+                # Exact match (case-insensitive)
+                if word_lower == target_lower:
+                    best_match = replacement
+                    break
+
+                # Stage 1: Phonetic pre-filter
+                try:
+                    if metaphone(word_lower) == metaphone(target_lower):
+                        best_match = replacement
+                        break
+                except Exception:
+                    pass
+
+                # Stage 2: Jaro-Winkler similarity
+                try:
+                    score = jaro_winkler_similarity(word_lower, target_lower)
+                    if score > 0.85 and score > best_score:
+                        best_score = score
+                        best_match = replacement
+                except Exception:
+                    pass
+
+            if best_match:
+                result.append(best_match + trailing)
+            else:
+                result.append(word)
+
+        return " ".join(result)
+
     def transcribe_file(self, params: dict) -> dict:
         wav_path = params.get("wav_path")
         if not wav_path:
@@ -93,6 +148,8 @@ class SpeechWorker:
         self._ensure_loaded(params.get("backend"), params.get("model"))
         audio = self._load_audio(wav_path)
         text = self._backend.transcribe(audio).strip()
+        custom_words = params.get("custom_words", [])
+        text = self._apply_custom_words(text, custom_words)
         return {
             "text": text,
             "backend": self._backend_name,
@@ -124,6 +181,8 @@ class SpeechWorker:
             }
 
         text = self._backend.transcribe(audio).strip()
+        custom_words = params.get("custom_words", [])
+        text = self._apply_custom_words(text, custom_words)
         return {
             "text": text,
             "is_silent": False,

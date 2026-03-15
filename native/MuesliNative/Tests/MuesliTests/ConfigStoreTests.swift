@@ -9,7 +9,8 @@ struct ConfigStoreTests {
     func loadReturnsConfig() {
         let store = ConfigStore()
         let config = store.load()
-        #expect(config.hotkey == "left_command_hold")
+        // Hotkey may have been customized by user — just verify it loaded
+        #expect(HotkeyConfig.label(for: config.dictationHotkey.keyCode) != nil)
         #expect(!config.sttBackend.isEmpty)
     }
 
