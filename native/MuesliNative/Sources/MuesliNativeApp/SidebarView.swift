@@ -2,16 +2,25 @@ import SwiftUI
 
 struct SidebarView: View {
     @Binding var selectedTab: DashboardTab
+    var userName: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
-            HStack(spacing: MuesliTheme.spacing12) {
-                MWaveformIcon(barCount: 9, spacing: 2)
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(MuesliTheme.accent)
-                Text("Muesli")
-                    .font(MuesliTheme.title2())
-                    .foregroundStyle(MuesliTheme.textPrimary)
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+                HStack(spacing: MuesliTheme.spacing12) {
+                    MWaveformIcon(barCount: 9, spacing: 2)
+                        .frame(width: 22, height: 22)
+                        .foregroundStyle(MuesliTheme.accent)
+                    Text("Muesli")
+                        .font(MuesliTheme.title2())
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                }
+                if !userName.isEmpty {
+                    Text("Hi, \(userName)")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .padding(.leading, 34)  // align with text after icon (22 + 12 spacing)
+                }
             }
             .padding(.horizontal, MuesliTheme.spacing16)
             .padding(.top, MuesliTheme.spacing24)

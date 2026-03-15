@@ -190,6 +190,61 @@ class SpeechWorker:
             "model": self._backend_model,
         }
 
+    def download_model(self, params: dict) -> dict:
+        """Download model with file-level progress reporting."""
+        backend_name, model_repo = self._resolve_backend(params.get("backend"), params.get("model"))
+        request_id = params.get("_request_id")
+
+        try:
+            from huggingface_hub import hf_hub_download, model_info, try_to_load_from_cache
+        except ImportError:
+            # No huggingface_hub, fall back to regular load (will download without progress)
+            self._ensure_loaded(params.get("backend"), params.get("model"))
+            return {"backend": self._backend_name, "model": self._backend_model, "already_cached": True}
+
+        try:
+            info = model_info(model_repo)
+        except Exception:
+            # Offline or API error, fall back to regular load
+            self._ensure_loaded(params.get("backend"), params.get("model"))
+            return {"backend": self._backend_name, "model": self._backend_model, "already_cached": True}
+
+        files = [f for f in info.siblings if f.size and f.size > 0]
+        total_size = sum(f.size for f in files)
+
+        # Check if fully cached
+        all_cached = all(
+            try_to_load_from_cache(model_repo, f.rfilename) is not None
+            for f in files
+        )
+        if all_cached:
+            self._ensure_loaded(params.get("backend"), params.get("model"))
+            return {"backend": self._backend_name, "model": self._backend_model, "already_cached": True}
+
+        # Download files one by one with progress
+        downloaded_size = 0
+        for f in files:
+            cached = try_to_load_from_cache(model_repo, f.rfilename)
+            if cached is not None:
+                downloaded_size += f.size
+                continue
+
+            if request_id and total_size > 0:
+                _write_progress(request_id, downloaded_size / total_size, f.rfilename)
+
+            hf_hub_download(model_repo, f.rfilename)
+            downloaded_size += f.size
+
+            if request_id and total_size > 0:
+                _write_progress(request_id, downloaded_size / total_size)
+
+        # Load the backend after download
+        if request_id:
+            _write_progress(request_id, 1.0, "Loading model...")
+
+        self._ensure_loaded(params.get("backend"), params.get("model"))
+        return {"backend": self._backend_name, "model": self._backend_model, "already_cached": False}
+
     def shutdown(self, _params: dict) -> dict:
         self._backend = None
         self._backend_name = None
@@ -199,6 +254,14 @@ class SpeechWorker:
 
 def _write_response(payload: dict):
     sys.stdout.write(json.dumps(payload) + "\n")
+    sys.stdout.flush()
+
+
+def _write_progress(request_id: str, fraction: float, status: str | None = None):
+    msg: dict = {"id": request_id, "progress": fraction}
+    if status:
+        msg["status"] = status
+    sys.stdout.write(json.dumps(msg) + "\n")
     sys.stdout.flush()
 
 
@@ -214,6 +277,9 @@ def _handle_message(worker: SpeechWorker, message: dict) -> tuple[dict, bool]:
 
     if not hasattr(worker, method):
         raise WorkerError("UNKNOWN_METHOD", f"Unknown method: {method}")
+
+    # Inject request ID so methods can send progress updates
+    params["_request_id"] = request_id
 
     handler = getattr(worker, method)
     result = handler(params)

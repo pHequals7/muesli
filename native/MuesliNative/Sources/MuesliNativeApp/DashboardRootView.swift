@@ -6,10 +6,13 @@ struct DashboardRootView: View {
 
     var body: some View {
         NavigationSplitView {
-            SidebarView(selectedTab: Binding(
-                get: { appState.selectedTab },
-                set: { appState.selectedTab = $0 }
-            ))
+            SidebarView(
+                selectedTab: Binding(
+                    get: { appState.selectedTab },
+                    set: { appState.selectedTab = $0 }
+                ),
+                userName: appState.config.userName
+            )
             .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 300)
         } detail: {
             Group {

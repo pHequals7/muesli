@@ -19,6 +19,7 @@ final class MuesliController: NSObject {
     private var statusBarController: StatusBarController?
     private var historyWindowController: RecentHistoryWindowController?
     private var preferencesWindowController: PreferencesWindowController?
+    private var onboardingWindowController: OnboardingWindowController?
 
     let appState = AppState()
 
@@ -133,7 +134,9 @@ final class MuesliController: NSObject {
             }
         }
 
-        if config.openDashboardOnLaunch {
+        if !config.hasCompletedOnboarding {
+            showOnboarding()
+        } else if config.openDashboardOnLaunch {
             openHistoryWindow()
         }
     }
@@ -262,6 +265,46 @@ final class MuesliController: NSObject {
     func updateDictationHotkey(_ hotkey: HotkeyConfig) {
         updateConfig { $0.dictationHotkey = hotkey }
         hotkeyMonitor.configure(keyCode: hotkey.keyCode)
+    }
+
+    // MARK: - Onboarding
+
+    func showOnboarding() {
+        let wc = OnboardingWindowController(controller: self)
+        self.onboardingWindowController = wc
+        wc.show()
+    }
+
+    func downloadModelForOnboarding(_ backend: BackendOption, progress: @escaping (Double, String?) -> Void) async throws -> Bool {
+        let result = try await workerClient.downloadModelAsync(option: backend, progress: progress)
+        let alreadyCached = result["already_cached"] as? Bool ?? false
+        await transcriptionCoordinator.preload(backend: backend)
+        return alreadyCached
+    }
+
+    func completeOnboarding(userName: String, backend: BackendOption, hotkey: HotkeyConfig, summaryBackend: MeetingSummaryBackendOption?, apiKey: String?) {
+        updateConfig { config in
+            config.hasCompletedOnboarding = true
+            config.userName = userName
+            config.sttBackend = backend.backend
+            config.sttModel = backend.model
+            config.dictationHotkey = hotkey
+            if let summaryBackend {
+                config.meetingSummaryBackend = summaryBackend.backend
+            }
+            if let apiKey, !apiKey.isEmpty {
+                if summaryBackend == .openAI {
+                    config.openAIAPIKey = apiKey
+                } else {
+                    config.openRouterAPIKey = apiKey
+                }
+            }
+        }
+        selectBackend(backend)
+        hotkeyMonitor.configure(keyCode: hotkey.keyCode)
+        onboardingWindowController?.close()
+        onboardingWindowController = nil
+        openHistoryWindow()
     }
 
     @objc func openHistoryWindow() {

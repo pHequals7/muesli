@@ -120,6 +120,8 @@ struct AppConfig: Codable {
     var openRouterModel: String = ""
     var summaryModel: String = ""
     var meetingSummaryModel: String = ""
+    var hasCompletedOnboarding: Bool = false
+    var userName: String = ""
     var customWords: [CustomWord] = []
 
     enum CodingKeys: String, CodingKey {
@@ -144,6 +146,8 @@ struct AppConfig: Codable {
         case openRouterModel = "openrouter_model"
         case summaryModel = "summary_model"
         case meetingSummaryModel = "meeting_summary_model"
+        case hasCompletedOnboarding = "has_completed_onboarding"
+        case userName = "user_name"
         case customWords = "custom_words"
     }
 
@@ -173,6 +177,8 @@ struct AppConfig: Codable {
         openRouterModel = (try? c.decode(String.self, forKey: .openRouterModel)) ?? defaults.openRouterModel
         summaryModel = (try? c.decode(String.self, forKey: .summaryModel)) ?? defaults.summaryModel
         meetingSummaryModel = (try? c.decode(String.self, forKey: .meetingSummaryModel)) ?? defaults.meetingSummaryModel
+        hasCompletedOnboarding = (try? c.decode(Bool.self, forKey: .hasCompletedOnboarding)) ?? defaults.hasCompletedOnboarding
+        userName = (try? c.decode(String.self, forKey: .userName)) ?? defaults.userName
         customWords = (try? c.decode([CustomWord].self, forKey: .customWords)) ?? defaults.customWords
     }
 }

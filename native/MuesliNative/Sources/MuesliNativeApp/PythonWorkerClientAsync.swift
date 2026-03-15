@@ -24,4 +24,12 @@ extension PythonWorkerClient {
             }
         }
     }
+
+    func downloadModelAsync(option: BackendOption, progress: @escaping PythonWorkerClient.ProgressHandler) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
+            downloadModel(option: option, progress: progress) { result in
+                continuation.resume(with: result)
+            }
+        }
+    }
 }

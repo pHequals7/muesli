@@ -2,6 +2,7 @@ import Foundation
 
 final class PythonWorkerClient {
     typealias ResponseCompletion = (Result<[String: Any], Error>) -> Void
+    typealias ProgressHandler = (Double, String?) -> Void
 
     private let runtime: RuntimePaths
     private let ioQueue = DispatchQueue(label: "com.muesli.worker")
@@ -10,6 +11,7 @@ final class PythonWorkerClient {
     private var outputHandle: FileHandle?
     private var outputBuffer = Data()
     private var pending: [String: ResponseCompletion] = [:]
+    private var progressHandlers: [String: ProgressHandler] = [:]
 
     init(runtime: RuntimePaths) {
         self.runtime = runtime
@@ -106,6 +108,43 @@ final class PythonWorkerClient {
         )
     }
 
+    func downloadModel(option: BackendOption, progress: @escaping ProgressHandler, completion: @escaping ResponseCompletion) {
+        sendWithProgress(
+            method: "download_model",
+            params: ["backend": option.backend, "model": option.model],
+            progress: progress,
+            completion: completion
+        )
+    }
+
+    private func sendWithProgress(method: String, params: [String: Any], progress: @escaping ProgressHandler, completion: @escaping ResponseCompletion) {
+        ioQueue.async {
+            do {
+                try self.start()
+                let requestID = UUID().uuidString
+                let payload: [String: Any] = [
+                    "id": requestID,
+                    "method": method,
+                    "params": params,
+                ]
+                let data = try JSONSerialization.data(withJSONObject: payload)
+                guard let handle = self.inputHandle else {
+                    throw NSError(domain: "MuesliWorker", code: 1, userInfo: [
+                        NSLocalizedDescriptionKey: "Worker stdin is not available.",
+                    ])
+                }
+                self.pending[requestID] = completion
+                self.progressHandlers[requestID] = progress
+                handle.write(data)
+                handle.write("\n".data(using: .utf8)!)
+            } catch {
+                DispatchQueue.main.async {
+                    completion(.failure(error))
+                }
+            }
+        }
+    }
+
     private func send(method: String, params: [String: Any], completion: @escaping ResponseCompletion) {
         ioQueue.async {
             do {
@@ -144,7 +183,19 @@ final class PythonWorkerClient {
                 do {
                     let object = try JSONSerialization.jsonObject(with: Data(lineData)) as? [String: Any]
                     let requestID = object?["id"] as? String ?? ""
+
+                    // Handle progress messages without consuming the completion
+                    if let progress = object?["progress"] as? Double {
+                        let status = object?["status"] as? String
+                        let handler = self.progressHandlers[requestID]
+                        DispatchQueue.main.async {
+                            handler?(progress, status)
+                        }
+                        continue
+                    }
+
                     let completion = self.pending.removeValue(forKey: requestID)
+                    self.progressHandlers.removeValue(forKey: requestID)
                     if let ok = object?["ok"] as? Bool, ok, let result = object?["result"] as? [String: Any] {
                         DispatchQueue.main.async {
                             completion?(.success(result))

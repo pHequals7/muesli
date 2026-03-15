@@ -240,14 +240,37 @@ struct SettingsView: View {
 
 // MARK: - Pastable Secure Field (NSViewRepresentable)
 
+/// NSSecureTextField subclass that handles Cmd+V/C/X/A without needing a standard Edit menu.
+/// Required because the app runs as .accessory (no menu bar), so key equivalents
+/// don't route to text fields by default.
+class EditableNSSecureTextField: NSSecureTextField {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command) {
+            switch event.charactersIgnoringModifiers {
+            case "v":
+                if NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: self) { return true }
+            case "c":
+                if NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: self) { return true }
+            case "x":
+                if NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: self) { return true }
+            case "a":
+                if NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: self) { return true }
+            default:
+                break
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 /// A text field that supports Cmd+V paste and masks the value when not focused.
-private struct PastableSecureField: NSViewRepresentable {
+struct PastableSecureField: NSViewRepresentable {
     let text: String
     let placeholder: String
     let onChange: (String) -> Void
 
-    func makeNSView(context: Context) -> NSSecureTextField {
-        let field = NSSecureTextField()
+    func makeNSView(context: Context) -> EditableNSSecureTextField {
+        let field = EditableNSSecureTextField()
         field.placeholderString = placeholder
         field.font = .systemFont(ofSize: 13)
         field.isBordered = true
@@ -258,7 +281,7 @@ private struct PastableSecureField: NSViewRepresentable {
         return field
     }
 
-    func updateNSView(_ nsView: NSSecureTextField, context: Context) {
+    func updateNSView(_ nsView: EditableNSSecureTextField, context: Context) {
         if nsView.stringValue != text {
             nsView.stringValue = text
         }
