@@ -69,6 +69,14 @@ for dylib in "$BASE_PREFIX"/lib/libpython*.dylib; do
     fi
 done
 
+# Copy SSL libraries (needed by _ssl extension for HTTPS model downloads)
+for lib in "$BASE_PREFIX"/lib/libssl*.dylib "$BASE_PREFIX"/lib/libcrypto*.dylib; do
+    if [[ -f "$lib" ]]; then
+        echo "  Copying $(basename "$lib")"
+        cp "$lib" "$OUTPUT/lib/"
+    fi
+done
+
 # ---------------------------------------------------------------------------
 # 2. Copy standard library (minimal — .py + lib-dynload .so, skip tests)
 # ---------------------------------------------------------------------------
@@ -132,6 +140,12 @@ ESSENTIAL_PACKAGES=(
     tiktoken
     tiktoken_ext
     huggingface_hub
+    httpx
+    httpcore
+    h11
+    anyio
+    idna
+    charset_normalizer
     tqdm
     more_itertools
     regex
@@ -179,6 +193,7 @@ DIST_INFO_PREFIXES=(
     numpy
     tiktoken
     huggingface_hub
+    httpx httpcore h11 anyio idna charset_normalizer
     tqdm
     more_itertools
     regex
@@ -203,6 +218,41 @@ for prefix in "${DIST_INFO_PREFIXES[@]}"; do
         fi
     done
 done
+
+# ---------------------------------------------------------------------------
+# 3b. Patch mlx_whisper/timing.py to make numba/scipy optional
+# ---------------------------------------------------------------------------
+TIMING_FILE="$SITE_DST/mlx_whisper/timing.py"
+if [[ -f "$TIMING_FILE" ]]; then
+    echo "  Patching timing.py (numba/scipy optional)..."
+    "$PYTHON_BIN" -c "
+path = '$TIMING_FILE'
+with open(path) as f:
+    content = f.read()
+content = content.replace(
+    'import numba\nimport numpy as np\nfrom scipy import signal',
+    '''import numpy as np
+try:
+    import numba
+except ImportError:
+    class _NumbaStub:
+        @staticmethod
+        def jit(*args, **kwargs):
+            def decorator(fn):
+                return fn
+            if args and callable(args[0]):
+                return args[0]
+            return decorator
+    numba = _NumbaStub()
+try:
+    from scipy import signal
+except ImportError:
+    signal = None'''
+)
+with open(path, 'w') as f:
+    f.write(content)
+"
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Clean up: strip .pyc, __pycache__, test dirs
