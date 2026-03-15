@@ -7,6 +7,7 @@ enum DashboardTab: String, CaseIterable {
     case dictionary
     case shortcuts
     case settings
+    case about
 }
 
 @MainActor

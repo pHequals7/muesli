@@ -24,6 +24,8 @@ struct DashboardRootView: View {
                     ShortcutsView(appState: appState, controller: controller)
                 case .settings:
                     SettingsView(appState: appState, controller: controller)
+                case .about:
+                    AboutView(controller: controller)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

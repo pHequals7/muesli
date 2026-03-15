@@ -48,6 +48,12 @@ struct SidebarView: View {
                 icon: "gearshape",
                 label: "Settings"
             )
+
+            sidebarItem(
+                tab: .about,
+                icon: "info.circle",
+                label: "About"
+            )
             .padding(.bottom, MuesliTheme.spacing16)
         }
         .frame(maxHeight: .infinity)
