@@ -12,8 +12,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
     private static let sampleRate: Double = 16_000
     private static let channels: Int = 1
 
-    /// Kept for API compat — no longer used
-    init(toolURL: URL?) {
+    override init() {
         super.init()
     }
 

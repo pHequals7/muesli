@@ -19,7 +19,7 @@ final class MeetingSession {
     private let runtime: RuntimePaths
     private let config: AppConfig
     private let transcriptionCoordinator: TranscriptionCoordinator
-    private let systemAudioRecorder = SystemAudioRecorder(toolURL: nil)
+    private let systemAudioRecorder = SystemAudioRecorder()
 
     /// Current mic recorder (rotated every chunk interval)
     private var micRecorder = MicrophoneRecorder()

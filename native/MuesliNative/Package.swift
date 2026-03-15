@@ -8,7 +8,6 @@ let package = Package(
     ],
     products: [
         .executable(name: "MuesliNativeApp", targets: ["MuesliNativeApp"]),
-        .executable(name: "MuesliSystemAudio", targets: ["MuesliSystemAudio"]),
     ],
     targets: [
         .executableTarget(
@@ -20,10 +19,6 @@ let package = Package(
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
             ]
-        ),
-        .executableTarget(
-            name: "MuesliSystemAudio",
-            path: "Sources/MuesliSystemAudio"
         ),
         .testTarget(
             name: "MuesliTests",

@@ -8,7 +8,6 @@ INSTALL_DIR="${MUESLI_INSTALL_DIR:-/Applications}"
 BUILD_CONFIG="${1:-release}"
 PYTHON_BIN="$ROOT/.venv/bin/python"
 APP_BINARY="MuesliNativeApp"
-SYSTEM_AUDIO_BINARY="MuesliSystemAudio"
 APP_NAME="${MUESLI_APP_NAME:-Muesli}"
 APP_DISPLAY_NAME="${MUESLI_DISPLAY_NAME:-$APP_NAME}"
 APP_BUNDLE_NAME="${MUESLI_APP_BUNDLE_NAME:-$APP_NAME.app}"
@@ -38,10 +37,8 @@ if [[ $status -ne 0 ]]; then
   exit $status
 fi
 
-swift build --package-path "$PACKAGE_DIR" -c "$BUILD_CONFIG" --product "$SYSTEM_AUDIO_BINARY"
 BIN_DIR="$(swift build --package-path "$PACKAGE_DIR" -c "$BUILD_CONFIG" --show-bin-path)"
 APP_BIN="$BIN_DIR/$APP_BINARY"
-SYSTEM_AUDIO_BIN="$BIN_DIR/$SYSTEM_AUDIO_BINARY"
 
 rm -rf "$STAGED_APP_DIR"
 mkdir -p "$STAGED_APP_DIR/Contents/MacOS" "$STAGED_APP_DIR/Contents/Resources"
@@ -54,8 +51,6 @@ cp "$ROOT/assets/muesli.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
 if [[ -d "$ROOT/assets/fonts" ]]; then
   ditto "$ROOT/assets/fonts" "$STAGED_APP_DIR/Contents/Resources/fonts"
 fi
-cp "$SYSTEM_AUDIO_BIN" "$STAGED_APP_DIR/Contents/Resources/MuesliSystemAudio"
-chmod +x "$STAGED_APP_DIR/Contents/Resources/MuesliSystemAudio"
 
 if [[ -f "$ROOT/bridge/worker.py" ]]; then
   cp "$ROOT/bridge/worker.py" "$STAGED_APP_DIR/Contents/Resources/worker.py"
@@ -147,9 +142,8 @@ if ! security find-identity -v -p codesigning | grep -Fq "$SIGN_IDENTITY"; then
   exit 1
 fi
 
-# Sign nested binaries first, then the outer app
-codesign --force --sign "$SIGN_IDENTITY" "$APP_DIR/Contents/Resources/MuesliSystemAudio"
-codesign --force --deep --sign "$SIGN_IDENTITY" "$APP_DIR"
+# Sign with hardened runtime and secure timestamp for notarization
+codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR"
 
 rm -rf "$STAGED_APP_DIR"
 
