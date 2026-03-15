@@ -69,6 +69,7 @@ final class MuesliController: NSObject {
             fputs("[muesli-native] worker start failed: \(error)\n", stderr)
         }
 
+        hotkeyMonitor.targetKeyCode = config.dictationHotkey.keyCode
         hotkeyMonitor.onPrepare = { [weak self] in self?.handlePrepare() }
         hotkeyMonitor.onStart = { [weak self] in self?.handleStart() }
         hotkeyMonitor.onStop = { [weak self] in self?.handleStop() }
@@ -219,6 +220,11 @@ final class MuesliController: NSObject {
         updateConfig {
             $0.meetingSummaryBackend = option.backend
         }
+    }
+
+    func updateDictationHotkey(_ hotkey: HotkeyConfig) {
+        updateConfig { $0.dictationHotkey = hotkey }
+        hotkeyMonitor.configure(keyCode: hotkey.keyCode)
     }
 
     @objc func openHistoryWindow() {

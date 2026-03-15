@@ -59,8 +59,30 @@ struct MeetingSummaryBackendOption: Equatable {
     static let all: [MeetingSummaryBackendOption] = [.openAI, .openRouter]
 }
 
+struct HotkeyConfig: Codable, Equatable {
+    var keyCode: UInt16 = 55
+    var label: String = "Left Cmd"
+
+    static func label(for keyCode: UInt16) -> String? {
+        switch keyCode {
+        case 55: return "Left Cmd"
+        case 54: return "Right Cmd"
+        case 63: return "Fn"
+        case 59: return "Left Ctrl"
+        case 62: return "Right Ctrl"
+        case 58: return "Left Option"
+        case 61: return "Right Option"
+        case 56: return "Left Shift"
+        case 60: return "Right Shift"
+        default: return nil
+        }
+    }
+
+    static let `default` = HotkeyConfig()
+}
+
 struct AppConfig: Codable {
-    var hotkey: String = "left_command_hold"
+    var dictationHotkey: HotkeyConfig = .default
     var sttBackend: String = BackendOption.whisper.backend
     var sttModel: String = BackendOption.whisper.model
     var meetingSummaryBackend: String = MeetingSummaryBackendOption.openAI.backend
@@ -80,7 +102,7 @@ struct AppConfig: Codable {
     var meetingSummaryModel: String = ""
 
     enum CodingKeys: String, CodingKey {
-        case hotkey
+        case dictationHotkey = "dictation_hotkey"
         case sttBackend = "stt_backend"
         case sttModel = "stt_model"
         case meetingSummaryBackend = "meeting_summary_backend"
@@ -105,7 +127,7 @@ struct AppConfig: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = AppConfig()
-        hotkey = (try? c.decode(String.self, forKey: .hotkey)) ?? defaults.hotkey
+        dictationHotkey = (try? c.decode(HotkeyConfig.self, forKey: .dictationHotkey)) ?? defaults.dictationHotkey
         sttBackend = (try? c.decode(String.self, forKey: .sttBackend)) ?? defaults.sttBackend
         sttModel = (try? c.decode(String.self, forKey: .sttModel)) ?? defaults.sttModel
         meetingSummaryBackend = (try? c.decode(String.self, forKey: .meetingSummaryBackend)) ?? defaults.meetingSummaryBackend

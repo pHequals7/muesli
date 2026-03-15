@@ -4,6 +4,7 @@ import Observation
 enum DashboardTab: String, CaseIterable {
     case dictations
     case meetings
+    case shortcuts
     case settings
 }
 

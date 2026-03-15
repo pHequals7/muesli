@@ -29,6 +29,12 @@ struct SidebarView: View {
                 label: "Meetings"
             )
 
+            sidebarItem(
+                tab: .shortcuts,
+                icon: "keyboard",
+                label: "Shortcuts"
+            )
+
             Spacer()
 
             sidebarItem(
