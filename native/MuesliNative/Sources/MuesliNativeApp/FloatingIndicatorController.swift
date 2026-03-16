@@ -259,9 +259,9 @@ final class FloatingIndicatorController {
                     iconLabel.isHidden = false
                     iconLabel.animator().alphaValue = 1
                     iconLabel.stringValue = "\u{2715}"  // ✕
-                    iconLabel.textColor = .white.withAlphaComponent(0.5)
-                    iconLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-                    iconLabel.frame = NSRect(x: 8, y: (targetFrame.height - 18) / 2, width: 20, height: 18)
+                    iconLabel.textColor = .white.withAlphaComponent(0.45)
+                    iconLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+                    iconLabel.frame = NSRect(x: 8, y: (targetFrame.height - 16) / 2, width: 16, height: 16)
 
                     textLabel.animator().alphaValue = 0
                     textLabel.isHidden = true
@@ -345,33 +345,19 @@ final class FloatingIndicatorController {
         removeStopLayer()
         guard let contentView else { return }
 
-        // Red circle background
-        let circleSize: CGFloat = 20
-        let circle = CALayer()
-        circle.frame = CGRect(
-            x: size.width - circleSize - 8,
-            y: (size.height - circleSize) / 2,
-            width: circleSize,
-            height: circleSize
+        let sq: CGFloat = 10
+        let stop = CALayer()
+        stop.frame = CGRect(
+            x: size.width - sq - 10,
+            y: (size.height - sq) / 2,
+            width: sq,
+            height: sq
         )
-        circle.cornerRadius = circleSize / 2
-        circle.backgroundColor = NSColor.white.withAlphaComponent(0.9).cgColor
+        stop.cornerRadius = 2
+        stop.backgroundColor = NSColor.white.withAlphaComponent(0.85).cgColor
 
-        // White square inside
-        let squareSize: CGFloat = 8
-        let square = CALayer()
-        square.frame = CGRect(
-            x: (circleSize - squareSize) / 2,
-            y: (circleSize - squareSize) / 2,
-            width: squareSize,
-            height: squareSize
-        )
-        square.cornerRadius = 1.5
-        square.backgroundColor = NSColor(red: 0.83, green: 0.18, blue: 0.18, alpha: 1.0).cgColor
-        circle.addSublayer(square)
-
-        contentView.layer?.addSublayer(circle)
-        stopLayer = circle
+        contentView.layer?.addSublayer(stop)
+        stopLayer = stop
     }
 
     private func removeStopLayer() {
