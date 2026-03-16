@@ -510,7 +510,7 @@ final class FloatingIndicatorController {
             if isMeetingRecording {
                 size = NSSize(width: 72, height: 32)
             } else if isToggleDictation {
-                size = NSSize(width: 88, height: 32)
+                size = NSSize(width: 76, height: 22)
             } else {
                 size = NSSize(width: 80, height: 32)
             }
