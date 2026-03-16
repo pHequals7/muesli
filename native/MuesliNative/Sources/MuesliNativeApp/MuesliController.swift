@@ -7,7 +7,7 @@ final class MuesliController: NSObject {
     private let runtime: RuntimePaths
     private let configStore = ConfigStore()
     private let dictationStore = DictationStore()
-    private let transcriptionCoordinator = TranscriptionCoordinator()
+    let transcriptionCoordinator = TranscriptionCoordinator()
     private let hotkeyMonitor = HotkeyMonitor()
     private let recorder = MicrophoneRecorder()
     private let indicator: FloatingIndicatorController

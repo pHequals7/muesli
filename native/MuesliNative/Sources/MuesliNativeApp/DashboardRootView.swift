@@ -23,6 +23,8 @@ struct DashboardRootView: View {
                     MeetingsView(appState: appState, controller: controller)
                 case .dictionary:
                     DictionaryView(appState: appState, controller: controller)
+                case .models:
+                    ModelsView(appState: appState, controller: controller)
                 case .shortcuts:
                     ShortcutsView(appState: appState, controller: controller)
                 case .settings:

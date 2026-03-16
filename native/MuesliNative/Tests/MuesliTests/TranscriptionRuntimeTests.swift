@@ -49,7 +49,7 @@ struct TranscriptionCoordinatorTests {
     @Test("backend routing covers all known backends")
     func allBackendsCovered() {
         let backends = Set(BackendOption.all.map(\.backend))
-        let expected: Set<String> = ["fluidaudio", "whisper", "nemotron"]
+        let expected: Set<String> = ["fluidaudio", "whisper"]
         #expect(backends == expected, "BackendOption.all backends should match expected set")
     }
 }

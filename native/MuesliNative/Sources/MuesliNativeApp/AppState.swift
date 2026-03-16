@@ -5,6 +5,7 @@ enum DashboardTab: String, CaseIterable {
     case dictations
     case meetings
     case dictionary
+    case models
     case shortcuts
     case settings
     case about

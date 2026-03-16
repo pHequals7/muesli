@@ -3,13 +3,12 @@ import Accelerate
 import Foundation
 
 /// Native RNNT streaming ASR backend for NVIDIA Nemotron Speech 0.6B.
-/// Runs entirely on Apple Neural Engine via CoreML. No FluidAudio dependency.
+/// Runs entirely on Apple Neural Engine via CoreML.
 ///
-/// Pipeline: audio → preprocessor → mel → encoder (with cache) → decoder + joint → tokens
+/// Pipeline: audio → preprocessor(mel) → encoder(with cache) → decoder+joint(RNNT greedy) → tokens
 /// Model: FluidInference/nemotron-speech-streaming-en-0.6b-coreml (560ms chunks)
 @available(macOS 15, iOS 18, *)
 actor NemotronStreamingTranscriber {
-    // CoreML models
     private var preprocessor: MLModel?
     private var encoder: MLModel?
     private var decoder: MLModel?
@@ -17,29 +16,28 @@ actor NemotronStreamingTranscriber {
     private var tokenizer: [Int: String] = [:]
     private var loaded = false
 
-    // Model config (560ms chunk variant)
+    // Config from metadata.json (560ms variant)
+    private let chunkSamples = 8960      // 560ms at 16kHz
     private let chunkMelFrames = 56
     private let preEncodeCacheFrames = 9
-    private let melBins = 128
+    private let totalMelFrames = 65      // chunk + cache
+    private let encoderOutputFrames = 7
     private let encoderDim = 1024
     private let decoderHiddenSize = 640
-    private let decoderLayers = 2
+    private let vocabSize = 1024
     private let blankTokenId = 1024
-    private let sampleRate = 16000
 
     enum TranscriberError: Error, LocalizedError {
         case notLoaded
-        case modelLoadFailed(String)
         case downloadFailed(String)
-        case preprocessingFailed
+        case preprocessingFailed(String)
         case decodingFailed(String)
 
         var errorDescription: String? {
             switch self {
             case .notLoaded: return "Nemotron models not loaded."
-            case .modelLoadFailed(let m): return "Model load failed: \(m)"
             case .downloadFailed(let m): return "Download failed: \(m)"
-            case .preprocessingFailed: return "Audio preprocessing failed."
+            case .preprocessingFailed(let m): return "Preprocessing failed: \(m)"
             case .decodingFailed(let m): return "Decoding failed: \(m)"
             }
         }
@@ -64,31 +62,21 @@ actor NemotronStreamingTranscriber {
         config.computeUnits = .all
 
         preprocessor = try await MLModel.load(
-            contentsOf: modelDir.appendingPathComponent("preprocessor.mlmodelc"),
-            configuration: config
-        )
+            contentsOf: modelDir.appendingPathComponent("preprocessor.mlmodelc"), configuration: config)
         encoder = try await MLModel.load(
-            contentsOf: modelDir.appendingPathComponent("encoder/encoder_int8.mlmodelc"),
-            configuration: config
-        )
+            contentsOf: modelDir.appendingPathComponent("encoder/encoder_int8.mlmodelc"), configuration: config)
         decoder = try await MLModel.load(
-            contentsOf: modelDir.appendingPathComponent("decoder.mlmodelc"),
-            configuration: config
-        )
+            contentsOf: modelDir.appendingPathComponent("decoder.mlmodelc"), configuration: config)
         joint = try await MLModel.load(
-            contentsOf: modelDir.appendingPathComponent("joint.mlmodelc"),
-            configuration: config
-        )
+            contentsOf: modelDir.appendingPathComponent("joint.mlmodelc"), configuration: config)
 
-        // Load tokenizer
+        // Load tokenizer: {id_string: token_string}
         let tokenizerURL = modelDir.appendingPathComponent("tokenizer.json")
         let tokenizerData = try Data(contentsOf: tokenizerURL)
-        if let json = try JSONSerialization.jsonObject(with: tokenizerData) as? [String: Any],
-           let vocab = json["model"] as? [String: Any],
-           let vocabList = vocab["vocab"] as? [[Any]] {
-            for entry in vocabList {
-                if let token = entry.first as? String, let id = entry.last as? Int {
-                    tokenizer[id] = token
+        if let json = try JSONSerialization.jsonObject(with: tokenizerData) as? [String: String] {
+            for (key, value) in json {
+                if let id = Int(key) {
+                    tokenizer[id] = value
                 }
             }
         }
@@ -104,107 +92,123 @@ actor NemotronStreamingTranscriber {
             throw TranscriberError.notLoaded
         }
 
-        // Load audio as float32 samples
         let samples = try loadWavAsFloats(url: wavURL)
         let start = CFAbsoluteTimeGetCurrent()
-
-        // Process in chunks
-        let samplesPerChunk = Int(Double(chunkMelFrames) * 0.01 * Double(sampleRate)) // 56 * 160 = 8960
-        let totalMelFrames = chunkMelFrames + preEncodeCacheFrames  // 65
 
         // Initialize encoder cache
         var cacheChannel = try MLMultiArray(shape: [1, 24, 70, 1024], dataType: .float32)
         var cacheTime = try MLMultiArray(shape: [1, 24, 1024, 8], dataType: .float32)
-        var cacheLen = try MLMultiArray(shape: [1], dataType: .float32)
-        zeroFill(cacheChannel)
-        zeroFill(cacheTime)
-        cacheLen[0] = NSNumber(value: 0)
+        var cacheLen = try MLMultiArray(shape: [1], dataType: .int32)
+        zeroFill(cacheChannel); zeroFill(cacheTime)
+        cacheLen[0] = NSNumber(value: Int32(0))
 
-        // Initialize decoder LSTM state
-        var decoderState = try initDecoderState()
-        var lastToken = 0  // SOS token
+        // Initialize decoder LSTM state: [2, 1, 640] for 2-layer LSTM
+        var hState = try MLMultiArray(shape: [2, 1, NSNumber(value: decoderHiddenSize)], dataType: .float32)
+        var cState = try MLMultiArray(shape: [2, 1, NSNumber(value: decoderHiddenSize)], dataType: .float32)
+        zeroFill(hState); zeroFill(cState)
 
+        var lastToken: Int32 = 0  // SOS/blank
         var allTokens: [Int] = []
         var sampleOffset = 0
 
         while sampleOffset < samples.count {
-            let chunkEnd = min(sampleOffset + samplesPerChunk, samples.count)
-            let chunkSamples = Array(samples[sampleOffset..<chunkEnd])
+            let chunkEnd = min(sampleOffset + chunkSamples, samples.count)
+            let chunk = Array(samples[sampleOffset..<chunkEnd])
 
-            // Pad to full chunk if needed
-            let paddedSamples: [Float]
-            if chunkSamples.count < samplesPerChunk {
-                paddedSamples = chunkSamples + [Float](repeating: 0, count: samplesPerChunk - chunkSamples.count)
-            } else {
-                paddedSamples = chunkSamples
+            // 1. Preprocessor: audio [1, N] + audio_length [1] → mel [1, 128, ?] + mel_length [1]
+            let audioArray = try MLMultiArray(shape: [1, NSNumber(value: chunk.count)], dataType: .float32)
+            let audioPtr = audioArray.dataPointer.bindMemory(to: Float.self, capacity: chunk.count)
+            chunk.withUnsafeBufferPointer { src in
+                memcpy(audioPtr, src.baseAddress!, chunk.count * MemoryLayout<Float>.size)
+            }
+            let audioLenArray = try MLMultiArray(shape: [1], dataType: .int32)
+            audioLenArray[0] = NSNumber(value: Int32(chunk.count))
+
+            let prepInput = try MLDictionaryFeatureProvider(dictionary: [
+                "audio": MLFeatureValue(multiArray: audioArray),
+                "audio_length": MLFeatureValue(multiArray: audioLenArray),
+            ])
+            let prepOutput = try await preprocessor.prediction(from: prepInput)
+
+            guard let mel = prepOutput.featureValue(for: "mel")?.multiArrayValue,
+                  let melLength = prepOutput.featureValue(for: "mel_length")?.multiArrayValue else {
+                throw TranscriberError.preprocessingFailed("No mel output")
             }
 
-            // 1. Preprocessor: audio → mel
-            let audioArray = try createAudioInput(paddedSamples)
-            let melOutput = try await preprocessor.prediction(from: audioArray)
-            guard let melArray = melOutput.featureValue(for: "mel_output")?.multiArrayValue else {
-                throw TranscriberError.preprocessingFailed
+            // 2. Pad/crop mel to totalMelFrames (65) for encoder
+            let actualMelFrames = melLength[0].intValue
+            let encoderMel = try MLMultiArray(shape: [1, 128, NSNumber(value: totalMelFrames)], dataType: .float32)
+            let melSrcPtr = mel.dataPointer.bindMemory(to: Float.self, capacity: mel.count)
+            let melDstPtr = encoderMel.dataPointer.bindMemory(to: Float.self, capacity: encoderMel.count)
+            memset(melDstPtr, 0, encoderMel.count * MemoryLayout<Float>.size)
+
+            let melFramesToCopy = min(mel.shape[2].intValue, totalMelFrames)
+            for bin in 0..<128 {
+                let srcOffset = bin * mel.shape[2].intValue
+                let dstOffset = bin * totalMelFrames
+                memcpy(melDstPtr.advanced(by: dstOffset), melSrcPtr.advanced(by: srcOffset), melFramesToCopy * MemoryLayout<Float>.size)
             }
 
-            // 2. Encoder: mel + cache → encoded + new_cache
-            let encoderInput = try MLDictionaryFeatureProvider(dictionary: [
-                "mel_input": MLFeatureValue(multiArray: melArray),
+            let encoderMelLen = try MLMultiArray(shape: [1], dataType: .int32)
+            encoderMelLen[0] = NSNumber(value: Int32(min(actualMelFrames, totalMelFrames)))
+
+            // 3. Encoder: mel + cache → encoded + new_cache
+            let encInput = try MLDictionaryFeatureProvider(dictionary: [
+                "mel": MLFeatureValue(multiArray: encoderMel),
+                "mel_length": MLFeatureValue(multiArray: encoderMelLen),
                 "cache_channel": MLFeatureValue(multiArray: cacheChannel),
                 "cache_time": MLFeatureValue(multiArray: cacheTime),
                 "cache_len": MLFeatureValue(multiArray: cacheLen),
             ])
-            let encoderOutput = try await encoder.prediction(from: encoderInput)
+            let encOutput = try await encoder.prediction(from: encInput)
 
-            guard let encoded = encoderOutput.featureValue(for: "encoded")?.multiArrayValue else {
+            guard let encoded = encOutput.featureValue(for: "encoded")?.multiArrayValue,
+                  let encodedLength = encOutput.featureValue(for: "encoded_length")?.multiArrayValue else {
                 throw TranscriberError.decodingFailed("No encoder output")
             }
-            if let newCacheChannel = encoderOutput.featureValue(for: "new_cache_channel")?.multiArrayValue {
-                cacheChannel = newCacheChannel
-            }
-            if let newCacheTime = encoderOutput.featureValue(for: "new_cache_time")?.multiArrayValue {
-                cacheTime = newCacheTime
-            }
-            if let newCacheLen = encoderOutput.featureValue(for: "new_cache_len")?.multiArrayValue {
-                cacheLen = newCacheLen
-            }
+            if let cc = encOutput.featureValue(for: "cache_channel_out")?.multiArrayValue { cacheChannel = cc }
+            if let ct = encOutput.featureValue(for: "cache_time_out")?.multiArrayValue { cacheTime = ct }
+            if let cl = encOutput.featureValue(for: "cache_len_out")?.multiArrayValue { cacheLen = cl }
 
-            // 3. RNNT decode: iterate over encoder frames
-            let encoderFrames = encoded.shape[2].intValue
-            let encoderPtr = encoded.dataPointer.bindMemory(to: Float.self, capacity: encoded.count)
+            // 4. RNNT greedy decode over encoder frames
+            let numFrames = encodedLength[0].intValue
+            let encodedPtr = encoded.dataPointer.bindMemory(to: Float.self, capacity: encoded.count)
 
-            for t in 0..<encoderFrames {
-                // Extract encoder frame [1, 1, encoderDim]
-                let encoderFrame = try MLMultiArray(shape: [1, 1, NSNumber(value: encoderDim)], dataType: .float32)
-                let framePtr = encoderFrame.dataPointer.bindMemory(to: Float.self, capacity: encoderDim)
-                let srcOffset = t * encoderDim
-                memcpy(framePtr, encoderPtr.advanced(by: srcOffset), encoderDim * MemoryLayout<Float>.size)
-
-                // Greedy decode loop for this encoder frame
-                var maxSteps = 10  // Safety limit per encoder frame
+            for t in 0..<numFrames {
+                var maxSteps = 10
                 while maxSteps > 0 {
                     maxSteps -= 1
 
-                    // Decoder: token + LSTM state → decoder_out + new_state
+                    // Decoder: token [1,1] + token_length [1] + h_in [2,1,640] + c_in [2,1,640]
                     let tokenArray = try MLMultiArray(shape: [1, 1], dataType: .int32)
-                    tokenArray[0] = NSNumber(value: Int32(lastToken))
+                    tokenArray[0] = NSNumber(value: lastToken)
+                    let tokenLen = try MLMultiArray(shape: [1], dataType: .int32)
+                    tokenLen[0] = NSNumber(value: Int32(1))
 
-                    let decoderInput = try MLDictionaryFeatureProvider(dictionary: [
-                        "input_ids": MLFeatureValue(multiArray: tokenArray),
-                        "h0": MLFeatureValue(multiArray: decoderState.h0),
-                        "c0": MLFeatureValue(multiArray: decoderState.c0),
-                        "h1": MLFeatureValue(multiArray: decoderState.h1),
-                        "c1": MLFeatureValue(multiArray: decoderState.c1),
+                    let decInput = try MLDictionaryFeatureProvider(dictionary: [
+                        "token": MLFeatureValue(multiArray: tokenArray),
+                        "token_length": MLFeatureValue(multiArray: tokenLen),
+                        "h_in": MLFeatureValue(multiArray: hState),
+                        "c_in": MLFeatureValue(multiArray: cState),
                     ])
-                    let decoderOutput = try await decoder.prediction(from: decoderInput)
+                    let decOutput = try await decoder.prediction(from: decInput)
 
-                    guard let decoderOut = decoderOutput.featureValue(for: "decoder_output")?.multiArrayValue else {
+                    guard let decoderOut = decOutput.featureValue(for: "decoder_out")?.multiArrayValue else {
                         throw TranscriberError.decodingFailed("No decoder output")
                     }
 
-                    // Joint: encoder_out + decoder_out → logits
+                    // Joint: encoder [1, 1024, 1] + decoder [1, 640, 1] → logits
+                    // Extract encoder frame t as [1, 1024, 1]
+                    let encFrame = try MLMultiArray(shape: [1, NSNumber(value: encoderDim), 1], dataType: .float32)
+                    let encFramePtr = encFrame.dataPointer.bindMemory(to: Float.self, capacity: encoderDim)
+                    for d in 0..<encoderDim {
+                        encFramePtr[d] = encodedPtr[t * encoderDim + d]
+                    }
+
+                    // decoder_out shape is [1, 640, 1] already
                     let jointInput = try MLDictionaryFeatureProvider(dictionary: [
-                        "encoder_output": MLFeatureValue(multiArray: encoderFrame),
-                        "decoder_output": MLFeatureValue(multiArray: decoderOut),
+                        "encoder": MLFeatureValue(multiArray: encFrame),
+                        "decoder": MLFeatureValue(multiArray: decoderOut),
                     ])
                     let jointOutput = try await joint.prediction(from: jointInput)
 
@@ -213,55 +217,45 @@ actor NemotronStreamingTranscriber {
                     }
 
                     // Argmax
-                    let vocabSize = logits.shape.last!.intValue
-                    let logitsPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: vocabSize)
+                    let logitsCount = logits.count
+                    let logitsPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: logitsCount)
                     var maxVal: Float = -Float.infinity
                     var maxIdx: vDSP_Length = 0
-                    vDSP_maxvi(logitsPtr, 1, &maxVal, &maxIdx, vDSP_Length(vocabSize))
+                    vDSP_maxvi(logitsPtr, 1, &maxVal, &maxIdx, vDSP_Length(logitsCount))
                     let predictedToken = Int(maxIdx)
 
                     if predictedToken == blankTokenId {
-                        // BLANK → move to next encoder frame
-                        break
+                        break // BLANK → next encoder frame
                     }
 
-                    // Non-blank → emit token, update decoder state
                     allTokens.append(predictedToken)
-                    lastToken = predictedToken
+                    lastToken = Int32(predictedToken)
 
                     // Update LSTM state
-                    if let h0 = decoderOutput.featureValue(for: "new_h0")?.multiArrayValue,
-                       let c0 = decoderOutput.featureValue(for: "new_c0")?.multiArrayValue,
-                       let h1 = decoderOutput.featureValue(for: "new_h1")?.multiArrayValue,
-                       let c1 = decoderOutput.featureValue(for: "new_c1")?.multiArrayValue {
-                        decoderState = (h0: h0, c0: c0, h1: h1, c1: c1)
+                    if let hOut = decOutput.featureValue(for: "h_out")?.multiArrayValue,
+                       let cOut = decOutput.featureValue(for: "c_out")?.multiArrayValue {
+                        hState = hOut
+                        cState = cOut
                     }
                 }
             }
 
-            sampleOffset += samplesPerChunk
+            sampleOffset += chunkSamples
         }
 
-        // Decode tokens to text
         let text = decodeTokens(allTokens)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
-
         return (text: text, processingTime: elapsed)
     }
 
     func shutdown() {
-        preprocessor = nil
-        encoder = nil
-        decoder = nil
-        joint = nil
-        tokenizer = [:]
-        loaded = false
+        preprocessor = nil; encoder = nil; decoder = nil; joint = nil
+        tokenizer = [:]; loaded = false
     }
 
     // MARK: - Token Decoding
 
     private func decodeTokens(_ tokenIds: [Int]) -> String {
-        // SentencePiece-style: tokens starting with ▁ (U+2581) represent word boundaries
         var pieces: [String] = []
         for id in tokenIds {
             if let piece = tokenizer[id] {
@@ -273,32 +267,7 @@ actor NemotronStreamingTranscriber {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    // MARK: - LSTM State
-
-    private typealias LSTMState = (h0: MLMultiArray, c0: MLMultiArray, h1: MLMultiArray, c1: MLMultiArray)
-
-    private func initDecoderState() throws -> LSTMState {
-        let shape: [NSNumber] = [1, 1, NSNumber(value: decoderHiddenSize)]
-        let h0 = try MLMultiArray(shape: shape, dataType: .float32)
-        let c0 = try MLMultiArray(shape: shape, dataType: .float32)
-        let h1 = try MLMultiArray(shape: shape, dataType: .float32)
-        let c1 = try MLMultiArray(shape: shape, dataType: .float32)
-        zeroFill(h0); zeroFill(c0); zeroFill(h1); zeroFill(c1)
-        return (h0: h0, c0: c0, h1: h1, c1: c1)
-    }
-
     // MARK: - Helpers
-
-    private func createAudioInput(_ samples: [Float]) throws -> MLDictionaryFeatureProvider {
-        let array = try MLMultiArray(shape: [1, NSNumber(value: samples.count)], dataType: .float32)
-        let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: samples.count)
-        samples.withUnsafeBufferPointer { src in
-            memcpy(ptr, src.baseAddress!, samples.count * MemoryLayout<Float>.size)
-        }
-        return try MLDictionaryFeatureProvider(dictionary: [
-            "audio_input": MLFeatureValue(multiArray: array)
-        ])
-    }
 
     private func zeroFill(_ array: MLMultiArray) {
         let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: array.count)
@@ -307,43 +276,23 @@ actor NemotronStreamingTranscriber {
 
     private func loadWavAsFloats(url: URL) throws -> [Float] {
         let data = try Data(contentsOf: url)
-        guard data.count > 44 else {
-            throw TranscriberError.decodingFailed("WAV file too small")
-        }
+        guard data.count > 44 else { throw TranscriberError.decodingFailed("WAV too small") }
         let pcmData = data.dropFirst(44)
-        let sampleCount = pcmData.count / 2
-        var floats = [Float](repeating: 0, count: sampleCount)
+        let count = pcmData.count / 2
+        var floats = [Float](repeating: 0, count: count)
         pcmData.withUnsafeBytes { raw in
-            let int16Buffer = raw.bindMemory(to: Int16.self)
-            for i in 0..<sampleCount {
-                floats[i] = Float(int16Buffer[i]) / 32767.0
-            }
+            let buf = raw.bindMemory(to: Int16.self)
+            for i in 0..<count { floats[i] = Float(buf[i]) / 32767.0 }
         }
         return floats
     }
 
     // MARK: - Model Download
 
-    private static let repoBase = "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/main/nemotron_coreml_560ms"
-
-    private static let requiredFiles = [
-        "preprocessor.mlmodelc",
-        "encoder/encoder_int8.mlmodelc",
-        "decoder.mlmodelc",
-        "joint.mlmodelc",
-        "tokenizer.json",
-        "metadata.json",
-    ]
-
     private func ensureModelsDownloaded(progress: ((Double, String?) -> Void)? = nil) async throws -> URL {
         let modelDir = Self.cacheDir
-
-        // Check if all required files exist
-        let allExist = Self.requiredFiles.allSatisfy { file in
-            FileManager.default.fileExists(atPath: modelDir.appendingPathComponent(file).path)
-        }
-
-        if allExist {
+        let requiredFile = modelDir.appendingPathComponent("encoder/encoder_int8.mlmodelc/coremldata.bin")
+        if FileManager.default.fileExists(atPath: requiredFile.path) {
             fputs("[nemotron] models already cached\n", stderr)
             return modelDir
         }
@@ -355,8 +304,7 @@ actor NemotronStreamingTranscriber {
         var filesDownloaded = 0
         try await downloadDirectory(apiURL: hfAPI, localDir: modelDir, remotePath: "nemotron_coreml_560ms") {
             filesDownloaded += 1
-            let fraction = min(Double(filesDownloaded) / 50.0, 0.95) // Estimate ~50 files
-            progress?(fraction, "Downloading Nemotron model...")
+            progress?(min(Double(filesDownloaded) / 50.0, 0.95), "Downloading Nemotron model...")
         }
 
         fputs("[nemotron] download complete\n", stderr)
@@ -365,19 +313,14 @@ actor NemotronStreamingTranscriber {
 
     private func downloadDirectory(apiURL: String, localDir: URL, remotePath: String, onFileDownloaded: (() -> Void)? = nil) async throws {
         guard let url = URL(string: apiURL) else { return }
-
         let (data, _) = try await URLSession.shared.data(from: url)
         guard let entries = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
 
         for entry in entries {
-            guard let path = entry["path"] as? String,
-                  let type = entry["type"] as? String else { continue }
-
-            // Get the relative path after the variant prefix
+            guard let path = entry["path"] as? String, let type = entry["type"] as? String else { continue }
             let relativePath = String(path.dropFirst(remotePath.count + 1))
 
             if type == "directory" {
-                // Recurse into subdirectory
                 let subAPI = "https://huggingface.co/api/models/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/tree/main/\(path)"
                 let subDir = localDir.appendingPathComponent(relativePath)
                 try FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
@@ -385,12 +328,10 @@ actor NemotronStreamingTranscriber {
             } else if type == "file" {
                 let fileURL = URL(string: "https://huggingface.co/FluidInference/nemotron-speech-streaming-en-0.6b-coreml/resolve/main/\(path)")!
                 let localFile = localDir.appendingPathComponent(relativePath)
-
                 if FileManager.default.fileExists(atPath: localFile.path) { continue }
 
                 let parentDir = localFile.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
-
                 fputs("[nemotron] downloading \(relativePath)...\n", stderr)
                 let (tempURL, _) = try await URLSession.shared.download(from: fileURL)
                 try FileManager.default.moveItem(at: tempURL, to: localFile)

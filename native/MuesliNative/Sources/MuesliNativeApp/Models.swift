@@ -6,13 +6,15 @@ struct BackendOption: Equatable {
     let label: String
     let sizeLabel: String
     let description: String
+    let recommended: Bool
 
     static let parakeetMultilingual = BackendOption(
         backend: "fluidaudio",
         model: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
         label: "Parakeet v3",
         sizeLabel: "~250 MB",
-        description: "Multilingual, 25 languages. Runs on Apple Neural Engine."
+        description: "Multilingual, 25 languages. Runs on Apple Neural Engine.",
+        recommended: true
     )
 
     static let parakeetEnglish = BackendOption(
@@ -20,7 +22,8 @@ struct BackendOption: Equatable {
         model: "FluidInference/parakeet-tdt-0.6b-v2-coreml",
         label: "Parakeet v2",
         sizeLabel: "~250 MB",
-        description: "English-only, highest recall. Runs on Apple Neural Engine."
+        description: "English-only, highest recall. Runs on Apple Neural Engine.",
+        recommended: false
     )
 
     static let whisperSmall = BackendOption(
@@ -28,7 +31,8 @@ struct BackendOption: Equatable {
         model: "ggml-small.en-q5_0",
         label: "Whisper Small",
         sizeLabel: "~180 MB",
-        description: "Fast, English-optimized. Quantized for smaller download."
+        description: "Fast, English-optimized. Quantized for smaller download.",
+        recommended: false
     )
 
     static let whisperMedium = BackendOption(
@@ -36,7 +40,8 @@ struct BackendOption: Equatable {
         model: "ggml-medium.en",
         label: "Whisper Medium",
         sizeLabel: "~1.5 GB",
-        description: "Better accuracy, English-only. Good balance of speed and quality."
+        description: "Better accuracy, English-only. Good balance of speed and quality.",
+        recommended: false
     )
 
     static let whisperLargeTurbo = BackendOption(
@@ -44,7 +49,8 @@ struct BackendOption: Equatable {
         model: "ggml-large-v3-turbo-q5_0",
         label: "Whisper Large Turbo",
         sizeLabel: "~600 MB",
-        description: "Highest accuracy, multilingual. Quantized for faster inference."
+        description: "Highest accuracy, multilingual. Quantized for faster inference.",
+        recommended: false
     )
 
     static let nemotronStreaming = BackendOption(
@@ -52,16 +58,17 @@ struct BackendOption: Equatable {
         model: "FluidInference/nemotron-speech-streaming-en-0.6b-coreml",
         label: "Nemotron Streaming",
         sizeLabel: "~600 MB",
-        description: "NVIDIA streaming RNNT. English-only, ultra-low latency. CoreML on ANE."
+        description: "NVIDIA streaming RNNT. English-only, ultra-low latency. CoreML on ANE.",
+        recommended: false
     )
 
     // Default alias
     static let whisper = parakeetMultilingual
 
+    /// Models available for download and use. Nemotron excluded until RNNT decode is validated.
     static let all: [BackendOption] = [
         .parakeetMultilingual, .parakeetEnglish,
         .whisperSmall, .whisperMedium, .whisperLargeTurbo,
-        .nemotronStreaming,
     ]
 }
 

@@ -72,7 +72,8 @@ struct BackendCoverageTests {
             .mapValues(\.count)
         #expect(backendCounts["fluidaudio"]! >= 2, "FluidAudio should have at least 2 models")
         #expect(backendCounts["whisper"]! >= 1, "Whisper should have at least 1 model")
-        #expect(backendCounts["nemotron"]! >= 1, "Nemotron should have at least 1 model")
+        // Nemotron excluded from .all until RNNT decode is validated
+        // #expect(backendCounts["nemotron"]! >= 1)
     }
 
     @Test("size labels are human-readable")

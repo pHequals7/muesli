@@ -22,7 +22,7 @@ struct BackendOptionTests {
 
     @Test("backend field is one of the known backends")
     func knownBackends() {
-        let known: Set<String> = ["fluidaudio", "whisper", "nemotron"]
+        let known: Set<String> = ["fluidaudio", "whisper"]
         for option in BackendOption.all {
             #expect(known.contains(option.backend), "Unknown backend: \(option.backend)")
         }
@@ -59,8 +59,7 @@ struct BackendOptionTests {
         #expect(BackendOption.all.contains(.whisperSmall))
         #expect(BackendOption.all.contains(.whisperMedium))
         #expect(BackendOption.all.contains(.whisperLargeTurbo))
-        #expect(BackendOption.all.contains(.nemotronStreaming))
-        #expect(BackendOption.all.count == 6)
+        #expect(BackendOption.all.count == 5)
     }
 
     @Test("Whisper models reference ggml format")

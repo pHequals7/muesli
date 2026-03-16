@@ -45,6 +45,12 @@ struct SidebarView: View {
             )
 
             sidebarItem(
+                tab: .models,
+                icon: "square.and.arrow.down",
+                label: "Models"
+            )
+
+            sidebarItem(
                 tab: .shortcuts,
                 icon: "keyboard",
                 label: "Shortcuts"

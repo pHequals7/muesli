@@ -8,10 +8,6 @@ struct OnboardingView: View {
     @State private var currentStep = 0
     @State private var userName = ""
     @State private var selectedBackend: BackendOption = .parakeetMultilingual
-    @State private var isDownloading = false
-    @State private var downloadProgress: Double = 0
-    @State private var downloadStatus: String = ""
-    @State private var downloadError: String?
     @State private var summaryBackend: MeetingSummaryBackendOption = .openRouter
     @State private var apiKey = ""
 
@@ -97,27 +93,8 @@ struct OnboardingView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { currentStep = 1 }
             }
         case 1:
-            if isDownloading {
-                HStack(spacing: MuesliTheme.spacing8) {
-                    if downloadProgress > 0 && downloadProgress < 1.0 {
-                        ProgressView(value: downloadProgress)
-                            .frame(width: 80)
-                            .tint(MuesliTheme.accent)
-                    } else {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                    Text(downloadStatus.isEmpty ? "Downloading \(selectedBackend.label)..." : downloadStatus)
-                        .font(MuesliTheme.body())
-                        .foregroundStyle(MuesliTheme.textSecondary)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, MuesliTheme.spacing16)
-                .padding(.vertical, MuesliTheme.spacing8)
-            } else {
-                onboardingButton("Download & Continue", enabled: true) {
-                    startDownload()
-                }
+            onboardingButton("Download & Continue", enabled: true) {
+                startDownload()
             }
         case 2:
             onboardingButton("Continue", enabled: true) {
@@ -211,7 +188,7 @@ struct OnboardingView: View {
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
-                Text("The model will be downloaded on your device. You can change this later in Settings.")
+                Text("Pick a model to get started. You can download more from the Models tab later.")
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -227,12 +204,6 @@ struct OnboardingView: View {
                 .padding(.horizontal, MuesliTheme.spacing32)
             }
 
-            if let error = downloadError {
-                Text(error)
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.recording)
-                    .padding(.bottom, MuesliTheme.spacing8)
-            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -240,9 +211,7 @@ struct OnboardingView: View {
     private func modelCard(option: BackendOption) -> some View {
         let isSelected = selectedBackend == option
         return Button {
-            if !isDownloading {
-                selectedBackend = option
-            }
+            selectedBackend = option
         } label: {
             HStack(spacing: MuesliTheme.spacing12) {
                 Circle()
@@ -254,10 +223,19 @@ struct OnboardingView: View {
                     )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack {
+                    HStack(spacing: 6) {
                         Text(option.label)
                             .font(MuesliTheme.headline())
                             .foregroundStyle(MuesliTheme.textPrimary)
+                        if option.recommended {
+                            Text("Recommended")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(MuesliTheme.accent)
+                                .clipShape(RoundedRectangle(cornerRadius: 3))
+                        }
                         Text(option.sizeLabel)
                             .font(MuesliTheme.caption())
                             .foregroundStyle(MuesliTheme.textTertiary)
@@ -278,7 +256,6 @@ struct OnboardingView: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(isDownloading)
     }
 
     // MARK: - Step 3: Permissions
@@ -605,32 +582,15 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     private func startDownload() {
-        isDownloading = true
-        downloadProgress = 0
-        downloadStatus = ""
-        downloadError = nil
+        // Start download in background, advance onboarding immediately
         Task {
             do {
-                let alreadyCached = try await controller.downloadModelForOnboarding(selectedBackend) { progress, status in
-                    downloadProgress = progress
-                    if let status {
-                        downloadStatus = status
-                    }
-                }
-                await MainActor.run {
-                    isDownloading = false
-                    if alreadyCached {
-                        downloadStatus = ""
-                    }
-                    withAnimation(.easeInOut(duration: 0.2)) { currentStep = 2 }
-                }
+                try await controller.downloadModelForOnboarding(selectedBackend) { _, _ in }
             } catch {
-                await MainActor.run {
-                    isDownloading = false
-                    downloadError = "Download failed: \(error.localizedDescription)"
-                }
+                fputs("[muesli-native] background model download failed: \(error)\n", stderr)
             }
         }
+        withAnimation(.easeInOut(duration: 0.2)) { currentStep = 2 }
     }
 
     private func finishOnboarding(withKey: Bool) {
