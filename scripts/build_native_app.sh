@@ -102,8 +102,12 @@ if ! security find-identity -v -p codesigning | grep -Fq "$SIGN_IDENTITY"; then
   exit 1
 fi
 
-# Sign with hardened runtime and secure timestamp for notarization
-codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR"
+# Sign with hardened runtime, secure timestamp, and entitlements for notarization
+ENTITLEMENTS="$ROOT/scripts/Muesli.entitlements"
+codesign --force --options runtime --timestamp \
+  --entitlements "$ENTITLEMENTS" \
+  --sign "$SIGN_IDENTITY" \
+  "$APP_DIR"
 
 rm -rf "$STAGED_APP_DIR"
 
