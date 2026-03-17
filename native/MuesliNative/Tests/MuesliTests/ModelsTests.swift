@@ -98,9 +98,10 @@ struct MeetingSummaryBackendTests {
 
     @Test("all options listed")
     func allOptions() {
-        #expect(MeetingSummaryBackendOption.all.count == 2)
+        #expect(MeetingSummaryBackendOption.all.count == 3)
         #expect(MeetingSummaryBackendOption.all.contains(.openAI))
         #expect(MeetingSummaryBackendOption.all.contains(.openRouter))
+        #expect(MeetingSummaryBackendOption.all.contains(.chatGPT))
     }
 
     @Test("backend strings are lowercase")

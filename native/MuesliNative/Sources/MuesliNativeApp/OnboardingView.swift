@@ -11,6 +11,7 @@ struct OnboardingView: View {
     @State private var selectedBackend: BackendOption = .parakeetMultilingual
     @State private var summaryBackend: MeetingSummaryBackendOption = .openRouter
     @State private var apiKey = ""
+    @State private var isChatGPTSignedIn = false
 
     // Permission states — pre-filled from OS on appear, then set to true after delay on Grant click
     @State private var micGranted = false
@@ -517,6 +518,10 @@ struct OnboardingView: View {
             }
 
             HStack(spacing: 0) {
+                providerTab("ChatGPT", selected: summaryBackend == .chatGPT) {
+                    summaryBackend = .chatGPT
+                    apiKey = ""
+                }
                 providerTab("OpenAI", selected: summaryBackend == .openAI) {
                     summaryBackend = .openAI
                     apiKey = ""
@@ -534,31 +539,64 @@ struct OnboardingView: View {
             )
             .frame(width: 320)
 
-            if summaryBackend == .openRouter {
-                Text("OpenRouter offers free models — no payment required.")
+            if summaryBackend == .chatGPT {
+                Text("Use your ChatGPT Plus or Pro subscription.")
                     .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.success)
-            }
+                    .foregroundStyle(MuesliTheme.textSecondary)
 
-            VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-                Text("API Key")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
+                if isChatGPTSignedIn {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(MuesliTheme.success)
+                            .frame(width: 6, height: 6)
+                        Text("Signed in with ChatGPT")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuesliTheme.success)
+                    }
+                } else {
+                    Button {
+                        Task {
+                            await controller.signInWithChatGPT()
+                            isChatGPTSignedIn = ChatGPTAuthManager.shared.isAuthenticated
+                        }
+                    } label: {
+                        Text("Sign in with ChatGPT")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(MuesliTheme.accent)
+                            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    }
+                    .buttonStyle(.plain)
+                }
+            } else {
+                if summaryBackend == .openRouter {
+                    Text("OpenRouter offers free models — no payment required.")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.success)
+                }
 
-                PastableSecureField(
-                    text: apiKey,
-                    placeholder: summaryBackend == .openAI ? "sk-..." : "sk-or-...",
-                    onChange: { apiKey = $0 }
-                )
-                .frame(width: 320, height: 28)
+                VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                    Text("API Key")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
 
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
-                        .frame(width: 6, height: 6)
-                    Text(apiKey.isEmpty ? "No API key" : "Key entered")
-                        .font(.system(size: 11))
-                        .foregroundStyle(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
+                    PastableSecureField(
+                        text: apiKey,
+                        placeholder: summaryBackend == .openAI ? "sk-..." : "sk-or-...",
+                        onChange: { apiKey = $0 }
+                    )
+                    .frame(width: 320, height: 28)
+
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
+                            .frame(width: 6, height: 6)
+                        Text(apiKey.isEmpty ? "No API key" : "Key entered")
+                            .font(.system(size: 11))
+                            .foregroundStyle(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
+                    }
                 }
             }
 
@@ -572,7 +610,7 @@ struct OnboardingView: View {
             Text(title)
                 .font(.system(size: 13, weight: selected ? .semibold : .regular))
                 .foregroundStyle(selected ? MuesliTheme.textPrimary : MuesliTheme.textSecondary)
-                .frame(width: 160)
+                .frame(width: 106)
                 .padding(.vertical, MuesliTheme.spacing8)
                 .background(selected ? MuesliTheme.surfacePrimary : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))

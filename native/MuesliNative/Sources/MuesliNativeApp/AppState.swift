@@ -34,6 +34,7 @@ final class AppState {
 
     // Live status
     var isMeetingRecording: Bool = false
+    var isChatGPTAuthenticated: Bool = false
 
     // Navigation
     var selectedTab: DashboardTab = .dictations

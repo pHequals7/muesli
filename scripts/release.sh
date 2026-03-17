@@ -3,9 +3,9 @@ set -euo pipefail
 
 # End-to-end release pipeline:
 #   1. Build and sign the app (hardened runtime + entitlements)
-#   2. Notarize with Apple
-#   3. Staple the ticket
-#   4. Create a signed DMG
+#   2. Create a signed DMG
+#   3. Notarize the DMG with Apple
+#   4. Staple the ticket
 #   5. Create GitHub release and upload DMG
 #
 # Prerequisites:
@@ -52,13 +52,13 @@ FLAGS=$(codesign -dvvv "$APP_DIR" 2>&1 | grep -o 'flags=0x[0-9a-f]*([^)]*)')
 echo "  Signature: $FLAGS"
 
 # --- Step 3: Notarize ---
-echo "[3/6] Notarizing with Apple (this may take several minutes)..."
-NOTARY_ZIP="$OUTPUT_DIR/Muesli-notarize.zip"
-mkdir -p "$OUTPUT_DIR"
-rm -f "$NOTARY_ZIP"
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$NOTARY_ZIP"
+echo "[3/7] Creating DMG..."
+"$ROOT/scripts/create_dmg.sh" "$APP_DIR" "$OUTPUT_DIR"
+DMG_PATH="$OUTPUT_DIR/Muesli-${VERSION}.dmg"
 
-NOTARY_OUTPUT=$(xcrun notarytool submit "$NOTARY_ZIP" \
+# --- Step 4: Notarize DMG ---
+echo "[4/7] Notarizing DMG with Apple (this may take several minutes)..."
+NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
   --keychain-profile "$PROFILE_NAME" \
   --wait 2>&1)
 echo "$NOTARY_OUTPUT"
@@ -72,21 +72,15 @@ else
   exit 1
 fi
 
-rm -f "$NOTARY_ZIP"
-
-# --- Step 4: Staple ---
-echo "[4/6] Stapling notarization ticket..."
-xcrun stapler staple "$APP_DIR"
+# --- Step 5: Staple DMG ---
+echo "[5/7] Stapling notarization ticket to DMG..."
+xcrun stapler staple "$DMG_PATH"
 echo "  Stapled."
 
-# Verify
+# Verify DMG and app bundle state
+spctl -a -vv -t open --context context:primary-signature "$DMG_PATH" 2>&1 | head -2
 spctl -a -vv "$APP_DIR" 2>&1 | head -2
 echo ""
-
-# --- Step 5: Create DMG ---
-echo "[5/7] Creating DMG..."
-"$ROOT/scripts/create_dmg.sh" "$APP_DIR" "$OUTPUT_DIR"
-DMG_PATH="$OUTPUT_DIR/Muesli-${VERSION}.dmg"
 
 # --- Step 6: Generate appcast ---
 echo "[6/7] Generating appcast..."

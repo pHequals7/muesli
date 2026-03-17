@@ -4,8 +4,10 @@ import MuesliCore
 enum MeetingSummaryClient {
     private static let openAIURL = URL(string: "https://api.openai.com/v1/responses")!
     private static let openRouterURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+    private static let whamURL = URL(string: "https://chatgpt.com/backend-api/wham")!
     private static let defaultOpenAIModel = "gpt-5-mini"
     private static let defaultOpenRouterModel = "stepfun/step-3.5-flash:free"
+    private static let defaultChatGPTModel = "gpt-5-mini"
 
     private static let titleInstructions = """
     Generate a short, descriptive meeting title (3-7 words) from this transcript. \
@@ -36,6 +38,9 @@ enum MeetingSummaryClient {
 
     static func summarize(transcript: String, meetingTitle: String, config: AppConfig) async -> String {
         let backend = (config.meetingSummaryBackend.isEmpty ? MeetingSummaryBackendOption.openAI.backend : config.meetingSummaryBackend).lowercased()
+        if backend == MeetingSummaryBackendOption.chatGPT.backend {
+            return await summarizeWithChatGPT(transcript: transcript, meetingTitle: meetingTitle, config: config)
+        }
         if backend == MeetingSummaryBackendOption.openRouter.backend {
             return await summarizeWithOpenRouter(transcript: transcript, meetingTitle: meetingTitle, config: config)
         }
@@ -118,6 +123,51 @@ enum MeetingSummaryClient {
         }
     }
 
+    private static func summarizeWithChatGPT(transcript: String, meetingTitle: String, config: AppConfig) async -> String {
+        do {
+            let (token, accountId) = try await ChatGPTAuthManager.shared.validAccessToken()
+            let model = config.chatGPTModel.isEmpty ? defaultChatGPTModel : config.chatGPTModel
+            let userMessage = "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)"
+
+            let body: [String: Any] = [
+                "model": model,
+                "store": false,
+                "instructions": summaryInstructions,
+                "input": [
+                    [
+                        "role": "user",
+                        "content": [
+                            ["type": "input_text", "text": userMessage],
+                        ],
+                    ] as [String: Any],
+                ],
+            ]
+
+            var request = URLRequest(url: whamURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            if !accountId.isEmpty {
+                request.setValue(accountId, forHTTPHeaderField: "ChatGPT-Account-Id")
+            }
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let text = extractOpenAIText(from: json),
+                !text.isEmpty
+            else {
+                fputs("[summary] ChatGPT WHAM: unexpected response format\n", stderr)
+                return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+            }
+            return "# \(meetingTitle)\n\n\(text)"
+        } catch {
+            fputs("[summary] ChatGPT summarization failed: \(error)\n", stderr)
+            return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+        }
+    }
+
     private static func extractOpenAIText(from payload: [String: Any]) -> String? {
         if let outputText = payload["output_text"] as? String, !outputText.isEmpty {
             return outputText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -161,6 +211,10 @@ enum MeetingSummaryClient {
 
         // Use a short prefix of the transcript for title generation (save tokens)
         let truncated = String(transcript.prefix(1500))
+
+        if backend == MeetingSummaryBackendOption.chatGPT.backend {
+            return await generateTitleWithChatGPT(transcript: truncated, config: config)
+        }
 
         if backend == MeetingSummaryBackendOption.openRouter.backend {
             let apiKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] ?? config.openRouterAPIKey
@@ -231,6 +285,50 @@ enum MeetingSummaryClient {
             return result
         } catch {
             fputs("[summary] title generation failed: \(error)\n", stderr)
+            return nil
+        }
+    }
+
+    private static func generateTitleWithChatGPT(transcript: String, config: AppConfig) async -> String? {
+        do {
+            let (token, accountId) = try await ChatGPTAuthManager.shared.validAccessToken()
+            let model = config.chatGPTModel.isEmpty ? defaultChatGPTModel : config.chatGPTModel
+
+            let body: [String: Any] = [
+                "model": model,
+                "store": false,
+                "instructions": titleInstructions,
+                "input": [
+                    [
+                        "role": "user",
+                        "content": [
+                            ["type": "input_text", "text": transcript],
+                        ],
+                    ] as [String: Any],
+                ],
+                "max_output_tokens": 30,
+            ]
+
+            var request = URLRequest(url: whamURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            if !accountId.isEmpty {
+                request.setValue(accountId, forHTTPHeaderField: "ChatGPT-Account-Id")
+            }
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+            let (data, _) = try await URLSession.shared.data(for: request)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let text = extractOpenAIText(from: json) else {
+                fputs("[summary] ChatGPT title generation: unexpected response\n", stderr)
+                return nil
+            }
+            let result = text.trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"")))
+            fputs("[summary] ChatGPT generated title: \(result)\n", stderr)
+            return result
+        } catch {
+            fputs("[summary] ChatGPT title generation failed: \(error)\n", stderr)
             return nil
         }
     }

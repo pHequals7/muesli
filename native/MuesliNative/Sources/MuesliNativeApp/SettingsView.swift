@@ -68,7 +68,48 @@ struct SettingsView: View {
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
 
-                    if appState.selectedMeetingSummaryBackend == .openAI {
+                    if appState.selectedMeetingSummaryBackend == .chatGPT {
+                        settingsRow("Account") {
+                            if appState.isChatGPTAuthenticated {
+                                HStack(spacing: 8) {
+                                    Circle()
+                                        .fill(MuesliTheme.success)
+                                        .frame(width: 6, height: 6)
+                                    Text("Signed in")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(MuesliTheme.success)
+                                    Spacer()
+                                    Button("Sign Out") {
+                                        controller.signOutChatGPT()
+                                    }
+                                    .font(.system(size: 11))
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(MuesliTheme.textSecondary)
+                                }
+                                .frame(width: controlWidth)
+                            } else {
+                                Button {
+                                    Task { await controller.signInWithChatGPT() }
+                                } label: {
+                                    Text("Sign in with ChatGPT")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 5)
+                                        .background(MuesliTheme.accent)
+                                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Model") {
+                            settingsModelMenu(
+                                currentModel: appState.config.chatGPTModel,
+                                presets: SummaryModelPreset.chatGPTModels
+                            ) { val in controller.updateConfig { $0.chatGPTModel = val } }
+                        }
+                    } else if appState.selectedMeetingSummaryBackend == .openAI {
                         settingsRow("API Key") {
                             PastableSecureField(
                                 text: appState.config.openAIAPIKey,

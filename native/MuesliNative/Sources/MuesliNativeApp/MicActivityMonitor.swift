@@ -11,6 +11,7 @@ final class MicActivityMonitor {
     var calendarEventProvider: (() -> CalendarEventContext?)?
 
     let detector = MeetingDetector()
+    let cameraMonitor = CameraActivityMonitor()
 
     private var micListenerDeviceID: AudioDeviceID = 0
     private var micListenerBlock: AudioObjectPropertyListenerBlock?
@@ -21,6 +22,11 @@ final class MicActivityMonitor {
         installMicListener()
         installDeviceChangeListener()
 
+        cameraMonitor.onCameraStateChanged = { [weak self] _ in
+            self?.evaluateNow()
+        }
+        cameraMonitor.start()
+
         // Slow maintenance timer for idle reset and cleanup (every 5s)
         maintenanceTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { self?.evaluateNow() }
@@ -30,6 +36,7 @@ final class MicActivityMonitor {
     func stop() {
         removeMicListener()
         removeDeviceChangeListener()
+        cameraMonitor.stop()
         maintenanceTimer?.invalidate()
         maintenanceTimer = nil
     }
@@ -52,6 +59,7 @@ final class MicActivityMonitor {
     private func evaluateNow() {
         let signals = MeetingSignals(
             micActive: isMicActive(),
+            cameraActive: cameraMonitor.isCameraActive,
             calendarEvent: calendarEventProvider?(),
             runningApps: currentRunningApps()
         )

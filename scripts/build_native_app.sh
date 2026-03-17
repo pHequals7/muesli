@@ -54,6 +54,12 @@ chmod +x "$STAGED_APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME"
 cp "$CLI_BIN" "$STAGED_APP_DIR/Contents/MacOS/$CLI_BINARY"
 chmod +x "$STAGED_APP_DIR/Contents/MacOS/$CLI_BINARY"
 
+# Bundle Sparkle framework (rpath is @loader_path, so it goes next to the binary)
+SPARKLE_FW="$BIN_DIR/Sparkle.framework"
+if [[ -d "$SPARKLE_FW" ]]; then
+  ditto "$SPARKLE_FW" "$STAGED_APP_DIR/Contents/MacOS/Sparkle.framework"
+fi
+
 # Bundle assets
 cp "$ROOT/assets/menu_m_template.png" "$STAGED_APP_DIR/Contents/Resources/menu_m_template.png"
 cp "$ROOT/assets/muesli.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
@@ -73,9 +79,9 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleVersion</key>
-  <string>0.3.0</string>
+  <string>0.4.0</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.3.0</string>
+  <string>0.4.0</string>
   <key>CFBundleExecutable</key>
   <string>$APP_EXECUTABLE_NAME</string>
   <key>CFBundlePackageType</key>
@@ -98,6 +104,8 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <string>https://pHequals7.github.io/muesli/appcast.xml</string>
   <key>SUPublicEDKey</key>
   <string>${MUESLI_SPARKLE_EDKEY:-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}</string>
+  <key>SUEnableAutomaticChecks</key>
+  <false/>
 </dict>
 </plist>
 PLIST
@@ -122,7 +130,18 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
     exit 1
   fi
 
-  # Sign with hardened runtime, secure timestamp, and entitlements for notarization
+  # Sign nested binaries and frameworks first (required before signing the bundle)
+  if [[ -d "$APP_DIR/Contents/MacOS/Sparkle.framework" ]]; then
+    codesign --force --options runtime --timestamp \
+      --sign "$SIGN_IDENTITY" \
+      "$APP_DIR/Contents/MacOS/Sparkle.framework"
+  fi
+
+  codesign --force --options runtime --timestamp \
+    --sign "$SIGN_IDENTITY" \
+    "$APP_DIR/Contents/MacOS/muesli-cli"
+
+  # Sign the app bundle with hardened runtime, secure timestamp, and entitlements
   ENTITLEMENTS="$ROOT/scripts/Muesli.entitlements"
   codesign --force --options runtime --timestamp \
     --entitlements "$ENTITLEMENTS" \

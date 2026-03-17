@@ -82,6 +82,12 @@ jobs:
           cp "$BIN_DIR/muesli-cli" "$APP_DIR/Contents/MacOS/muesli-cli"
           chmod +x "$APP_DIR/Contents/MacOS/Muesli"
           chmod +x "$APP_DIR/Contents/MacOS/muesli-cli"
+
+          # Bundle Sparkle framework (rpath is @loader_path, so it goes next to the binary)
+          if [ -d "$BIN_DIR/Sparkle.framework" ]; then
+            ditto "$BIN_DIR/Sparkle.framework" "$APP_DIR/Contents/MacOS/Sparkle.framework"
+          fi
+
           cp assets/menu_m_template.png "$APP_DIR/Contents/Resources/"
           cp assets/muesli.icns "$APP_DIR/Contents/Resources/"
           [ -d assets/fonts ] && cp -R assets/fonts "$APP_DIR/Contents/Resources/fonts"

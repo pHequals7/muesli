@@ -4,6 +4,7 @@ import MuesliCore
 /// Input signals fed into the detector each evaluation cycle.
 struct MeetingSignals {
     let micActive: Bool
+    let cameraActive: Bool
     let calendarEvent: CalendarEventContext?
     let runningApps: [RunningAppInfo]
 }
@@ -75,19 +76,33 @@ final class MeetingDetector {
         // Suppressed?
         if let until = suppressUntil, now < until { return nil }
 
-        // Track mic idle to reset state after a gap
-        if !signals.micActive {
+        // Track idle to reset state after a gap (neither mic nor camera active)
+        if !signals.micActive && !signals.cameraActive {
             consecutiveIdleCount += 1
             if consecutiveIdleCount >= Self.idleResetThreshold {
                 detectedKeys.removeAll()
             }
-            return nil  // Mic must be active for any detection
+            return nil
         }
         consecutiveIdleCount = 0
 
         // Clean up keys for apps that have quit
         let runningIDs = Set(signals.runningApps.map(\.bundleID))
-        detectedKeys = detectedKeys.filter { $0.hasPrefix("cal:") || runningIDs.contains($0) }
+        detectedKeys = detectedKeys.filter { $0.hasPrefix("cal:") || $0 == "camera" || runningIDs.contains($0) }
+
+        // Priority 0: Camera active = strong meeting signal (nobody turns on camera outside meetings)
+        if signals.cameraActive, !detectedKeys.contains("camera") {
+            detectedKeys.insert("camera")
+            let (appName, appBundleID) = bestApp(from: signals.runningApps)
+            if let bid = appBundleID { detectedKeys.insert(bid) }
+            // Also mark calendar event to prevent duplicate detection via Priority 1
+            if let cal = signals.calendarEvent { detectedKeys.insert("cal:\(cal.id)") }
+            let title = signals.calendarEvent?.title
+            return MeetingDetection(appName: appName ?? "Meeting", meetingTitle: title)
+        }
+
+        // Remaining checks require mic to be active
+        guard signals.micActive else { return nil }
 
         // Priority 1: Calendar event + mic active = meeting (strongest signal)
         if let cal = signals.calendarEvent {

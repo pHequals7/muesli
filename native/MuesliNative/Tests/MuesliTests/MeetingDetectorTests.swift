@@ -19,6 +19,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Sprint Planning"),
             runningApps: []
         )
@@ -33,6 +34,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Standup"),
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -47,6 +49,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "1:1"),
             runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: true)]
         )
@@ -60,6 +63,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Team sync"),
             runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: false)]
         )
@@ -75,6 +79,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -89,6 +94,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.microsoft.teams2", isActive: false)]
         )
@@ -100,6 +106,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.apple.FaceTime", isActive: false)]
         )
@@ -111,6 +118,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.tinyspeck.slackmacgap", isActive: false)]
         )
@@ -124,6 +132,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: true)]
         )
@@ -137,6 +146,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: false)]
         )
@@ -148,6 +158,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "company.thebrowser.Browser", isActive: true)]
         )
@@ -159,6 +170,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.apple.Safari", isActive: false)]
         )
@@ -172,6 +184,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: false,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting"),
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: true)]
         )
@@ -183,6 +196,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: []
         )
@@ -194,6 +208,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.example.randomapp", isActive: true)]
         )
@@ -205,6 +220,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.muesli.app", isActive: true)]
         )
@@ -218,6 +234,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting"),
             runningApps: []
         )
@@ -230,11 +247,13 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let s1 = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting A"),
             runningApps: []
         )
         let s2 = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt2", title: "Meeting B"),
             runningApps: []
         )
@@ -247,6 +266,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -261,6 +281,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let active = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -268,7 +289,7 @@ struct MeetingDetectorTests {
         #expect(d.evaluate(active) == nil)  // dedup
 
         // Simulate idle for threshold count
-        let idle = MeetingSignals(micActive: false, calendarEvent: nil, runningApps: [])
+        let idle = MeetingSignals(micActive: false, cameraActive: false, calendarEvent: nil, runningApps: [])
         for _ in 0..<MeetingDetector.idleResetThreshold {
             _ = d.evaluate(idle)
         }
@@ -280,9 +301,10 @@ struct MeetingDetectorTests {
     @Test("idle count resets when mic becomes active")
     func idleCountResets() {
         let d = makeDetector()
-        let idle = MeetingSignals(micActive: false, calendarEvent: nil, runningApps: [])
+        let idle = MeetingSignals(micActive: false, cameraActive: false, calendarEvent: nil, runningApps: [])
         let active = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -312,6 +334,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let withZoom = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -320,6 +343,7 @@ struct MeetingDetectorTests {
         // Zoom quits — not in running apps anymore
         let withoutZoom = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: []
         )
@@ -337,6 +361,7 @@ struct MeetingDetectorTests {
         d.suppress(for: 60)
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting"),
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: true)]
         )
@@ -349,6 +374,7 @@ struct MeetingDetectorTests {
         d.suppress(for: -1)  // already expired
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -361,6 +387,7 @@ struct MeetingDetectorTests {
         d.suppressWhileActive()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting"),
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: true)]
         )
@@ -374,6 +401,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Sprint"),
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -387,6 +415,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting"),
             runningApps: [
                 RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
@@ -404,6 +433,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: nil,
             runningApps: [
                 RunningAppInfo(bundleID: "us.zoom.xos", isActive: false),
@@ -426,6 +456,7 @@ struct MeetingDetectorTests {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
+            cameraActive: false,
             calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting"),
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
@@ -434,5 +465,115 @@ struct MeetingDetectorTests {
 
         d.resetDetections()
         #expect(d.evaluate(signals) != nil)  // triggers again
+    }
+
+    // MARK: - Camera detection (Priority 0)
+
+    @Test("camera active alone triggers detection")
+    func cameraAloneTriggers() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: false,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: []
+        )
+        let result = d.evaluate(signals)
+        #expect(result != nil)
+        #expect(result?.appName == "Meeting")
+    }
+
+    @Test("camera active + calendar event includes event title")
+    func cameraPlusCalendar() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: false,
+            cameraActive: true,
+            calendarEvent: CalendarEventContext(id: "evt1", title: "Design Review"),
+            runningApps: []
+        )
+        let result = d.evaluate(signals)
+        #expect(result != nil)
+        #expect(result?.meetingTitle == "Design Review")
+    }
+
+    @Test("camera active + Zoom running uses Zoom as app name")
+    func cameraPlusZoom() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: false,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
+        )
+        let result = d.evaluate(signals)
+        #expect(result != nil)
+        #expect(result?.appName == "Zoom")
+    }
+
+    @Test("camera active + Chrome background triggers (no frontmost required)")
+    func cameraPlusChromeBackground() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: false,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: false)]
+        )
+        // Camera is strong enough signal — browser doesn't need to be frontmost
+        let result = d.evaluate(signals)
+        #expect(result != nil)
+    }
+
+    @Test("camera detection only triggers once (dedup)")
+    func cameraDedup() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: false,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: []
+        )
+        #expect(d.evaluate(signals) != nil)
+        #expect(d.evaluate(signals) == nil)  // already detected
+    }
+
+    @Test("camera off + idle resets camera detection")
+    func cameraIdleReset() {
+        let d = makeDetector()
+        let cameraOn = MeetingSignals(
+            micActive: false,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: []
+        )
+        #expect(d.evaluate(cameraOn) != nil)
+
+        // Camera off for threshold count
+        let idle = MeetingSignals(micActive: false, cameraActive: false, calendarEvent: nil, runningApps: [])
+        for _ in 0..<MeetingDetector.idleResetThreshold {
+            _ = d.evaluate(idle)
+        }
+
+        // Camera back on — should trigger again
+        #expect(d.evaluate(cameraOn) != nil)
+    }
+
+    @Test("camera active takes priority over mic-only signals")
+    func cameraPriorityOverMic() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: true,
+            calendarEvent: CalendarEventContext(id: "evt1", title: "Standup"),
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
+        )
+        let result = d.evaluate(signals)
+        #expect(result != nil)
+        #expect(result?.appName == "Zoom")
+        #expect(result?.meetingTitle == "Standup")
+
+        // Calendar should NOT re-trigger (camera detection already marked it)
+        #expect(d.evaluate(signals) == nil)
     }
 }

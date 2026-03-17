@@ -101,6 +101,16 @@ struct SummaryModelPreset {
         SummaryModelPreset(id: "gpt-4.1-nano", label: "GPT-4.1 Nano"),
     ]
 
+    static let chatGPTModels: [SummaryModelPreset] = [
+        SummaryModelPreset(id: "gpt-5-mini", label: "GPT-5 Mini (default)"),
+        SummaryModelPreset(id: "gpt-5.4", label: "GPT-5.4"),
+        SummaryModelPreset(id: "gpt-5.4-pro", label: "GPT-5.4 Pro"),
+        SummaryModelPreset(id: "gpt-5.2", label: "GPT-5.2"),
+        SummaryModelPreset(id: "gpt-5.2-chat", label: "GPT-5.2 Chat"),
+        SummaryModelPreset(id: "gpt-4.1-mini", label: "GPT-4.1 Mini"),
+        SummaryModelPreset(id: "gpt-4.1-nano", label: "GPT-4.1 Nano"),
+    ]
+
     static let openRouterModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "stepfun/step-3.5-flash:free", label: "Step 3.5 Flash (free, 256k ctx)"),
         SummaryModelPreset(id: "nvidia/nemotron-3-super-120b-a12b:free", label: "Nemotron 3 Super 120B (free, 262k ctx)"),
@@ -123,7 +133,12 @@ struct MeetingSummaryBackendOption: Equatable {
         label: "OpenRouter"
     )
 
-    static let all: [MeetingSummaryBackendOption] = [.openAI, .openRouter]
+    static let chatGPT = MeetingSummaryBackendOption(
+        backend: "chatgpt",
+        label: "ChatGPT"
+    )
+
+    static let all: [MeetingSummaryBackendOption] = [.openAI, .openRouter, .chatGPT]
 }
 
 struct CustomWord: Codable, Equatable, Identifiable {
@@ -185,6 +200,7 @@ struct AppConfig: Codable {
     var openRouterAPIKey: String = ""
     var openAIModel: String = ""
     var openRouterModel: String = ""
+    var chatGPTModel: String = ""
     var summaryModel: String = ""
     var meetingSummaryModel: String = ""
     var hasCompletedOnboarding: Bool = false
@@ -213,6 +229,7 @@ struct AppConfig: Codable {
         case openRouterAPIKey = "openrouter_api_key"
         case openAIModel = "openai_model"
         case openRouterModel = "openrouter_model"
+        case chatGPTModel = "chatgpt_model"
         case summaryModel = "summary_model"
         case meetingSummaryModel = "meeting_summary_model"
         case hasCompletedOnboarding = "has_completed_onboarding"
@@ -244,6 +261,7 @@ struct AppConfig: Codable {
         openRouterAPIKey = (try? c.decode(String.self, forKey: .openRouterAPIKey)) ?? defaults.openRouterAPIKey
         openAIModel = (try? c.decode(String.self, forKey: .openAIModel)) ?? defaults.openAIModel
         openRouterModel = (try? c.decode(String.self, forKey: .openRouterModel)) ?? defaults.openRouterModel
+        chatGPTModel = (try? c.decode(String.self, forKey: .chatGPTModel)) ?? defaults.chatGPTModel
         summaryModel = (try? c.decode(String.self, forKey: .summaryModel)) ?? defaults.summaryModel
         meetingSummaryModel = (try? c.decode(String.self, forKey: .meetingSummaryModel)) ?? defaults.meetingSummaryModel
         hasCompletedOnboarding = (try? c.decode(Bool.self, forKey: .hasCompletedOnboarding)) ?? defaults.hasCompletedOnboarding

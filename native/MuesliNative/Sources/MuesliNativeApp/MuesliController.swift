@@ -17,6 +17,8 @@ final class MuesliController: NSObject {
     private let micActivityMonitor = MicActivityMonitor()
     private let meetingNotification = MeetingNotificationController()
 
+    private let chatGPTAuth = ChatGPTAuthManager.shared
+
     private var statusBarController: StatusBarController?
     private var historyWindowController: RecentHistoryWindowController?
     private var preferencesWindowController: PreferencesWindowController?
@@ -242,6 +244,7 @@ final class MuesliController: NSObject {
         appState.selectedMeetingSummaryBackend = selectedMeetingSummaryBackend
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
+        appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
     }
 
     func updateConfig(_ mutate: (inout AppConfig) -> Void) {
@@ -281,6 +284,24 @@ final class MuesliController: NSObject {
         updateConfig {
             $0.meetingSummaryBackend = option.backend
         }
+    }
+
+    func signInWithChatGPT() async {
+        do {
+            try await chatGPTAuth.signIn()
+            selectMeetingSummaryBackend(.chatGPT)
+            syncAppState()
+        } catch {
+            fputs("[muesli-native] ChatGPT sign-in failed: \(error)\n", stderr)
+        }
+    }
+
+    func signOutChatGPT() {
+        chatGPTAuth.signOut()
+        if selectedMeetingSummaryBackend == .chatGPT {
+            selectMeetingSummaryBackend(.openAI)
+        }
+        syncAppState()
     }
 
     func addCustomWord(_ word: CustomWord) {
@@ -325,9 +346,10 @@ final class MuesliController: NSObject {
             if let apiKey, !apiKey.isEmpty {
                 if summaryBackend == .openAI {
                     config.openAIAPIKey = apiKey
-                } else {
+                } else if summaryBackend == .openRouter {
                     config.openRouterAPIKey = apiKey
                 }
+                // ChatGPT backend uses OAuth tokens in Keychain, not an API key
             }
         }
         selectBackend(backend)
@@ -388,6 +410,10 @@ final class MuesliController: NSObject {
     @objc func selectMeetingSummaryBackendFromMenu(_ sender: NSMenuItem) {
         guard let label = sender.representedObject as? String,
               let option = MeetingSummaryBackendOption.all.first(where: { $0.label == label }) else { return }
+        if option == .chatGPT, !chatGPTAuth.isAuthenticated {
+            Task { await signInWithChatGPT() }
+            return
+        }
         selectMeetingSummaryBackend(option)
     }
 
