@@ -32,6 +32,9 @@ final class MuesliController: NSObject {
     private(set) var selectedMeetingSummaryBackend: MeetingSummaryBackendOption
     private var activeMeetingSession: MeetingSession?
     private var dictationStartedAt: Date?
+    private var _streamingDictationController: Any?  // StreamingDictationController (macOS 15+)
+    private var isNemotronStreaming = false
+    private var previousStreamText = ""
     private var openWindowCount = 0
     private var lastExternalApp: NSRunningApplication?
     private var workspaceObserver: NSObjectProtocol?
@@ -650,6 +653,22 @@ final class MuesliController: NSObject {
         if isMeetingRecording() { return }
         fputs("[muesli-native] recording start\n", stderr)
         micActivityMonitor.suppressWhileActive()
+
+        // Nemotron streaming: live text at cursor as user speaks
+        if selectedBackend.backend == "nemotron" {
+            if #available(macOS 15, *) {
+                // Set streaming flag SYNCHRONOUSLY so handleStop knows we're in streaming mode
+                isNemotronStreaming = true
+                previousStreamText = ""
+                dictationStartedAt = Date()
+                setState(.recording)
+                fputs("[muesli-native] Nemotron streaming mode active\n", stderr)
+                startNemotronStreamingAsync()
+                return
+            }
+        }
+
+        // Standard path: record → stop → transcribe → paste
         do {
             try recorder.start()
             dictationStartedAt = Date()
@@ -663,9 +682,46 @@ final class MuesliController: NSObject {
         }
     }
 
+    @available(macOS 15, *)
+    private func startNemotronStreamingAsync() {
+        Task {
+            let transcriber = await transcriptionCoordinator.getNemotronTranscriber()
+            fputs("[muesli-native] got Nemotron transcriber\n", stderr)
+
+            let controller = StreamingDictationController(transcriber: transcriber)
+            controller.onPartialText = { [weak self] fullText in
+                guard let self else { return }
+                let delta = String(fullText.dropFirst(self.previousStreamText.count))
+                fputs("[muesli-native] streaming partial: +\"\(delta)\" (total \(fullText.count) chars)\n", stderr)
+                if !delta.isEmpty {
+                    self.previousStreamText = fullText
+                    DispatchQueue.main.async {
+                        PasteController.paste(text: delta)
+                    }
+                }
+            }
+
+            await MainActor.run {
+                self._streamingDictationController = controller
+                controller.start()
+                fputs("[muesli-native] Nemotron streaming controller started\n", stderr)
+            }
+        }
+    }
+
     private func handleCancel() {
         if isMeetingRecording() { return }
         fputs("[muesli-native] cancel\n", stderr)
+
+        if isNemotronStreaming {
+            isNemotronStreaming = false
+            if #available(macOS 15, *), let sdc = _streamingDictationController as? StreamingDictationController {
+                let _ = sdc.stop()
+            }
+            _streamingDictationController = nil
+            previousStreamText = ""
+        }
+
         recorder.cancel()
         dictationStartedAt = nil
         setState(.idle)
@@ -700,6 +756,43 @@ final class MuesliController: NSObject {
         fputs("[muesli-native] stop\n", stderr)
         let startedAt = dictationStartedAt ?? Date()
         dictationStartedAt = nil
+
+        // Nemotron streaming: text already typed — just finalize and store
+        if isNemotronStreaming {
+            isNemotronStreaming = false
+            var finalText = ""
+            if #available(macOS 15, *), let controller = _streamingDictationController as? StreamingDictationController {
+                finalText = controller.stop()
+                fputs("[muesli-native] Nemotron streaming stop, got \(finalText.count) chars\n", stderr)
+            } else {
+                fputs("[muesli-native] Nemotron streaming stop, controller not ready (short press)\n", stderr)
+            }
+            _streamingDictationController = nil
+            previousStreamText = ""
+
+            let duration = max(Date().timeIntervalSince(startedAt), 0)
+            let cleaned = FillerWordFilter.apply(finalText)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !cleaned.isEmpty {
+                try? dictationStore.insertDictation(
+                    text: cleaned,
+                    durationSeconds: duration,
+                    startedAt: startedAt,
+                    endedAt: Date()
+                )
+            }
+
+            statusBarController?.refresh()
+            historyWindowController?.reload()
+            syncAppState()
+            setState(.idle)
+            micActivityMonitor.resumeAfterCooldown()
+            fputs("[muesli-native] Nemotron streaming done (\(String(format: "%.1f", duration))s)\n", stderr)
+            return
+        }
+
+        // Standard path: stop recording → transcribe → paste
         guard let wavURL = recorder.stop() else {
             fputs("[muesli-native] stop without wav\n", stderr)
             setState(.idle)

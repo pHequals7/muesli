@@ -30,6 +30,12 @@ actor TranscriptionCoordinator {
         return _nemotronTranscriber as! NemotronStreamingTranscriber
     }
 
+    /// Public accessor for streaming dictation — triggers lazy init if needed.
+    @available(macOS 15, *)
+    func getNemotronTranscriber() -> NemotronStreamingTranscriber {
+        return nemotronTranscriber
+    }
+
     @available(macOS 15, *)
     private var qwen3Transcriber: Qwen3AsrTranscriber {
         if _qwen3Transcriber == nil {
