@@ -316,6 +316,53 @@ final class FloatingIndicatorController {
         setState(state, config: config)
     }
 
+    /// Flash a brief warning message on the indicator pill, then snap back to idle.
+    func showWarning(_ message: String, icon: String = "⚡", duration: TimeInterval = 2.5) {
+        guard state == .idle else { return }
+        let config = configStore.load()
+        if panel == nil { createPanel(config: config) }
+        guard let panel, let contentView, let iconLabel, let textLabel else { return }
+
+        let warningSize = NSSize(width: 260, height: 36)
+        let center = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
+        guard let screen = NSScreen.main?.visibleFrame else { return }
+        let x = min(max(center.x - warningSize.width / 2, screen.minX), screen.maxX - warningSize.width)
+        let y = min(max(center.y - warningSize.height / 2, screen.minY), screen.maxY - warningSize.height)
+        let targetFrame = NSRect(x: x, y: y, width: warningSize.width, height: warningSize.height)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+
+            panel.animator().setFrame(targetFrame, display: true)
+            panel.animator().alphaValue = 1.0
+            contentView.animator().frame = NSRect(origin: .zero, size: warningSize)
+            contentView.layer?.cornerRadius = warningSize.height / 2
+            contentView.layer?.backgroundColor = NSColor.colorWith(hex: 0xD99A11, alpha: 0.92).cgColor
+            contentView.layer?.borderWidth = 1.0
+            contentView.layer?.borderColor = NSColor.colorWith(hex: 0xFFFFFF, alpha: 0.24).cgColor
+
+            iconLabel.isHidden = false
+            iconLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
+            iconLabel.stringValue = icon
+            iconLabel.textColor = NSColor.colorWith(hex: 0x1A140D, alpha: 0.95)
+            iconLabel.animator().alphaValue = 1
+
+            textLabel.stringValue = message
+            textLabel.textColor = NSColor.colorWith(hex: 0x1A140D, alpha: 0.95)
+            textLabel.isHidden = false
+            textLabel.animator().alphaValue = 1
+            layoutLabels(iconLabel: iconLabel, textLabel: textLabel, in: warningSize, hasTitle: true, animated: true)
+        }
+        panel.orderFrontRegardless()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            guard let self, self.state == .idle else { return }
+            self.setState(.idle, config: self.configStore.load())
+        }
+    }
+
     func setHovered(_ hovered: Bool) {
         guard state == .idle, !isDragging, isHovered != hovered else { return }
         hoverExitWorkItem?.cancel()

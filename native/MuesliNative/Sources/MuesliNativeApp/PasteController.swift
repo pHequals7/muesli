@@ -15,6 +15,28 @@ enum PasteController {
         }
     }
 
+    /// Type text directly via CGEvent keyboard simulation without touching the clipboard.
+    /// Each Character is posted as a keydown+keyup pair with its UTF-16 code units.
+    static func typeText(_ text: String) {
+        guard !text.isEmpty else { return }
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            fputs("[muesli-native] failed to create event source for typeText\n", stderr)
+            return
+        }
+        for char in text {
+            var utf16 = Array(char.utf16)
+            utf16.withUnsafeMutableBufferPointer { buf in
+                guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+                      let keyUp   = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false)
+                else { return }
+                keyDown.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: buf.baseAddress)
+                keyUp.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: buf.baseAddress)
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
+            }
+        }
+    }
+
     private static func simulatePaste() {
         guard let source = CGEventSource(stateID: .combinedSessionState) else {
             fputs("[muesli-native] failed to create event source for paste\n", stderr)

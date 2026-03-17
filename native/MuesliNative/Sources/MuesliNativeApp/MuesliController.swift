@@ -685,11 +685,18 @@ final class MuesliController: NSObject {
 
     private func handleStart() {
         if isMeetingRecording() { return }
+
+        // Nemotron is handsfree-only — block hold-to-talk and show a hint
+        if selectedBackend.backend == "nemotron" {
+            recorder.cancel()
+            fputs("[muesli-native] hold-to-talk blocked for Nemotron, showing warning\n", stderr)
+            indicator.showWarning("Double-tap for Nemotron handsfree mode", icon: "⚡")
+            return
+        }
+
         fputs("[muesli-native] recording start\n", stderr)
         micActivityMonitor.suppressWhileActive()
 
-        // Standard path for all backends in hold-to-talk mode
-        // (Nemotron streaming is only used in handsfree/toggle mode)
         do {
             try recorder.start()
             dictationStartedAt = Date()
@@ -717,7 +724,7 @@ final class MuesliController: NSObject {
                 if !delta.isEmpty {
                     self.previousStreamText = fullText
                     DispatchQueue.main.async {
-                        PasteController.paste(text: delta)
+                        PasteController.typeText(delta)
                     }
                 }
             }
