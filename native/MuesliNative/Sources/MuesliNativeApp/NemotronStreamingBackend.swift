@@ -175,6 +175,7 @@ actor NemotronStreamingTranscriber {
             let numFrames = encodedLength[0].intValue
             let encodedPtr = encoded.dataPointer.bindMemory(to: Float.self, capacity: encoded.count)
 
+
             for t in 0..<numFrames {
                 var maxSteps = 10
                 while maxSteps > 0 {
@@ -198,12 +199,15 @@ actor NemotronStreamingTranscriber {
                         throw TranscriberError.decodingFailed("No decoder output")
                     }
 
+
                     // Joint: encoder [1, 1024, 1] + decoder [1, 640, 1] → logits
-                    // Extract encoder frame t as [1, 1024, 1]
+                    // Encoder output is [1, 1024, 7] with strides [7168, 7, 1]
+                    // Access [0, d, t] = encodedPtr[d * stride1 + t]
                     let encFrame = try MLMultiArray(shape: [1, NSNumber(value: encoderDim), 1], dataType: .float32)
                     let encFramePtr = encFrame.dataPointer.bindMemory(to: Float.self, capacity: encoderDim)
+                    let encodedStride1 = encoded.strides[1].intValue
                     for d in 0..<encoderDim {
-                        encFramePtr[d] = encodedPtr[t * encoderDim + d]
+                        encFramePtr[d] = encodedPtr[d * encodedStride1 + t]
                     }
 
                     // decoder_out shape is [1, 640, 1] already
@@ -224,6 +228,7 @@ actor NemotronStreamingTranscriber {
                     var maxIdx: vDSP_Length = 0
                     vDSP_maxvi(logitsPtr, 1, &maxVal, &maxIdx, vDSP_Length(logitsCount))
                     let predictedToken = Int(maxIdx)
+
 
                     if predictedToken == blankTokenId {
                         break // BLANK → next encoder frame

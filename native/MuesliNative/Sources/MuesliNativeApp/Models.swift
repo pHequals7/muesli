@@ -59,7 +59,7 @@ struct BackendOption: Equatable {
         model: "FluidInference/nemotron-speech-streaming-en-0.6b-coreml",
         label: "Nemotron Streaming",
         sizeLabel: "~600 MB",
-        description: "NVIDIA streaming RNNT. English-only, ultra-low latency. CoreML on ANE.",
+        description: "NVIDIA streaming RNNT. English-only. Best for longer audio (10s+). ~0.3s latency.",
         recommended: false
     )
 
@@ -70,7 +70,7 @@ struct BackendOption: Equatable {
     static let all: [BackendOption] = [
         .parakeetMultilingual, .parakeetEnglish,
         .whisperSmall, .whisperMedium, .whisperLargeTurbo,
-        .qwen3Asr,
+        .qwen3Asr, .nemotronStreaming,
     ]
 
     static let qwen3Asr = BackendOption(
@@ -83,9 +83,45 @@ struct BackendOption: Equatable {
     )
 
     /// Models coming soon — shown greyed out in the Models tab.
-    static let comingSoon: [BackendOption] = [
-        .nemotronStreaming,
-    ]
+    static let comingSoon: [BackendOption] = []
+
+    /// Only models that have been downloaded and are ready for inference.
+    static var downloaded: [BackendOption] {
+        all.filter { $0.isDownloaded }
+    }
+
+    /// Check if this model's files exist on disk.
+    var isDownloaded: Bool {
+        let fm = FileManager.default
+        switch backend {
+        case "whisper":
+            let filename = model.hasSuffix(".bin") ? model : "\(model).bin"
+            let path = fm.homeDirectoryForCurrentUser
+                .appendingPathComponent(".cache/muesli/models/\(filename)")
+            return fm.fileExists(atPath: path.path)
+        case "fluidaudio":
+            let supportDir = fm.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/FluidAudio/Models")
+            if model.contains("parakeet") {
+                let version = model.contains("v2") ? "v2" : "v3"
+                if let contents = try? fm.contentsOfDirectory(at: supportDir, includingPropertiesForKeys: nil) {
+                    return contents.contains { $0.lastPathComponent.contains("parakeet") && $0.lastPathComponent.contains(version) }
+                }
+            }
+            return false
+        case "qwen":
+            let supportDir = fm.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/FluidAudio/Models/qwen3-asr-0.6b-coreml")
+            return fm.fileExists(atPath: supportDir.appendingPathComponent("int8/vocab.json").path)
+                || fm.fileExists(atPath: supportDir.appendingPathComponent("f32/vocab.json").path)
+        case "nemotron":
+            let path = fm.homeDirectoryForCurrentUser
+                .appendingPathComponent(".cache/muesli/models/nemotron-560ms/encoder/encoder_int8.mlmodelc")
+            return fm.fileExists(atPath: path.path)
+        default:
+            return false
+        }
+    }
 }
 
 struct SummaryModelPreset {
