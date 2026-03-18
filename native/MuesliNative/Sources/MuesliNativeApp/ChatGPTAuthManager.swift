@@ -8,6 +8,7 @@ enum ChatGPTAuthError: Error, LocalizedError {
     case notAuthenticated
     case callbackTimeout
     case callbackMissingCode
+    case callbackStateMismatch
     case tokenExchangeFailed(String)
     case refreshFailed(String)
     case portInUse
@@ -17,6 +18,7 @@ enum ChatGPTAuthError: Error, LocalizedError {
         case .notAuthenticated: return "Not signed in to ChatGPT"
         case .callbackTimeout: return "Sign-in timed out — no response from browser"
         case .callbackMissingCode: return "OAuth callback missing authorization code"
+        case .callbackStateMismatch: return "OAuth state mismatch — possible CSRF attack"
         case .tokenExchangeFailed(let msg): return "Token exchange failed: \(msg)"
         case .refreshFailed(let msg): return "Token refresh failed: \(msg)"
         case .portInUse: return "Callback port 1455 is already in use"
@@ -184,7 +186,25 @@ final class ChatGPTAuthManager {
                     let code = self.extractCode(from: request)
                     let callbackState = self.extractParam(named: "state", from: request)
 
-                    // Send response HTML
+                    // Validate state before sending success page to prevent CSRF
+                    guard callbackState == expectedState else {
+                        fputs("[chatgpt-auth] OAuth state mismatch — possible CSRF\n", stderr)
+                        let errorHtml = """
+                        HTTP/1.1 400 Bad Request\r
+                        Content-Type: text/html\r
+                        Connection: close\r
+                        \r
+                        <!DOCTYPE html><html><body style="font-family:-apple-system,system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#1a1a1a;color:#fff"><div style="text-align:center"><h2>Sign-in failed</h2><p>Security validation failed. Please try again.</p></div></body></html>
+                        """
+                        connection.send(
+                            content: errorHtml.data(using: .utf8),
+                            completion: .contentProcessed { _ in connection.cancel() }
+                        )
+                        continuation.resume(throwing: ChatGPTAuthError.callbackStateMismatch)
+                        return
+                    }
+
+                    // Send success response HTML
                     let html = """
                     HTTP/1.1 200 OK\r
                     Content-Type: text/html\r
@@ -198,13 +218,6 @@ final class ChatGPTAuthManager {
                             connection.cancel()
                         }
                     )
-
-                    // Validate state to prevent CSRF
-                    guard callbackState == expectedState else {
-                        fputs("[chatgpt-auth] OAuth state mismatch — possible CSRF\n", stderr)
-                        continuation.resume(throwing: ChatGPTAuthError.callbackMissingCode)
-                        return
-                    }
 
                     if let code {
                         continuation.resume(returning: code)
@@ -379,6 +392,10 @@ final class ChatGPTAuthManager {
             let data = try JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted)
             try data.write(to: tokenFileURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenFileURL.path)
+            var resourceValues = URLResourceValues()
+            resourceValues.isExcludedFromBackup = true
+            var fileURL = tokenFileURL
+            try fileURL.setResourceValues(resourceValues)
         } catch {
             fputs("[chatgpt-auth] failed to save tokens: \(error)\n", stderr)
         }
