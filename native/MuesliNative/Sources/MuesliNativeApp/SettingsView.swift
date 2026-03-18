@@ -5,6 +5,9 @@ struct SettingsView: View {
     let appState: AppState
     let controller: MuesliController
 
+    @State private var chatGPTSignInError: String?
+    @State private var isSigningInChatGPT = false
+
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
 
@@ -89,25 +92,48 @@ struct SettingsView: View {
                                     .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                                 }
                                 .buttonStyle(.plain)
-                            } else {
-                                Button {
-                                    Task { await controller.signInWithChatGPT() }
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        OpenAILogoShape()
-                                            .fill(.white)
-                                            .frame(width: 10, height: 10)
-                                        Text("Sign in with ChatGPT")
-                                            .font(.system(size: 11, weight: .medium))
-                                            .foregroundStyle(.white)
-                                            .lineLimit(1)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(MuesliTheme.accent)
-                                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                            } else if isSigningInChatGPT {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Signing in...")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(MuesliTheme.textSecondary)
                                 }
-                                .buttonStyle(.plain)
+                            } else {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Button {
+                                        isSigningInChatGPT = true
+                                        chatGPTSignInError = nil
+                                        Task {
+                                            let error = await controller.signInWithChatGPT()
+                                            isSigningInChatGPT = false
+                                            chatGPTSignInError = error
+                                        }
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            OpenAILogoShape()
+                                                .fill(.white)
+                                                .frame(width: 10, height: 10)
+                                            Text("Sign in with ChatGPT")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(MuesliTheme.accent)
+                                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if let chatGPTSignInError {
+                                        Text(chatGPTSignInError)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.red)
+                                            .lineLimit(2)
+                                    }
+                                }
                             }
                         }
                         Divider().background(MuesliTheme.surfaceBorder)

@@ -14,6 +14,7 @@ struct OnboardingView: View {
     @State private var apiKey = ""
     @State private var isSigningInChatGPT = false
     @State private var chatGPTSignInDone = false
+    @State private var chatGPTSignInError: String?
 
     // Permission states — pre-filled from OS on appear, then set to true after delay on Grant click
     @State private var micGranted = false
@@ -573,10 +574,12 @@ struct OnboardingView: View {
                 } else {
                     Button {
                         isSigningInChatGPT = true
+                        chatGPTSignInError = nil
                         Task {
-                            await controller.signInWithChatGPT()
+                            let error = await controller.signInWithChatGPT()
                             isSigningInChatGPT = false
                             chatGPTSignInDone = ChatGPTAuthManager.shared.isAuthenticated
+                            chatGPTSignInError = error
                         }
                     } label: {
                         HStack(spacing: 6) {
@@ -593,6 +596,13 @@ struct OnboardingView: View {
                         .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                     }
                     .buttonStyle(.plain)
+
+                    if let chatGPTSignInError {
+                        Text(chatGPTSignInError)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
                 }
             } else {
                 if summaryBackend == .openRouter {

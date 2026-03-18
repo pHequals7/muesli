@@ -303,13 +303,16 @@ final class MuesliController: NSObject {
         }
     }
 
-    func signInWithChatGPT() async {
+    /// Returns nil on success, or an error message on failure.
+    func signInWithChatGPT() async -> String? {
         do {
             try await chatGPTAuth.signIn()
             selectMeetingSummaryBackend(.chatGPT)
             syncAppState()
+            return nil
         } catch {
             fputs("[muesli-native] ChatGPT sign-in failed: \(error)\n", stderr)
+            return error.localizedDescription
         }
     }
 
