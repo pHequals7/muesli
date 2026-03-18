@@ -8,7 +8,9 @@ import MuesliCore
 final class MuesliController: NSObject {
     private let runtime: RuntimePaths
     private let configStore = ConfigStore()
-    private let dictationStore = DictationStore()
+    private let dictationStore = DictationStore(
+        databaseURL: MuesliPaths.defaultDatabaseURL(appName: AppIdentity.supportDirectoryName)
+    )
     let transcriptionCoordinator = TranscriptionCoordinator()
     private let hotkeyMonitor = HotkeyMonitor()
     private let recorder = MicrophoneRecorder()
