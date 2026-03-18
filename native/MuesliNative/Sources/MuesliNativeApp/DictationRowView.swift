@@ -5,6 +5,7 @@ struct DictationRowView: View {
     let record: DictationRecord
     let timeOnly: String
     let onCopy: () -> Void
+    var onDelete: (() -> Void)? = nil
 
     @State private var isHovered = false
 
@@ -23,12 +24,23 @@ struct DictationRowView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button(action: onCopy) {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuesliTheme.textTertiary)
+            HStack(spacing: 8) {
+                Button(action: onCopy) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
+
+                if let onDelete {
+                    Button(action: onDelete) {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
             .opacity(isHovered ? 1 : 0)
         }
         .padding(.horizontal, MuesliTheme.spacing20)
