@@ -5,13 +5,15 @@ import MuesliCore
 
 struct OnboardingView: View {
     let controller: MuesliController
+    let appState: AppState
 
     @State private var currentStep = 0
     @State private var userName = ""
     @State private var selectedBackend: BackendOption = .parakeetMultilingual
     @State private var summaryBackend: MeetingSummaryBackendOption = .openRouter
     @State private var apiKey = ""
-    @State private var isChatGPTSignedIn = false
+    @State private var isSigningInChatGPT = false
+    @State private var chatGPTSignInDone = false
 
     // Permission states — pre-filled from OS on appear, then set to true after delay on Grant click
     @State private var micGranted = false
@@ -547,29 +549,48 @@ struct OnboardingView: View {
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textSecondary)
 
-                if isChatGPTSignedIn {
+                if appState.isChatGPTAuthenticated || chatGPTSignInDone {
                     HStack(spacing: 6) {
-                        Circle()
-                            .fill(MuesliTheme.success)
-                            .frame(width: 6, height: 6)
+                        OpenAILogoShape()
+                            .fill(.white)
+                            .frame(width: 14, height: 14)
                         Text("Signed in with ChatGPT")
-                            .font(.system(size: 11))
-                            .foregroundStyle(MuesliTheme.success)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(MuesliTheme.success)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                } else if isSigningInChatGPT {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Signing in...")
+                            .font(.system(size: 12))
+                            .foregroundStyle(MuesliTheme.textSecondary)
                     }
                 } else {
                     Button {
+                        isSigningInChatGPT = true
                         Task {
                             await controller.signInWithChatGPT()
-                            isChatGPTSignedIn = ChatGPTAuthManager.shared.isAuthenticated
+                            isSigningInChatGPT = false
+                            chatGPTSignInDone = ChatGPTAuthManager.shared.isAuthenticated
                         }
                     } label: {
-                        Text("Sign in with ChatGPT")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(MuesliTheme.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                        HStack(spacing: 6) {
+                            OpenAILogoShape()
+                                .fill(.white)
+                                .frame(width: 14, height: 14)
+                            Text("Sign in with ChatGPT")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(MuesliTheme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                     }
                     .buttonStyle(.plain)
                 }
@@ -706,5 +727,97 @@ struct OnboardingTextField: NSViewRepresentable {
             guard let field = obj.object as? NSTextField else { return }
             text = field.stringValue
         }
+    }
+}
+
+// MARK: - OpenAI Logo
+
+struct OpenAILogoShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let sx = rect.width / 24
+        let sy = rect.height / 24
+        var p = Path()
+        p.move(to: CGPoint(x: 22.2819 * sx, y: 9.8211 * sy))
+        p.addCurve(to: CGPoint(x: 21.7662 * sx, y: 4.9103 * sy), control1: CGPoint(x: 22.8248 * sx, y: 8.1862 * sy), control2: CGPoint(x: 22.6369 * sx, y: 6.3967 * sy))
+        p.addCurve(to: CGPoint(x: 15.2564 * sx, y: 2.0103 * sy), control1: CGPoint(x: 20.4571 * sx, y: 2.6316 * sy), control2: CGPoint(x: 17.8260 * sx, y: 1.4595 * sy))
+        p.addCurve(to: CGPoint(x: 4.9807 * sx, y: 4.1818 * sy), control1: CGPoint(x: 12.1364 * sx, y: -1.4602 * sy), control2: CGPoint(x: 6.4298 * sx, y: -0.2543 * sy))
+        p.addCurve(to: CGPoint(x: 0.9830 * sx, y: 7.0818 * sy), control1: CGPoint(x: 3.2928 * sx, y: 4.5279 * sy), control2: CGPoint(x: 1.8360 * sx, y: 5.5847 * sy))
+        p.addCurve(to: CGPoint(x: 1.7257 * sx, y: 14.1784 * sy), control1: CGPoint(x: -0.3404 * sx, y: 9.3568 * sy), control2: CGPoint(x: -0.0401 * sx, y: 12.2267 * sy))
+        p.addCurve(to: CGPoint(x: 2.2367 * sx, y: 19.0891 * sy), control1: CGPoint(x: 1.1808 * sx, y: 15.8125 * sy), control2: CGPoint(x: 1.3670 * sx, y: 17.6022 * sy))
+        p.addCurve(to: CGPoint(x: 8.7513 * sx, y: 21.9892 * sy), control1: CGPoint(x: 3.5475 * sx, y: 21.3686 * sy), control2: CGPoint(x: 6.1803 * sx, y: 22.5406 * sy))
+        p.addCurve(to: CGPoint(x: 13.2599 * sx, y: 24.0000 * sy), control1: CGPoint(x: 9.8948 * sx, y: 23.2770 * sy), control2: CGPoint(x: 11.5377 * sx, y: 24.0097 * sy))
+        p.addCurve(to: CGPoint(x: 19.0317 * sx, y: 19.7942 * sy), control1: CGPoint(x: 15.8937 * sx, y: 24.0024 * sy), control2: CGPoint(x: 18.2271 * sx, y: 22.3021 * sy))
+        p.addCurve(to: CGPoint(x: 23.0294 * sx, y: 16.8941 * sy), control1: CGPoint(x: 20.7194 * sx, y: 19.4475 * sy), control2: CGPoint(x: 22.1760 * sx, y: 18.3908 * sy))
+        p.addCurve(to: CGPoint(x: 22.2819 * sx, y: 9.8212 * sy), control1: CGPoint(x: 24.3368 * sx, y: 14.6231 * sy), control2: CGPoint(x: 24.0351 * sx, y: 11.7688 * sy))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 13.2599 * sx, y: 22.4292 * sy))
+        p.addCurve(to: CGPoint(x: 10.3835 * sx, y: 21.3884 * sy), control1: CGPoint(x: 12.2086 * sx, y: 22.4309 * sy), control2: CGPoint(x: 11.1903 * sx, y: 22.0624 * sy))
+        p.addLine(to: CGPoint(x: 10.5254 * sx, y: 21.3080 * sy))
+        p.addLine(to: CGPoint(x: 15.3037 * sx, y: 18.5498 * sy))
+        p.addCurve(to: CGPoint(x: 15.6964 * sx, y: 17.8685 * sy), control1: CGPoint(x: 15.5456 * sx, y: 18.4079 * sy), control2: CGPoint(x: 15.6949 * sx, y: 18.1490 * sy))
+        p.addLine(to: CGPoint(x: 15.6964 * sx, y: 11.1316 * sy))
+        p.addLine(to: CGPoint(x: 17.7164 * sx, y: 12.3002 * sy))
+        p.addCurve(to: CGPoint(x: 17.7544 * sx, y: 12.3522 * sy), control1: CGPoint(x: 17.7367 * sx, y: 12.3105 * sy), control2: CGPoint(x: 17.7508 * sx, y: 12.3298 * sy))
+        p.addLine(to: CGPoint(x: 17.7544 * sx, y: 17.9348 * sy))
+        p.addCurve(to: CGPoint(x: 13.2599 * sx, y: 22.4292 * sy), control1: CGPoint(x: 17.7491 * sx, y: 20.4148 * sy), control2: CGPoint(x: 15.7399 * sx, y: 22.4240 * sy))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 3.5992 * sx, y: 18.3038 * sy))
+        p.addCurve(to: CGPoint(x: 3.0646 * sx, y: 15.2901 * sy), control1: CGPoint(x: 3.0720 * sx, y: 17.3934 * sy), control2: CGPoint(x: 2.8827 * sx, y: 16.3263 * sy))
+        p.addLine(to: CGPoint(x: 3.2066 * sx, y: 15.3753 * sy))
+        p.addLine(to: CGPoint(x: 7.9896 * sx, y: 18.1335 * sy))
+        p.addCurve(to: CGPoint(x: 8.7702 * sx, y: 18.1335 * sy), control1: CGPoint(x: 8.2306 * sx, y: 18.2749 * sy), control2: CGPoint(x: 8.5292 * sx, y: 18.2749 * sy))
+        p.addLine(to: CGPoint(x: 14.6130 * sx, y: 14.7650 * sy))
+        p.addLine(to: CGPoint(x: 14.6130 * sx, y: 17.0974 * sy))
+        p.addCurve(to: CGPoint(x: 14.5798 * sx, y: 17.1589 * sy), control1: CGPoint(x: 14.6119 * sx, y: 17.1219 * sy), control2: CGPoint(x: 14.5997 * sx, y: 17.1445 * sy))
+        p.addLine(to: CGPoint(x: 9.7400 * sx, y: 19.9502 * sy))
+        p.addCurve(to: CGPoint(x: 3.5992 * sx, y: 18.3038 * sy), control1: CGPoint(x: 7.5893 * sx, y: 21.1891 * sy), control2: CGPoint(x: 4.8416 * sx, y: 20.4525 * sy))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 2.3408 * sx, y: 7.8956 * sy))
+        p.addCurve(to: CGPoint(x: 4.7063 * sx, y: 5.9228 * sy), control1: CGPoint(x: 2.8717 * sx, y: 6.9794 * sy), control2: CGPoint(x: 3.7096 * sx, y: 6.2805 * sy))
+        p.addLine(to: CGPoint(x: 4.7063 * sx, y: 11.6000 * sy))
+        p.addCurve(to: CGPoint(x: 5.0942 * sx, y: 12.2765 * sy), control1: CGPoint(x: 4.7026 * sx, y: 11.8793 * sy), control2: CGPoint(x: 4.8513 * sx, y: 12.1386 * sy))
+        p.addLine(to: CGPoint(x: 10.9086 * sx, y: 15.6308 * sy))
+        p.addLine(to: CGPoint(x: 8.8885 * sx, y: 16.7993 * sy))
+        p.addCurve(to: CGPoint(x: 8.8175 * sx, y: 16.7993 * sy), control1: CGPoint(x: 8.8663 * sx, y: 16.8111 * sy), control2: CGPoint(x: 8.8397 * sx, y: 16.8111 * sy))
+        p.addLine(to: CGPoint(x: 3.9872 * sx, y: 14.0128 * sy))
+        p.addCurve(to: CGPoint(x: 2.3408 * sx, y: 7.8720 * sy), control1: CGPoint(x: 1.8408 * sx, y: 12.7686 * sy), control2: CGPoint(x: 1.1047 * sx, y: 10.0230 * sy))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 18.9371 * sx, y: 11.7514 * sy))
+        p.addLine(to: CGPoint(x: 13.1038 * sx, y: 8.3640 * sy))
+        p.addLine(to: CGPoint(x: 15.1192 * sx, y: 7.2000 * sy))
+        p.addCurve(to: CGPoint(x: 15.1902 * sx, y: 7.2000 * sy), control1: CGPoint(x: 15.1414 * sx, y: 7.1882 * sy), control2: CGPoint(x: 15.1680 * sx, y: 7.1882 * sy))
+        p.addLine(to: CGPoint(x: 20.0205 * sx, y: 9.9913 * sy))
+        p.addCurve(to: CGPoint(x: 19.3440 * sx, y: 18.0955 * sy), control1: CGPoint(x: 23.3136 * sx, y: 11.8915 * sy), control2: CGPoint(x: 22.9065 * sx, y: 16.7676 * sy))
+        p.addLine(to: CGPoint(x: 19.3440 * sx, y: 12.4183 * sy))
+        p.addCurve(to: CGPoint(x: 18.9370 * sx, y: 11.7513 * sy), control1: CGPoint(x: 19.3355 * sx, y: 12.1397 * sy), control2: CGPoint(x: 19.1808 * sx, y: 11.8863 * sy))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 20.9478 * sx, y: 8.7283 * sy))
+        p.addLine(to: CGPoint(x: 20.8058 * sx, y: 8.6431 * sy))
+        p.addLine(to: CGPoint(x: 16.0323 * sx, y: 5.8613 * sy))
+        p.addCurve(to: CGPoint(x: 15.2469 * sx, y: 5.8613 * sy), control1: CGPoint(x: 15.7898 * sx, y: 5.7190 * sy), control2: CGPoint(x: 15.4894 * sx, y: 5.7190 * sy))
+        p.addLine(to: CGPoint(x: 9.4090 * sx, y: 9.2297 * sy))
+        p.addLine(to: CGPoint(x: 9.4090 * sx, y: 6.8974 * sy))
+        p.addCurve(to: CGPoint(x: 9.4374 * sx, y: 6.8359 * sy), control1: CGPoint(x: 9.4065 * sx, y: 6.8732 * sy), control2: CGPoint(x: 9.4174 * sx, y: 6.8496 * sy))
+        p.addLine(to: CGPoint(x: 14.2677 * sx, y: 4.0493 * sy))
+        p.addCurve(to: CGPoint(x: 20.9479 * sx, y: 8.7093 * sy), control1: CGPoint(x: 17.5693 * sx, y: 2.1473 * sy), control2: CGPoint(x: 21.5928 * sx, y: 4.9539 * sy))
+        p.closeSubpath()
+        p.move(to: CGPoint(x: 8.3065 * sx, y: 12.8630 * sy))
+        p.addLine(to: CGPoint(x: 6.2865 * sx, y: 11.6992 * sy))
+        p.addCurve(to: CGPoint(x: 6.2485 * sx, y: 11.6425 * sy), control1: CGPoint(x: 6.2660 * sx, y: 11.6869 * sy), control2: CGPoint(x: 6.2521 * sx, y: 11.6661 * sy))
+        p.addLine(to: CGPoint(x: 6.2485 * sx, y: 6.0742 * sy))
+        p.addCurve(to: CGPoint(x: 13.6242 * sx, y: 2.6205 * sy), control1: CGPoint(x: 6.2535 * sx, y: 2.2647 * sy), control2: CGPoint(x: 10.6950 * sx, y: 0.1849 * sy))
+        p.addLine(to: CGPoint(x: 13.4822 * sx, y: 2.7010 * sy))
+        p.addLine(to: CGPoint(x: 8.7040 * sx, y: 5.4590 * sy))
+        p.addCurve(to: CGPoint(x: 8.3113 * sx, y: 6.1403 * sy), control1: CGPoint(x: 8.4621 * sx, y: 5.6009 * sy), control2: CGPoint(x: 8.3128 * sx, y: 5.8598 * sy))
+        p.closeSubpath()
+        // Inner hexagon
+        p.move(to: CGPoint(x: 9.4041 * sx, y: 10.4976 * sy))
+        p.addLine(to: CGPoint(x: 12.0061 * sx, y: 8.9978 * sy))
+        p.addLine(to: CGPoint(x: 14.6130 * sx, y: 10.4976 * sy))
+        p.addLine(to: CGPoint(x: 14.6130 * sx, y: 13.4970 * sy))
+        p.addLine(to: CGPoint(x: 12.0156 * sx, y: 14.9967 * sy))
+        p.addLine(to: CGPoint(x: 9.4089 * sx, y: 13.4970 * sy))
+        p.closeSubpath()
+        return p
     }
 }

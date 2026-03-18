@@ -38,7 +38,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.backgroundColor = NSColor(red: 0.067, green: 0.071, blue: 0.078, alpha: 1)
 
-        let rootView = OnboardingView(controller: controller)
+        let rootView = OnboardingView(controller: controller, appState: controller.appState)
         window.contentView = NSHostingView(rootView: rootView)
         self.window = window
     }

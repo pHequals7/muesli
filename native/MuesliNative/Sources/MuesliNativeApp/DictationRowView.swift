@@ -8,6 +8,7 @@ struct DictationRowView: View {
     var onDelete: (() -> Void)? = nil
 
     @State private var isHovered = false
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         HStack(alignment: .top, spacing: MuesliTheme.spacing20) {
@@ -32,8 +33,8 @@ struct DictationRowView: View {
                 }
                 .buttonStyle(.plain)
 
-                if let onDelete {
-                    Button(action: onDelete) {
+                if onDelete != nil {
+                    Button { showDeleteConfirmation = true } label: {
                         Image(systemName: "trash")
                             .font(.system(size: 12))
                             .foregroundStyle(.red.opacity(0.6))
@@ -52,5 +53,11 @@ struct DictationRowView: View {
             }
         }
         .onTapGesture(perform: onCopy)
+        .alert("Delete Dictation", isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) { onDelete?() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this dictation? This cannot be undone.")
+        }
     }
 }

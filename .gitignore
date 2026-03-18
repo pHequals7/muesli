@@ -26,9 +26,12 @@ tmp-install/
 *.sqlite
 *.db
 
-# Signing/certificates
+# Signing/certificates & releases
 developerID_application.cer
 dist-notary/
+dist-release/
+scripts/notarize_dmg.sh
+scripts/dev-test.sh
 
 # Legacy files (kept locally, not tracked)
 CLAUDE.md

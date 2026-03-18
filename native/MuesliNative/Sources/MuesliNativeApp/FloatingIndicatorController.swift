@@ -103,8 +103,7 @@ final class FloatingIndicatorController {
     func handleClick(atX x: CGFloat? = nil) {
         if isMeetingRecording {
             onStopMeeting?()
-        } else if state == .recording && isToggleDictation, let x {
-            let width = panel?.frame.width ?? 110
+        } else if state == .recording, let x {
             if x < 30 {
                 // X region → discard
                 onCancelToggleDictation?()
@@ -120,7 +119,7 @@ final class FloatingIndicatorController {
     func handleOptionClick() {
         if isMeetingRecording {
             showDiscardConfirmation()
-        } else if state == .recording && isToggleDictation {
+        } else if state == .recording {
             onCancelToggleDictation?()
         }
     }
@@ -200,7 +199,7 @@ final class FloatingIndicatorController {
         if state != .idle {
             isHovered = false
         }
-        guard config.showFloatingIndicator else {
+        if !config.showFloatingIndicator && state == .idle {
             close()
             return
         }
@@ -255,8 +254,8 @@ final class FloatingIndicatorController {
                     )
                     textLabel.animator().alphaValue = 0
                     textLabel.isHidden = true
-                } else if isToggleDictation {
-                    // Toggle dictation: X on left, waveform in middle, stop on right
+                } else {
+                    // All dictation (hold + toggle): X on left, waveform in middle, stop on right
                     iconLabel.isHidden = false
                     iconLabel.animator().alphaValue = 1
                     iconLabel.stringValue = "\u{2715}"  // ✕
@@ -272,11 +271,6 @@ final class FloatingIndicatorController {
 
                     textLabel.animator().alphaValue = 0
                     textLabel.isHidden = true
-
-                } else {
-                    // Hold dictation: hide labels entirely, waveform replaces
-                    iconLabel.animator().alphaValue = 0
-                    textLabel.animator().alphaValue = 0
                 }
             } else {
                 iconLabel.isHidden = false
@@ -301,11 +295,9 @@ final class FloatingIndicatorController {
         if state == .recording {
             if isMeetingRecording {
                 startWaveformAnimation(in: targetFrame.size, xOffset: 26, barCount: 4)
-            } else if isToggleDictation {
+            } else {
                 startWaveformAnimation(in: targetFrame.size, xOffset: 24, rightPadding: 24)
                 addStopLayer(in: targetFrame.size)
-            } else {
-                startWaveformAnimation(in: targetFrame.size)
             }
         }
 
@@ -381,6 +373,10 @@ final class FloatingIndicatorController {
         }
         hoverExitWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.14, execute: workItem)
+    }
+
+    func closeIfIdle() {
+        if state == .idle { close() }
     }
 
     func close() {
@@ -548,7 +544,6 @@ final class FloatingIndicatorController {
         self.contentView = contentView
         self.iconLabel = iconLabel
         self.textLabel = textLabel
-        setState(.idle, config: config)
     }
 
     private func frameForState(_ state: DictationState, config: AppConfig) -> NSRect {
@@ -563,10 +558,8 @@ final class FloatingIndicatorController {
         case .recording:
             if isMeetingRecording {
                 size = NSSize(width: 72, height: 32)
-            } else if isToggleDictation {
-                size = NSSize(width: 76, height: 22)
             } else {
-                size = NSSize(width: 80, height: 32)
+                size = NSSize(width: 76, height: 22)
             }
         case .transcribing: size = NSSize(width: 120, height: 32)
         }

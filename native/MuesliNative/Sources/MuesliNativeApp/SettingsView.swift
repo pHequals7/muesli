@@ -71,33 +71,41 @@ struct SettingsView: View {
                     if appState.selectedMeetingSummaryBackend == .chatGPT {
                         settingsRow("Account") {
                             if appState.isChatGPTAuthenticated {
-                                HStack(spacing: 8) {
-                                    Circle()
-                                        .fill(MuesliTheme.success)
-                                        .frame(width: 6, height: 6)
-                                    Text("Signed in")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(MuesliTheme.success)
-                                    Spacer()
-                                    Button("Sign Out") {
-                                        controller.signOutChatGPT()
+                                Button {
+                                    controller.signOutChatGPT()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        OpenAILogoShape()
+                                            .fill(.white)
+                                            .frame(width: 10, height: 10)
+                                        Text("Signed in · Sign Out")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
                                     }
-                                    .font(.system(size: 11))
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(MuesliTheme.textSecondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(MuesliTheme.success)
+                                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                                 }
-                                .frame(width: controlWidth)
+                                .buttonStyle(.plain)
                             } else {
                                 Button {
                                     Task { await controller.signInWithChatGPT() }
                                 } label: {
-                                    Text("Sign in with ChatGPT")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 5)
-                                        .background(MuesliTheme.accent)
-                                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                                    HStack(spacing: 5) {
+                                        OpenAILogoShape()
+                                            .fill(.white)
+                                            .frame(width: 10, height: 10)
+                                        Text("Sign in with ChatGPT")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(MuesliTheme.accent)
+                                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                                 }
                                 .buttonStyle(.plain)
                             }

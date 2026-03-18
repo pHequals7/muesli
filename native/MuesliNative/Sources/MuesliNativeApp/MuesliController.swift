@@ -87,7 +87,12 @@ final class MuesliController: NSObject {
         indicator.onStopMeeting = { [weak self] in self?.stopMeetingRecording() }
         indicator.onDiscardMeeting = { [weak self] in self?.discardMeetingRecording() }
         indicator.onStopToggleDictation = { [weak self] in
-            self?.hotkeyMonitor.stopToggleMode()
+            guard let self else { return }
+            if self.hotkeyMonitor.isToggleRecording {
+                self.hotkeyMonitor.stopToggleMode()
+            } else {
+                self.handleStop()
+            }
         }
         indicator.onCancelToggleDictation = { [weak self] in
             self?.handleCancel()
@@ -225,7 +230,7 @@ final class MuesliController: NSObject {
         if config.showFloatingIndicator {
             indicator.ensureVisible(config: config)
         } else {
-            indicator.close()
+            indicator.closeIfIdle()
         }
     }
 
@@ -273,7 +278,7 @@ final class MuesliController: NSObject {
         if config.showFloatingIndicator {
             indicator.ensureVisible(config: config)
         } else {
-            indicator.close()
+            indicator.closeIfIdle()
         }
     }
 

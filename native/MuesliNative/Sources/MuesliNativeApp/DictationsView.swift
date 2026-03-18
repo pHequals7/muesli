@@ -125,12 +125,6 @@ struct DictationsView: View {
                                             } label: {
                                                 Label("Copy", systemImage: "doc.on.doc")
                                             }
-                                            Divider()
-                                            Button(role: .destructive) {
-                                                controller.deleteDictation(id: record.id)
-                                            } label: {
-                                                Label("Delete", systemImage: "trash")
-                                            }
                                         }
                                     }
                                 }
