@@ -518,6 +518,11 @@ final class MuesliController: NSObject {
         syncAppState()
     }
 
+    func deleteDictation(id: Int64) {
+        try? dictationStore.deleteDictation(id: id)
+        syncAppState()
+    }
+
     func clearDictationHistory() {
         try? dictationStore.clearDictations()
         statusBarController?.refresh()

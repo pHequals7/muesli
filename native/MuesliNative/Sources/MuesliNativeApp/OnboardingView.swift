@@ -312,7 +312,10 @@ struct OnboardingView: View {
                         if !CGPreflightListenEventAccess() {
                             CGRequestListenEventAccess()
                         }
-                        openSystemSettings("Privacy_ListenEvent")
+                        // Delay opening Settings to avoid race with permission dialog
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            openSystemSettings("Privacy_ListenEvent")
+                        }
                         grantAfterDelay("input") { inputMonitoringGranted = true }
                     }
                 )

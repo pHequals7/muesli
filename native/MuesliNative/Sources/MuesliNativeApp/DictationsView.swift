@@ -115,6 +115,19 @@ struct DictationsView: View {
                                         ) {
                                             controller.copyToClipboard(record.rawText)
                                         }
+                                        .contextMenu {
+                                            Button {
+                                                controller.copyToClipboard(record.rawText)
+                                            } label: {
+                                                Label("Copy", systemImage: "doc.on.doc")
+                                            }
+                                            Divider()
+                                            Button(role: .destructive) {
+                                                controller.deleteDictation(id: record.id)
+                                            } label: {
+                                                Label("Delete", systemImage: "trash")
+                                            }
+                                        }
                                     }
                                 }
                                 .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
