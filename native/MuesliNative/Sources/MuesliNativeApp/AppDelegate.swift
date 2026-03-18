@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Sparkle
+import TelemetryDeck
 import MuesliCore
 
 @MainActor
@@ -9,6 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var updaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let telemetryConfig = TelemetryDeck.Config(appID: "7F2B7846-1CB5-4FE6-8ABC-56F217B06A86")
+        TelemetryDeck.initialize(config: telemetryConfig)
+        TelemetryDeck.signal("app.launched")
+
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,

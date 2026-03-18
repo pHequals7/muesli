@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Foundation
 import Sparkle
+import TelemetryDeck
 import MuesliCore
 
 @MainActor
@@ -640,6 +641,7 @@ final class MuesliController: NSObject {
                 self.statusBarController?.refresh()
                 self.historyWindowController?.reload()
                 self.syncAppState()
+                TelemetryDeck.signal("meeting.completed")
 
                 self.meetingNotification.show(
                     title: "Transcription complete",
@@ -896,6 +898,7 @@ final class MuesliController: NSObject {
                     PasteController.paste(text: text)
                     self.setState(.idle)
                     self.micActivityMonitor.resumeAfterCooldown()
+                    TelemetryDeck.signal("dictation.completed", parameters: ["backend": self.selectedBackend.backend])
                 }
             } catch {
                 fputs("[muesli-native] transcription failed: \(error)\n", stderr)
