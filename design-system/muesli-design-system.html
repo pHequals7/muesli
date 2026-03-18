@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>muesli design language system</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    --bg-deep: #111214;
+    --bg-base: #161719;
+    --bg-raised: #1C1D20;
+    --bg-hover: #232528;
+    --surface-primary: #262830;
+    --surface-selected: #2E3340;
+    --text-primary: rgba(255,255,255,0.92);
+    --text-secondary: rgba(255,255,255,0.62);
+    --text-tertiary: rgba(255,255,255,0.40);
+    --accent: #6BA3F7;
+    --recording: #EF4444;
+    --transcribing: #F59E0B;
+    --success: #34D399;
+    --border: rgba(255,255,255,0.07);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  @media print {
+    body { background: white; color: #111; }
+    .page-break { page-break-before: always; }
+    .cover { background: #111214 !important; color: white !important; }
+    section { padding: 40px 60px; }
+  }
+
+  /* Cover */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-deep);
+    text-align: center;
+    padding: 60px;
+  }
+  .cover .logo {
+    margin-bottom: 40px;
+  }
+  .cover h1 {
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .cover .subtitle {
+    font-size: 18px;
+    color: var(--text-secondary);
+    font-weight: 400;
+  }
+  .cover .meta {
+    margin-top: 40px;
+    font-size: 13px;
+    color: var(--text-tertiary);
+  }
+
+  /* Sections */
+  section {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 60px 40px;
+  }
+  h2 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+  }
+  h2 .num {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .section-desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+  h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 28px 0 12px;
+    color: var(--text-primary);
+  }
+  h4 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 20px 0 8px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Color Swatches */
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .swatch {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .swatch .color-block {
+    height: 64px;
+  }
+  .swatch .info {
+    padding: 10px 12px;
+    background: var(--bg-raised);
+  }
+  .swatch .name {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .swatch .hex {
+    font-size: 11px;
+    font-family: 'SF Mono', monospace;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    padding: 10px 12px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  td {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    vertical-align: top;
+  }
+  td code {
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    background: var(--surface-primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+  }
+
+  /* Spacing Visual */
+  .spacing-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 6px 0;
+  }
+  .spacing-bar .block {
+    height: 20px;
+    background: var(--accent);
+    opacity: 0.3;
+    border-radius: 3px;
+  }
+  .spacing-bar .label {
+    font-size: 12px;
+    font-family: 'SF Mono', monospace;
+    color: var(--text-tertiary);
+    min-width: 60px;
+  }
+
+  /* Corner Radius Visual */
+  .radii-row {
+    display: flex;
+    gap: 20px;
+    margin: 16px 0;
+    align-items: flex-end;
+  }
+  .radius-demo {
+    text-align: center;
+  }
+  .radius-demo .box {
+    width: 64px;
+    height: 64px;
+    background: var(--accent);
+    opacity: 0.2;
+    border: 2px solid var(--accent);
+    margin-bottom: 8px;
+  }
+  .radius-demo .val {
+    font-size: 12px;
+    font-family: 'SF Mono', monospace;
+    color: var(--text-secondary);
+  }
+  .radius-demo .lbl {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  /* Type Scale */
+  .type-sample {
+    margin: 8px 0;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .type-sample .meta-row {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .type-sample .size-label {
+    font-size: 11px;
+    font-family: 'SF Mono', monospace;
+    color: var(--text-tertiary);
+    min-width: 100px;
+  }
+
+  /* Indicator States */
+  .indicator-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    margin: 16px 0;
+  }
+  .indicator-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .indicator-card .state-name {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+  .indicator-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    margin: 8px 0;
+    border: 1px solid rgba(255,255,255,0.24);
+    font-size: 14px;
+    gap: 4px;
+  }
+  .indicator-card .dims {
+    font-size: 11px;
+    font-family: 'SF Mono', monospace;
+    color: var(--text-tertiary);
+  }
+
+  /* Waveform Visual */
+  .waveform-demo {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 32px;
+    justify-content: center;
+  }
+  .waveform-demo .bar {
+    width: 3px;
+    background: rgba(255,255,255,0.85);
+    border-radius: 1.5px;
+  }
+
+  /* Icon Grid */
+  .icon-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+    margin: 16px 0;
+  }
+  .icon-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-raised);
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+  .icon-item .symbol {
+    font-size: 16px;
+    width: 24px;
+    text-align: center;
+  }
+  .icon-item .icon-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  /* Component Previews */
+  .component-preview {
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 12px 0;
+  }
+  .btn-primary {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .btn-secondary {
+    display: inline-block;
+    background: var(--surface-primary);
+    color: var(--text-secondary);
+    padding: 5px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+  }
+  .card-demo {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    max-width: 320px;
+  }
+  .card-selected {
+    background: var(--surface-selected);
+    border-color: rgba(107,163,247,0.35);
+  }
+
+  .divider {
+    height: 1px;
+    background: var(--border);
+    margin: 40px 0;
+  }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="cover">
+  <div style="display:flex;gap:3px;align-items:center;height:80px;padding:16px 20px;background:#1A1B1E;border-radius:18px;margin-bottom:40px">
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:20px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:30px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:36px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:54px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:72px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:78px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:34px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:78px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:72px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:54px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:36px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:30px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:20px"></div>
+  </div>
+  <h1>muesli</h1>
+  <div class="subtitle">design language system</div>
+  <div class="meta">v0.4.0 &middot; march 2026 &middot; macOS native app</div>
+</div>
+
+<!-- 1. COLORS -->
+<section class="page-break">
+  <h2><span class="num">01</span> Color System</h2>
+  <p class="section-desc">Adaptive colors with dark and light mode variants. Built on layered backgrounds for depth perception.</p>
+
+  <h3>Backgrounds (Layered)</h3>
+  <div class="swatches">
+    <div class="swatch"><div class="color-block" style="background:#111214"></div><div class="info"><div class="name">backgroundDeep</div><div class="hex">#111214 / #F5F5F7</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#161719"></div><div class="info"><div class="name">backgroundBase</div><div class="hex">#161719 / #FFFFFF</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#1C1D20"></div><div class="info"><div class="name">backgroundRaised</div><div class="hex">#1C1D20 / #F0F0F2</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#232528"></div><div class="info"><div class="name">backgroundHover</div><div class="hex">#232528 / #E8E8EC</div></div></div>
+  </div>
+
+  <h3>Surfaces</h3>
+  <div class="swatches">
+    <div class="swatch"><div class="color-block" style="background:#262830"></div><div class="info"><div class="name">surfacePrimary</div><div class="hex">#262830 / #E5E5EA</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#2E3340"></div><div class="info"><div class="name">surfaceSelected</div><div class="hex">#2E3340 / #D6DFFE</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:rgba(255,255,255,0.07)"></div><div class="info"><div class="name">surfaceBorder</div><div class="hex">White 7% / Black 8%</div></div></div>
+  </div>
+
+  <h3>Text Hierarchy</h3>
+  <table>
+    <tr><th>Token</th><th>Dark Mode</th><th>Light Mode</th><th>Usage</th></tr>
+    <tr><td><code>textPrimary</code></td><td>White 92%</td><td>Black 88%</td><td>Headings, body text</td></tr>
+    <tr><td><code>textSecondary</code></td><td>White 62%</td><td>Black 55%</td><td>Labels, metadata</td></tr>
+    <tr><td><code>textTertiary</code></td><td>White 40%</td><td>Black 33%</td><td>Hints, disabled, timestamps</td></tr>
+  </table>
+
+  <h3>Accent & Semantic</h3>
+  <div class="swatches">
+    <div class="swatch"><div class="color-block" style="background:#6BA3F7"></div><div class="info"><div class="name">accent</div><div class="hex">#6BA3F7 / #2563EB</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#EF4444"></div><div class="info"><div class="name">recording</div><div class="hex">#EF4444</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#F59E0B"></div><div class="info"><div class="name">transcribing</div><div class="hex">#F59E0B</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#34D399"></div><div class="info"><div class="name">success</div><div class="hex">#34D399</div></div></div>
+  </div>
+</section>
+
+<!-- 2. TYPOGRAPHY -->
+<section class="page-break">
+  <h2><span class="num">02</span> Typography</h2>
+  <p class="section-desc">Inter is the primary typeface (bundled). SF Pro as system fallback. Monospaced for data, Rounded for special emphasis.</p>
+
+  <h3>Type Scale</h3>
+  <div class="type-sample"><div class="meta-row"><span class="size-label">title1 &middot; 28pt Bold</span></div><div style="font-size:28px;font-weight:700">Meeting Summary</div></div>
+  <div class="type-sample"><div class="meta-row"><span class="size-label">title2 &middot; 22pt Semi</span></div><div style="font-size:22px;font-weight:600">Dictations</div></div>
+  <div class="type-sample"><div class="meta-row"><span class="size-label">title3 &middot; 18pt Semi</span></div><div style="font-size:18px;font-weight:600">No meetings yet</div></div>
+  <div class="type-sample"><div class="meta-row"><span class="size-label">headline &middot; 15pt Semi</span></div><div style="font-size:15px;font-weight:600">Sprint Planning Call</div></div>
+  <div class="type-sample"><div class="meta-row"><span class="size-label">body &middot; 14pt Regular</span></div><div style="font-size:14px;font-weight:400">The team discussed deployment timelines and reviewed outstanding bugs.</div></div>
+  <div class="type-sample"><div class="meta-row"><span class="size-label">callout &middot; 13pt Regular</span></div><div style="font-size:13px;font-weight:400;color:var(--text-secondary)">Hold Left Cmd to dictate</div></div>
+  <div class="type-sample"><div class="meta-row"><span class="size-label">caption &middot; 12pt Regular</span></div><div style="font-size:12px;font-weight:400;color:var(--text-tertiary)">2026-03-16 09:41 &bull; 1m 14s</div></div>
+
+  <h3>Special Variants</h3>
+  <table>
+    <tr><th>Variant</th><th>Usage</th><th>Example</th></tr>
+    <tr><td>Monospaced 13pt</td><td>Timestamps, raw transcript editor</td><td><code style="font-family:monospace">2026-03-16 09:41</code></td></tr>
+    <tr><td>Rounded 24pt Semibold</td><td>Hotkey display in onboarding</td><td>Left Cmd</td></tr>
+    <tr><td>Monospaced 12pt Semibold</td><td>Version display</td><td><code style="font-family:monospace">v0.4.0</code></td></tr>
+  </table>
+</section>
+
+<!-- 3. SPACING -->
+<section class="page-break">
+  <h2><span class="num">03</span> Spacing & Grid</h2>
+  <p class="section-desc">4pt base grid. Seven increments cover all layout needs.</p>
+
+  <div class="spacing-bar"><span class="label">4pt</span><div class="block" style="width:4px"></div><code>spacing4</code></div>
+  <div class="spacing-bar"><span class="label">8pt</span><div class="block" style="width:8px"></div><code>spacing8</code></div>
+  <div class="spacing-bar"><span class="label">12pt</span><div class="block" style="width:12px"></div><code>spacing12</code></div>
+  <div class="spacing-bar"><span class="label">16pt</span><div class="block" style="width:16px"></div><code>spacing16</code></div>
+  <div class="spacing-bar"><span class="label">20pt</span><div class="block" style="width:20px"></div><code>spacing20</code></div>
+  <div class="spacing-bar"><span class="label">24pt</span><div class="block" style="width:24px"></div><code>spacing24</code></div>
+  <div class="spacing-bar"><span class="label">32pt</span><div class="block" style="width:32px"></div><code>spacing32</code></div>
+
+  <h3>Corner Radii</h3>
+  <div class="radii-row">
+    <div class="radius-demo"><div class="box" style="border-radius:6px"></div><div class="val">6pt</div><div class="lbl">Small</div></div>
+    <div class="radius-demo"><div class="box" style="border-radius:10px"></div><div class="val">10pt</div><div class="lbl">Medium</div></div>
+    <div class="radius-demo"><div class="box" style="border-radius:14px"></div><div class="val">14pt</div><div class="lbl">Large</div></div>
+    <div class="radius-demo"><div class="box" style="border-radius:20px"></div><div class="val">20pt</div><div class="lbl">XL</div></div>
+    <div class="radius-demo"><div class="box" style="border-radius:32px"></div><div class="val">h/2</div><div class="lbl">Pill</div></div>
+  </div>
+</section>
+
+<!-- 4. ICONOGRAPHY -->
+<section class="page-break">
+  <h2><span class="num">04</span> Iconography</h2>
+  <p class="section-desc">SF Symbols for UI chrome, emoji for the floating indicator, custom MWaveformIcon for branding.</p>
+
+  <h3>Sidebar Navigation</h3>
+  <div class="icon-grid">
+    <div class="icon-item"><span class="symbol" style="font-family:-apple-system">&#x1F399;</span><div class="icon-label">mic.fill<br>Dictations</div></div>
+    <div class="icon-item"><span class="symbol" style="font-family:-apple-system">&#x1F465;</span><div class="icon-label">person.2.fill<br>Meetings</div></div>
+    <div class="icon-item"><span class="symbol" style="font-family:-apple-system">&#x1F4D6;</span><div class="icon-label">character.book<br>Dictionary</div></div>
+    <div class="icon-item"><span class="symbol" style="font-family:-apple-system">&#x2B07;</span><div class="icon-label">square.arrow.down<br>Models</div></div>
+    <div class="icon-item"><span class="symbol" style="font-family:-apple-system">&#x2328;</span><div class="icon-label">keyboard<br>Shortcuts</div></div>
+    <div class="icon-item"><span class="symbol" style="font-family:-apple-system">&#x2699;</span><div class="icon-label">gearshape<br>Settings</div></div>
+    <div class="icon-item"><span class="symbol" style="font-family:-apple-system">&#x2139;</span><div class="icon-label">info.circle<br>About</div></div>
+  </div>
+
+  <h3>Floating Indicator Emoji</h3>
+  <table>
+    <tr><th>Emoji</th><th>State</th><th>Context</th></tr>
+    <tr><td style="font-size:20px">&#x1F3A4;</td><td>Idle, Preparing, Recording</td><td>Microphone — dictation active</td></tr>
+    <tr><td style="font-size:20px">&#x23F9;</td><td>Meeting recording</td><td>Stop button — click to end</td></tr>
+    <tr><td style="font-size:20px">&#x270D;&#xFE0F;</td><td>Transcribing</td><td>Writing hand — processing audio</td></tr>
+    <tr><td style="font-size:20px">&times;</td><td>Toggle dictation</td><td>Discard — cancel recording</td></tr>
+  </table>
+
+  <h3>MWaveformIcon (Brand Mark)</h3>
+  <p style="color:var(--text-secondary);font-size:13px;margin:8px 0">M-shaped waveform rendered as rounded bars. The full app icon uses ~21 bars forming a symmetrical "M" pattern with two peaks and a central valley. Simplified 9-bar preset for small contexts: [0.45, 0.65, 0.90, 1.0, 0.45, 1.0, 0.90, 0.65, 0.45]</p>
+
+  <h4>Full Icon (as in app icon)</h4>
+  <div style="display:flex;gap:3px;align-items:center;height:80px;margin:16px 0;padding:16px 20px;background:#1A1B1E;border-radius:18px;width:fit-content">
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:20px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:30px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:36px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:54px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:72px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:78px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:34px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:78px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:72px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:64px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:54px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:46px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:36px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:30px"></div>
+    <div style="width:4px;border-radius:2px;background:var(--accent);height:20px"></div>
+  </div>
+
+  <h4>Simplified (9-bar, for small UI contexts)</h4>
+  <div style="display:flex;gap:3px;align-items:center;height:48px;margin:16px 0">
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:22px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:31px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:43px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:48px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:22px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:48px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:43px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:31px"></div>
+    <div style="width:5px;border-radius:2.5px;background:var(--accent);height:22px"></div>
+  </div>
+</section>
+
+<!-- 5. FLOATING INDICATOR -->
+<section class="page-break">
+  <h2><span class="num">05</span> Floating Indicator</h2>
+  <p class="section-desc">Always-on-top pill that shows app state. Draggable, clickable, with smooth animated transitions between states.</p>
+
+  <div class="indicator-grid">
+    <div class="indicator-card">
+      <div class="state-name">Idle (Compact)</div>
+      <div class="indicator-pill" style="width:44px;height:28px;background:rgba(0,0,0,0.66)">&#x1F3A4;</div>
+      <div class="dims">44 &times; 28 &middot; #000 66% &middot; alpha 0.82</div>
+    </div>
+    <div class="indicator-card">
+      <div class="state-name">Idle (Hover)</div>
+      <div class="indicator-pill" style="width:220px;height:36px;background:rgba(0,0,0,0.96);font-size:11px;padding:0 12px"><span>&#x1F3A4;</span><span style="color:var(--text-primary);font-weight:600;margin-left:4px">Hold Left Cmd to dictate</span></div>
+      <div class="dims">220 &times; 36 &middot; #000 96% &middot; alpha 1.0</div>
+    </div>
+    <div class="indicator-card">
+      <div class="state-name">Recording (Dictation)</div>
+      <div class="indicator-pill" style="width:80px;height:32px;background:rgba(211,47,47,0.72)">
+        <div class="waveform-demo" style="height:26px"><div class="bar" style="height:9px"></div><div class="bar" style="height:16px"></div><div class="bar" style="height:22px"></div><div class="bar" style="height:16px"></div><div class="bar" style="height:9px"></div></div>
+      </div>
+      <div class="dims">80 &times; 32 &middot; #D32F2F 72% &middot; waveform 5-bar</div>
+    </div>
+    <div class="indicator-card">
+      <div class="state-name">Recording (Toggle / Hands-free)</div>
+      <div class="indicator-pill" style="width:76px;height:22px;background:rgba(211,47,47,0.72);font-size:7px;padding:0 7px;gap:2px">
+        <span style="color:rgba(255,255,255,0.45)">&times;</span>
+        <div class="waveform-demo" style="height:16px;gap:3px"><div class="bar" style="height:5px;width:2px"></div><div class="bar" style="height:8px;width:2px"></div><div class="bar" style="height:8px;width:2px"></div><div class="bar" style="height:5px;width:2px"></div></div>
+        <div style="width:6px;height:6px;background:rgba(255,255,255,0.85);border-radius:1px"></div>
+      </div>
+      <div class="dims">76 &times; 22 &middot; X (discard) + 4-bar waveform + stop square</div>
+    </div>
+    <div class="indicator-card">
+      <div class="state-name">Recording (Meeting)</div>
+      <div class="indicator-pill" style="width:72px;height:32px;background:rgba(211,47,47,0.72);padding:0 8px">
+        <span>&#x23F9;</span>
+        <div class="waveform-demo" style="height:26px;gap:3px"><div class="bar" style="height:7px;width:2px"></div><div class="bar" style="height:12px;width:2px"></div><div class="bar" style="height:12px;width:2px"></div><div class="bar" style="height:7px;width:2px"></div></div>
+      </div>
+      <div class="dims">72 &times; 32 &middot; stop icon + 4-bar waveform</div>
+    </div>
+    <div class="indicator-card">
+      <div class="state-name">Transcribing</div>
+      <div class="indicator-pill" style="width:120px;height:32px;background:rgba(217,154,17,0.72);font-size:11px;padding:0 12px;gap:4px"><span>&#x270D;&#xFE0F;</span><span style="color:black;font-weight:600">Transcribing</span></div>
+      <div class="dims">120 &times; 32 &middot; #D99A11 72%</div>
+    </div>
+  </div>
+
+  <h3>Waveform Specifications</h3>
+  <table>
+    <tr><th>Property</th><th>Value</th></tr>
+    <tr><td>Bar width</td><td><code>3pt</code></td></tr>
+    <tr><td>Bar spacing</td><td><code>4pt</code></td></tr>
+    <tr><td>Min height</td><td><code>5pt</code></td></tr>
+    <tr><td>Max height</td><td><code>26pt</code></td></tr>
+    <tr><td>Bar color</td><td>White 85%</td></tr>
+    <tr><td>5-bar multipliers</td><td><code>[0.6, 0.85, 1.0, 0.85, 0.6]</code></td></tr>
+    <tr><td>4-bar multipliers</td><td><code>[0.7, 1.0, 1.0, 0.7]</code></td></tr>
+    <tr><td>Animation</td><td>Scale Y, 0.6s, easeInEaseOut, autoreverses, 0.07s stagger</td></tr>
+    <tr><td>Amplitude smoothing</td><td>Exponential average, 0.5 weight, 30fps</td></tr>
+  </table>
+
+  <h3>Transition Timings</h3>
+  <table>
+    <tr><th>Transition</th><th>Duration</th><th>Easing</th></tr>
+    <tr><td>Idle &harr; Hover</td><td>0.24s in / 0.20s out</td><td>easeInEaseOut</td></tr>
+    <tr><td>Idle &harr; Active state</td><td>0.18s</td><td>easeInEaseOut</td></tr>
+    <tr><td>Between active states</td><td>0.16s</td><td>easeInEaseOut</td></tr>
+    <tr><td>Hover exit delay</td><td>0.14s</td><td>&mdash;</td></tr>
+  </table>
+</section>
+
+<!-- 6. COMPONENTS -->
+<section class="page-break">
+  <h2><span class="num">06</span> Component Library</h2>
+  <p class="section-desc">Atomic components used across the app interface.</p>
+
+  <h3>Buttons</h3>
+  <div class="component-preview" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <div class="btn-primary">Download Model</div>
+    <div class="btn-secondary">&#x1F4CB; Copy notes</div>
+    <div class="btn-secondary">&#x1F4DD; Copy transcript</div>
+    <div class="btn-secondary">&#x2728; Re-summarize</div>
+    <div class="btn-secondary" style="border-color:var(--accent);color:var(--accent)">&#x270E; Edit</div>
+    <div class="btn-secondary" style="border-color:var(--success);color:var(--success)">&#x2713; Done</div>
+  </div>
+  <table>
+    <tr><th>Variant</th><th>Background</th><th>Text</th><th>Padding</th><th>Radius</th></tr>
+    <tr><td>Primary</td><td><code>accent</code></td><td>White</td><td>H:20 V:8</td><td>6pt</td></tr>
+    <tr><td>Secondary / Icon</td><td><code>surfacePrimary</code></td><td><code>textSecondary</code></td><td>H:8 V:5</td><td>6pt</td></tr>
+  </table>
+
+  <h3>Cards</h3>
+  <div class="component-preview" style="display:flex;gap:16px">
+    <div class="card-demo">
+      <div style="font-size:15px;font-weight:600">Sprint Planning</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">2026-03-16 09:41 &bull; 1m 14s</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Discussion about deployment timelines and...</div>
+    </div>
+    <div class="card-demo card-selected">
+      <div style="font-size:15px;font-weight:600">Customer Call</div>
+      <div style="font-size:12px;color:var(--text-secondary);margin-top:4px">2026-03-15 14:30 &bull; 25m</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-top:6px">Reviewed product roadmap with the client...</div>
+    </div>
+  </div>
+  <table>
+    <tr><th>State</th><th>Background</th><th>Border</th><th>Radius</th></tr>
+    <tr><td>Default</td><td><code>backgroundRaised</code></td><td><code>surfaceBorder</code> 1pt</td><td>14pt (large)</td></tr>
+    <tr><td>Selected</td><td><code>surfaceSelected</code></td><td><code>accent</code> 35% 1pt</td><td>14pt (large)</td></tr>
+    <tr><td>Hover</td><td><code>backgroundHover</code></td><td><code>surfaceBorder</code> 1pt</td><td>14pt (large)</td></tr>
+  </table>
+
+  <h3>Folder Row</h3>
+  <div class="component-preview">
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--surface-selected);border-radius:6px;max-width:280px">
+      <span style="font-size:13px;color:var(--accent)">&#x1F4C1;</span>
+      <span style="font-size:13px;color:var(--text-primary)">Engineering</span>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--text-tertiary)">5</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;max-width:280px;margin-top:4px">
+      <span style="font-size:13px;color:var(--text-secondary)">&#x1F4C1;</span>
+      <span style="font-size:13px;color:var(--text-secondary)">Customer Calls</span>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:var(--text-tertiary)">3</span>
+    </div>
+  </div>
+</section>
+
+<!-- 7. ANIMATION -->
+<section class="page-break">
+  <h2><span class="num">07</span> Animation & Interaction</h2>
+  <p class="section-desc">Consistent easing and timing across all interactive elements.</p>
+
+  <table>
+    <tr><th>Context</th><th>Duration</th><th>Easing</th></tr>
+    <tr><td>Hover state changes (buttons, cards)</td><td>0.15s</td><td>easeInOut</td></tr>
+    <tr><td>Indicator state transitions</td><td>0.16&ndash;0.18s</td><td>easeInEaseOut</td></tr>
+    <tr><td>Onboarding page navigation</td><td>0.20s</td><td>easeInOut</td></tr>
+    <tr><td>Permission grant animation</td><td>0.25s</td><td>easeInOut</td></tr>
+    <tr><td>Waveform pulse cycle</td><td>0.60s</td><td>easeInEaseOut</td></tr>
+    <tr><td>Stat number transitions</td><td>System default</td><td>.numericText()</td></tr>
+  </table>
+
+  <h3>Interaction Patterns</h3>
+  <table>
+    <tr><th>Element</th><th>Click</th><th>Right-click</th><th>Option+click</th><th>Drag</th></tr>
+    <tr><td>Indicator (idle)</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>Reposition</td></tr>
+    <tr><td>Indicator (recording)</td><td>Stop & save</td><td>&mdash;</td><td>&mdash;</td><td>Reposition</td></tr>
+    <tr><td>Indicator (toggle)</td><td>Left=discard, Right=save</td><td>Discard</td><td>Discard</td><td>Reposition</td></tr>
+    <tr><td>Indicator (meeting)</td><td>Stop & save</td><td>Discard confirm</td><td>Discard confirm</td><td>Reposition</td></tr>
+    <tr><td>Meeting card</td><td>Select</td><td>Move to folder</td><td>&mdash;</td><td>&mdash;</td></tr>
+    <tr><td>Folder row</td><td>Filter</td><td>Rename / Delete</td><td>&mdash;</td><td>&mdash;</td></tr>
+  </table>
+</section>
+
+<!-- 8. APP STRUCTURE -->
+<section class="page-break">
+  <h2><span class="num">08</span> App Structure</h2>
+  <p class="section-desc">Three-column layout with global sidebar navigation.</p>
+
+  <h3>Window Dimensions</h3>
+  <table>
+    <tr><th>Property</th><th>Value</th></tr>
+    <tr><td>Default size</td><td>1120 &times; 790</td></tr>
+    <tr><td>Minimum size</td><td>900 &times; 600</td></tr>
+    <tr><td>Sidebar width</td><td>240&ndash;300pt</td></tr>
+    <tr><td>Meeting list pane</td><td>280&ndash;380pt</td></tr>
+    <tr><td>Detail pane</td><td>Flexible (fills remaining)</td></tr>
+  </table>
+
+  <h3>Column Layout</h3>
+  <div class="component-preview" style="display:flex;height:120px;gap:1px;background:var(--border);border-radius:8px;overflow:hidden">
+    <div style="width:100px;background:var(--bg-deep);padding:12px">
+      <div style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Sidebar</div>
+      <div style="font-size:9px;color:var(--accent);margin:3px 0">Dictations</div>
+      <div style="font-size:9px;color:var(--text-secondary);margin:3px 0">Meetings</div>
+      <div style="font-size:9px;color:var(--text-secondary);margin:3px 0">Settings</div>
+    </div>
+    <div style="width:140px;background:var(--bg-deep);padding:12px">
+      <div style="font-size:10px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">List</div>
+      <div style="background:var(--surface-selected);border-radius:6px;padding:6px;margin:3px 0"><div style="font-size:8px;font-weight:600">Sprint Call</div></div>
+      <div style="background:var(--bg-raised);border-radius:6px;padding:6px;margin:3px 0"><div style="font-size:8px;color:var(--text-secondary)">Customer</div></div>
+    </div>
+    <div style="flex:1;background:var(--bg-base);padding:12px">
+      <div style="font-size:10px;font-weight:600;margin-bottom:4px">Sprint Planning Call</div>
+      <div style="font-size:8px;color:var(--text-tertiary)">Meeting notes and transcript...</div>
+    </div>
+  </div>
+
+  <h3>Status Bar Menu</h3>
+  <table>
+    <tr><th>Item</th><th>Action</th></tr>
+    <tr><td>Open muesli</td><td>Show dashboard window</td></tr>
+    <tr><td>Start/Stop Meeting Recording</td><td>Toggle meeting session</td></tr>
+    <tr><td>Discard Recording...</td><td>Abandon with confirmation (shown only when recording)</td></tr>
+    <tr><td>Recent Dictations &rarr;</td><td>Submenu with last 10</td></tr>
+    <tr><td>Recent Meetings &rarr;</td><td>Submenu with last 5</td></tr>
+    <tr><td>STT Backend &rarr;</td><td>Model selection submenu</td></tr>
+    <tr><td>Meeting Summary &rarr;</td><td>OpenAI / OpenRouter</td></tr>
+    <tr><td>Settings...</td><td>Open settings tab</td></tr>
+    <tr><td>Check for Updates...</td><td>Sparkle update check</td></tr>
+    <tr><td>Quit</td><td>Terminate app</td></tr>
+  </table>
+</section>
+
+<!-- FOOTER -->
+<section style="text-align:center;padding:60px 40px;color:var(--text-tertiary);font-size:12px">
+  <div class="divider"></div>
+  <p>muesli design language system &middot; v0.4.0 &middot; March 2026</p>
+  <p style="margin-top:4px">Source of truth: <code>MuesliTheme.swift</code> &middot; <code>FloatingIndicatorController.swift</code></p>
+</section>
+
+</body>
+</html>
