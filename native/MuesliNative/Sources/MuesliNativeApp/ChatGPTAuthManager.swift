@@ -136,7 +136,10 @@ final class ChatGPTAuthManager {
             let params = NWParameters.tcp
             params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: port)
 
-            let listener = try! NWListener(using: params)
+            guard let listener = try? NWListener(using: params) else {
+                continuation.resume(throwing: ChatGPTAuthError.portInUse)
+                return
+            }
             var resumed = false
 
             let timeoutWork = DispatchWorkItem { [weak listener] in
@@ -159,6 +162,9 @@ final class ChatGPTAuthManager {
                 }
             }
 
+            // Generate state before setting up handler so closure can capture it
+            let expectedState = self.generateState()
+
             listener.newConnectionHandler = { connection in
                 connection.start(queue: .main)
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
@@ -174,8 +180,9 @@ final class ChatGPTAuthManager {
                         return
                     }
 
-                    // Parse code from: GET /callback?code=XXX HTTP/1.1
+                    // Parse code + state from: GET /callback?code=XXX&state=YYY HTTP/1.1
                     let code = self.extractCode(from: request)
+                    let callbackState = self.extractParam(named: "state", from: request)
 
                     // Send response HTML
                     let html = """
@@ -192,6 +199,13 @@ final class ChatGPTAuthManager {
                         }
                     )
 
+                    // Validate state to prevent CSRF
+                    guard callbackState == expectedState else {
+                        fputs("[chatgpt-auth] OAuth state mismatch — possible CSRF\n", stderr)
+                        continuation.resume(throwing: ChatGPTAuthError.callbackMissingCode)
+                        return
+                    }
+
                     if let code {
                         continuation.resume(returning: code)
                     } else {
@@ -203,8 +217,7 @@ final class ChatGPTAuthManager {
             listener.start(queue: .main)
 
             // Open browser
-            let state = self.generateState()
-            if let url = self.buildAuthorizationURL(codeChallenge: codeChallenge, state: state) {
+            if let url = self.buildAuthorizationURL(codeChallenge: codeChallenge, state: expectedState) {
                 DispatchQueue.main.async {
                     NSWorkspace.shared.open(url)
                 }
@@ -221,6 +234,15 @@ final class ChatGPTAuthManager {
         let pathString = String(pathPart)
         guard let components = URLComponents(string: pathString) else { return nil }
         return components.queryItems?.first(where: { $0.name == "code" })?.value
+    }
+
+    func extractParam(named name: String, from httpRequest: String) -> String? {
+        guard let pathLine = httpRequest.split(separator: "\r\n").first ?? httpRequest.split(separator: "\n").first,
+              let pathPart = pathLine.split(separator: " ").dropFirst().first else {
+            return nil
+        }
+        guard let components = URLComponents(string: String(pathPart)) else { return nil }
+        return components.queryItems?.first(where: { $0.name == name })?.value
     }
 
     // MARK: - Token Exchange
@@ -356,6 +378,7 @@ final class ChatGPTAuthManager {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted)
             try data.write(to: tokenFileURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenFileURL.path)
         } catch {
             fputs("[chatgpt-auth] failed to save tokens: \(error)\n", stderr)
         }

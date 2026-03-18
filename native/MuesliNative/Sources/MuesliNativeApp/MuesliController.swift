@@ -366,7 +366,7 @@ final class MuesliController: NSObject {
                 } else if summaryBackend == .openRouter {
                     config.openRouterAPIKey = apiKey
                 }
-                // ChatGPT backend uses OAuth tokens in Keychain, not an API key
+                // ChatGPT backend uses OAuth tokens stored in app support dir, not an API key
             }
         }
         selectBackend(backend)
