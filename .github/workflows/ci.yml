@@ -7,6 +7,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Detect which files changed — no third-party actions
   changes:
@@ -45,7 +49,7 @@ jobs:
           fi
 
   # Swift build + tests — only when native code changes
-  build-and-test:
+  build:
     needs: changes
     if: needs.changes.outputs.native_or_packaging == 'true'
     runs-on: macos-15
@@ -61,7 +65,7 @@ jobs:
         run: swift test --package-path native/MuesliNative
 
   # Packaged CLI smoke test — verify the app bundle contains muesli-cli
-  packaged-cli-smoke:
+  cli-smoke:
     needs: changes
     if: needs.changes.outputs.native_or_packaging == 'true'
     runs-on: macos-15
@@ -77,15 +81,15 @@ jobs:
   # This is the only required check in branch protection
   ci-gate:
     if: always()
-    needs: [changes, build-and-test, packaged-cli-smoke]
+    needs: [changes, build, cli-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check result
         run: |
-          if [[ "${{ needs.build-and-test.result }}" =~ ^(success|skipped)$ ]] && \
-             [[ "${{ needs.packaged-cli-smoke.result }}" =~ ^(success|skipped)$ ]]; then
-            echo "CI passed (build-and-test: ${{ needs.build-and-test.result }}, packaged-cli-smoke: ${{ needs.packaged-cli-smoke.result }})"
+          if [[ "${{ needs.build.result }}" =~ ^(success|skipped)$ ]] && \
+             [[ "${{ needs.cli-smoke.result }}" =~ ^(success|skipped)$ ]]; then
+            echo "CI passed (build: ${{ needs.build.result }}, cli-smoke: ${{ needs.cli-smoke.result }})"
           else
-            echo "CI failed (build-and-test: ${{ needs.build-and-test.result }}, packaged-cli-smoke: ${{ needs.packaged-cli-smoke.result }})"
+            echo "CI failed (build: ${{ needs.build.result }}, cli-smoke: ${{ needs.cli-smoke.result }})"
             exit 1
           fi
