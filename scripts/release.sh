@@ -118,9 +118,36 @@ echo "[7/8] Stapling notarization ticket to DMG..."
 xcrun stapler staple "$DMG_PATH"
 echo "  DMG stapled."
 
-# Verify DMG and app bundle state
-spctl -a -vv -t open --context context:primary-signature "$DMG_PATH" 2>&1 | head -2
-spctl -a -vv "$APP_DIR" 2>&1 | head -2
+# Verify by mounting DMG and checking the app INSIDE it (simulates user experience)
+echo "  Verifying app inside DMG..."
+MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1 | grep "/Volumes" | awk -F'\t' '{print $NF}')
+if [[ -z "$MOUNT_POINT" ]]; then
+  echo "  ERROR: Could not mount DMG for verification"
+  exit 1
+fi
+
+SPCTL_RESULT=$(spctl -a -vv "$MOUNT_POINT/Muesli.app" 2>&1)
+echo "  $SPCTL_RESULT"
+
+STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/Muesli.app" 2>&1)
+echo "  $STAPLE_RESULT"
+
+hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
+
+if ! echo "$SPCTL_RESULT" | grep -q "accepted"; then
+  echo ""
+  echo "  RELEASE ABORTED: App inside DMG was REJECTED by Gatekeeper."
+  echo "  The app bundle was not properly stapled before DMG creation."
+  exit 1
+fi
+
+if ! echo "$STAPLE_RESULT" | grep -q "worked"; then
+  echo ""
+  echo "  RELEASE ABORTED: App inside DMG does not have a valid staple."
+  exit 1
+fi
+
+echo "  Verified: app inside DMG is accepted by Gatekeeper and stapled."
 echo ""
 
 # --- Step 8: Generate appcast ---
