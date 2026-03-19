@@ -12,10 +12,9 @@
             <sparkle:shortVersionString>0.5.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://pHequals7.github.io/muesli/Muesli-0.5.2.dmg" length="12939486" type="application/octet-stream" sparkle:edSignature="WXnGY9nqkhS1I3Rl7Ktan00NF3P0VsnEJR06YBd8sm6Nl/L5wCElNF6kTDzxNFmxag9TzaKDx3ply/ytSw76Aw=="/>
-            <sparkle:deltas>
-                <enclosure url="https://pHequals7.github.io/muesli/Muesli0.5.2-0.5.1.delta" sparkle:deltaFrom="0.5.1" length="381890" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="980432" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="0LgvI7V95lhIuseJ+POTg09m0FilrPUgmPOAXGIds/nPQm2rdy1OoThwGLvorkDVy/JNVSK3W92mwEbUv8OFDQ=="/>
-            </sparkle:deltas>
+            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.5.2/Muesli-0.5.2.dmg" length="12939486" type="application/octet-stream" sparkle:edSignature="WXnGY9nqkhS1I3Rl7Ktan00NF3P0VsnEJR06YBd8sm6Nl/L5wCElNF6kTDzxNFmxag9TzaKDx3ply/ytSw76Aw=="/>
+
+
         </item>
         <item>
             <title>0.5.1</title>
@@ -24,7 +23,7 @@
             <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://pHequals7.github.io/muesli/Muesli-0.5.1.dmg" length="12942019" type="application/octet-stream" sparkle:edSignature="3Vp0QzqYbd5K6H41P9I3eTq5bGPLW02l09H9TGP/v7WC+NgrvmBqgoyDntCMm5ZF0vrM6Ja/7enKeUZre55KBw=="/>
+            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.5.1/Muesli-0.5.1.dmg" length="12942019" type="application/octet-stream" sparkle:edSignature="3Vp0QzqYbd5K6H41P9I3eTq5bGPLW02l09H9TGP/v7WC+NgrvmBqgoyDntCMm5ZF0vrM6Ja/7enKeUZre55KBw=="/>
         </item>
     </channel>
 </rss>
