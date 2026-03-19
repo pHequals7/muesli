@@ -3,19 +3,12 @@ title: March 19, 2026 Audit Hardening Report
 description: >
   Verified audit findings, shipped fixes, and validation notes for the
   March 19, 2026 Muesli hardening pass.
-prompt: |
-  build a complete report and fix and send a pull request - make sure the
-  whole text experience feels human and not like a bot - give all the
-  proper detailing like a profressional dev. do not act like You are a
-  coding agent. Look like a human, talk like a human how humans actually
-  talk, and then send pull requests.
 ---
 
 # March 19, 2026 Audit Hardening Report
 
-This report covers the hardening work done after auditing
-@/Users/codex/muesli against the source hosted at
-@https://github.com/pHequals7/muesli.
+This report covers the hardening work done after auditing the repository
+hosted at `https://github.com/pHequals7/muesli`.
 
 The review focused on the parts of the app where a bug would matter most:
 the SQLite query layer, live meeting transcription, system-audio startup,
@@ -33,8 +26,8 @@ API and worth fixing immediately.
 
 Files:
 
-- @/Users/codex/muesli/native/MuesliNative/Sources/MuesliCore/DictationStore.swift
-- @/Users/codex/muesli/native/MuesliNative/Tests/MuesliTests/DictationStoreTests.swift
+- `native/MuesliNative/Sources/MuesliCore/DictationStore.swift`
+- `native/MuesliNative/Tests/MuesliTests/DictationStoreTests.swift`
 
 ### 2. Meeting chunk tasks could finish after final transcript merge
 
@@ -45,8 +38,8 @@ chunks or merging them out of order in longer meetings.
 
 Files:
 
-- @/Users/codex/muesli/native/MuesliNative/Sources/MuesliNativeApp/MeetingSession.swift
-- @/Users/codex/muesli/native/MuesliNative/Tests/MuesliTests/QoLTests.swift
+- `native/MuesliNative/Sources/MuesliNativeApp/MeetingSession.swift`
+- `native/MuesliNative/Tests/MuesliTests/QoLTests.swift`
 
 ### 3. System audio startup could fail after success had already been reported
 
@@ -57,7 +50,7 @@ false-success path and possible temp-file leakage.
 
 File:
 
-- @/Users/codex/muesli/native/MuesliNative/Sources/MuesliNativeApp/SystemAudioRecorder.swift
+- `native/MuesliNative/Sources/MuesliNativeApp/SystemAudioRecorder.swift`
 
 ### 4. Documentation drift around ChatGPT token storage
 
@@ -68,8 +61,8 @@ needed to be corrected.
 
 Files:
 
-- @/Users/codex/muesli/README.md
-- @/Users/codex/muesli/native/MuesliNative/Sources/MuesliNativeApp/ChatGPTAuthManager.swift
+- `README.md`
+- `native/MuesliNative/Sources/MuesliNativeApp/ChatGPTAuthManager.swift`
 
 ### 5. API key config file lacked explicit permission hardening
 
@@ -81,8 +74,8 @@ handling API secrets.
 
 Files:
 
-- @/Users/codex/muesli/native/MuesliNative/Sources/MuesliNativeApp/ConfigStore.swift
-- @/Users/codex/muesli/native/MuesliNative/Tests/MuesliTests/ConfigStoreTests.swift
+- `native/MuesliNative/Sources/MuesliNativeApp/ConfigStore.swift`
+- `native/MuesliNative/Tests/MuesliTests/ConfigStoreTests.swift`
 
 ## What changed
 
@@ -137,5 +130,4 @@ any of the new assertions could be exercised.
 
 ## References
 
-- @/Users/codex/muesli/docs/plans/2026-03-19-audit-hardening-execplan.md
-- @/Users/codex/muesli/HANDOFF.md
+- `docs/plans/2026-03-19-audit-hardening-execplan.md`

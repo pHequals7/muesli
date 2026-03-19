@@ -42,6 +42,7 @@ final class MuesliController: NSObject {
     private var lastExternalApp: NSRunningApplication?
     private var workspaceObserver: NSObjectProtocol?
     private var dataDidChangeObserver: NSObjectProtocol?
+    private var isStartingMeetingRecording = false
 
     init(runtime: RuntimePaths) {
         let loadedConfig = configStore.load()
@@ -561,7 +562,8 @@ final class MuesliController: NSObject {
     }
 
     func startMeetingRecording(title: String = "Meeting") {
-        guard !isMeetingRecording() else { return }
+        guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
+        isStartingMeetingRecording = true
         let meetingSession = MeetingSession(
             title: title,
             calendarEventID: nil,
@@ -570,19 +572,28 @@ final class MuesliController: NSObject {
             config: config,
             transcriptionCoordinator: transcriptionCoordinator
         )
-        do {
-            try meetingSession.start()
-            activeMeetingSession = meetingSession
-            micActivityMonitor.suppressWhileActive()
-            statusBarController?.setStatus("Meeting: \(title)")
-            indicator.powerProvider = { [weak meetingSession] in
-                meetingSession?.currentPower() ?? -160
+        statusBarController?.setStatus("Starting meeting: \(title)")
+        statusBarController?.refresh()
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await meetingSession.start()
+                self.activeMeetingSession = meetingSession
+                self.micActivityMonitor.suppressWhileActive()
+                self.statusBarController?.setStatus("Meeting: \(title)")
+                self.indicator.powerProvider = { [weak meetingSession] in
+                    meetingSession?.currentPower() ?? -160
+                }
+                self.indicator.setMeetingRecording(true, config: self.config)
+                self.statusBarController?.refresh()
+            } catch {
+                fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
+                self.statusBarController?.setStatus("Idle")
+                self.statusBarController?.refresh()
+                self.setState(.idle)
             }
-            indicator.setMeetingRecording(true, config: config)
-            statusBarController?.refresh()
-        } catch {
-            fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
-            setState(.idle)
+            self.isStartingMeetingRecording = false
         }
     }
 

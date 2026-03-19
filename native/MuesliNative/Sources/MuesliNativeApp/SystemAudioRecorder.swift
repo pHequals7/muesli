@@ -2,23 +2,6 @@ import AVFoundation
 import Foundation
 import ScreenCaptureKit
 import MuesliCore
-import os
-
-private final class RecorderStartResultBox {
-    private let lock = OSAllocatedUnfairLock(initialState: Result<Void, Error>?.none)
-
-    func set(_ result: Result<Void, Error>) {
-        lock.withLock { state in
-            state = result
-        }
-    }
-
-    func get() -> Result<Void, Error>? {
-        lock.withLock { state in
-            state
-        }
-    }
-}
 
 final class SystemAudioRecorder: NSObject, SCStreamOutput {
     private var stream: SCStream?
@@ -34,7 +17,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
         super.init()
     }
 
-    func start() throws {
+    func start() async throws {
         guard !isRecording else { return }
 
         // Create output WAV file
@@ -54,34 +37,30 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
         totalBytesWritten = 0
         isRecording = true
 
-        let resultBox = RecorderStartResultBox()
-        let semaphore = DispatchSemaphore(value: 0)
-        let startupTask = Task { [weak self] in
-            defer {
-                semaphore.signal()
-            }
-            guard let self else { return }
-            do {
-                try await self.startStream()
-                fputs("[system-audio] SCStream capture started\n", stderr)
-                resultBox.set(.success(()))
-            } catch {
-                fputs("[system-audio] SCStream start failed: \(error)\n", stderr)
-                self.cleanupFailedStart()
-                resultBox.set(.failure(error))
-            }
-        }
+        do {
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask { [weak self] in
+                    guard let self else { return }
+                    try await self.startStream()
+                    fputs("[system-audio] SCStream capture started\n", stderr)
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(5))
+                    throw NSError(domain: "SystemAudio", code: 3, userInfo: [
+                        NSLocalizedDescriptionKey: "Timed out while starting system audio capture",
+                    ])
+                }
 
-        let waitResult = semaphore.wait(timeout: .now() + 5)
-        if waitResult == .timedOut {
-            startupTask.cancel()
+                guard let _ = try await group.next() else {
+                    throw NSError(domain: "SystemAudio", code: 4, userInfo: [
+                        NSLocalizedDescriptionKey: "System audio startup ended unexpectedly",
+                    ])
+                }
+                group.cancelAll()
+            }
+        } catch {
+            fputs("[system-audio] SCStream start failed: \(error)\n", stderr)
             cleanupFailedStart()
-            throw NSError(domain: "SystemAudio", code: 3, userInfo: [
-                NSLocalizedDescriptionKey: "Timed out while starting system audio capture",
-            ])
-        }
-
-        if case .failure(let error)? = resultBox.get() {
             throw error
         }
     }

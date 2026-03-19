@@ -150,9 +150,23 @@ struct MeetingChunkCollectorTests {
             }
         )
 
-        let segments = await collector.drainSortedSegments()
+        let segments = await collector.closeAndDrainSortedSegments()
 
         #expect(segments.map(\.text) == ["earlier", "later"])
         #expect(segments.map(\.start) == [10, 30])
+    }
+
+    @Test("collector rejects tasks after closing")
+    func collectorRejectsLateTasks() async {
+        let collector = MeetingChunkCollector()
+        let initialTask = Task { SpeechSegment(start: 1, end: 2, text: "first") }
+        #expect(collector.add(initialTask))
+
+        let initial = await collector.closeAndDrainSortedSegments()
+        #expect(initial.map(\.text) == ["first"])
+
+        let lateTask = Task { SpeechSegment(start: 3, end: 4, text: "late") }
+        #expect(!collector.add(lateTask))
+        lateTask.cancel()
     }
 }

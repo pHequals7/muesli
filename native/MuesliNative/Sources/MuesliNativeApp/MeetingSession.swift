@@ -4,18 +4,26 @@ import MuesliCore
 import os
 
 final class MeetingChunkCollector {
-    private let lock = OSAllocatedUnfairLock(initialState: [Task<SpeechSegment?, Never>]())
+    private struct State {
+        var tasks: [Task<SpeechSegment?, Never>] = []
+        var isClosed = false
+    }
 
-    func add(_ task: Task<SpeechSegment?, Never>) {
-        lock.withLock { tasks in
-            tasks.append(task)
+    private let lock = OSAllocatedUnfairLock(initialState: State())
+
+    func add(_ task: Task<SpeechSegment?, Never>) -> Bool {
+        lock.withLock { state in
+            guard !state.isClosed else { return false }
+            state.tasks.append(task)
+            return true
         }
     }
 
-    func drainSortedSegments() async -> [SpeechSegment] {
-        let tasksToAwait = lock.withLock { tasks in
-            let pendingTasks = tasks
-            tasks.removeAll()
+    func closeAndDrainSortedSegments() async -> [SpeechSegment] {
+        let tasksToAwait = lock.withLock { state in
+            state.isClosed = true
+            let pendingTasks = state.tasks
+            state.tasks.removeAll()
             return pendingTasks
         }
 
@@ -35,9 +43,10 @@ final class MeetingChunkCollector {
     }
 
     func cancelAll() {
-        let tasksToCancel = lock.withLock { tasks in
-            let pendingTasks = tasks
-            tasks.removeAll()
+        let tasksToCancel = lock.withLock { state in
+            state.isClosed = true
+            let pendingTasks = state.tasks
+            state.tasks.removeAll()
             return pendingTasks
         }
 
@@ -108,10 +117,10 @@ final class MeetingSession {
         }
     }
 
-    func start() throws {
+    func start() async throws {
         try streamingMicRecorder.prepare()
         try streamingMicRecorder.start()
-        try systemAudioRecorder.start()
+        try await systemAudioRecorder.start()
         let now = Date()
         startTime = now
         currentChunkStartTime = now
@@ -201,7 +210,7 @@ final class MeetingSession {
             systemResult = SpeechTranscriptionResult(text: "", segments: [])
         }
 
-        micSegments.append(contentsOf: await micChunkCollector.drainSortedSegments())
+        micSegments.append(contentsOf: await micChunkCollector.closeAndDrainSortedSegments())
         micSegments.sort { lhs, rhs in
             if lhs.start == rhs.start {
                 return lhs.text < rhs.text
@@ -284,6 +293,8 @@ final class MeetingSession {
             }
             return nil
         }
-        micChunkCollector.add(task)
+        if !micChunkCollector.add(task) {
+            task.cancel()
+        }
     }
 }
