@@ -1,4 +1,4 @@
-name: Build & Release macOS App
+name: Build macOS Beta App
 
 on:
   workflow_dispatch:
@@ -7,9 +7,6 @@ on:
         description: "Version label for the beta artifact (for example 0.3.0-beta.1)"
         required: false
         type: string
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: write
@@ -28,26 +25,19 @@ jobs:
         shell: bash
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-            TAG_NAME="${GITHUB_REF_NAME}"
-            RELEASE_TITLE="Muesli ${VERSION}"
-            PRERELEASE="false"
-            RELEASE_NOTES=$'Native macOS app - dictation + meeting transcription on Apple Silicon.\n\nNote: This CI build is unsigned and unnotarized. Use it only for trusted testing.'
-          else
-            VERSION="${{ github.event.inputs.version }}"
-            if [[ -z "$VERSION" ]]; then
-              VERSION="0.0.0-beta.${GITHUB_RUN_NUMBER}"
-            fi
-            TAG_NAME="beta-${VERSION//[^A-Za-z0-9._-]/-}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-            RELEASE_TITLE="Muesli Beta ${VERSION}"
-            PRERELEASE="true"
-            RELEASE_NOTES=$'Trusted-tester build for Muesli.\n\nThis build is unsigned and unnotarized. Testers should move the app to /Applications and may need to use System Settings > Privacy & Security > Open Anyway on first launch.'
+            echo "This workflow only publishes unsigned beta builds. Official tagged releases must use scripts/release.sh." >&2
+            exit 1
           fi
 
-          ASSET_SUFFIX=""
-          if [[ "$PRERELEASE" == "true" ]]; then
-            ASSET_SUFFIX="-unnotarized"
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ -z "$VERSION" ]]; then
+            VERSION="0.0.0-beta.${GITHUB_RUN_NUMBER}"
           fi
+          TAG_NAME="beta-${VERSION//[^A-Za-z0-9._-]/-}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          RELEASE_TITLE="Muesli Beta ${VERSION}"
+          PRERELEASE="true"
+          RELEASE_NOTES=$'Trusted-tester build for Muesli.\n\nThis build is unsigned and unnotarized. Testers should move the app to /Applications and may need to use System Settings > Privacy & Security > Open Anyway on first launch.'
+          ASSET_SUFFIX="-unnotarized"
 
           APP_ZIP="dist/Muesli-${VERSION}${ASSET_SUFFIX}.zip"
           DMG_PATH="dist/Muesli-${VERSION}${ASSET_SUFFIX}.dmg"

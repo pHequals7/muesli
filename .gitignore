@@ -54,3 +54,4 @@ context.md
 .claude/
 *.swp
 *~
+.vercel

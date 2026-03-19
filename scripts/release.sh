@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Canonical end-to-end release pipeline for official builds.
+# Source of truth:
+#   - GitHub Releases hosts the official DMG binaries
+#   - GitHub Pages hosts the Sparkle appcast referenced by SUFeedURL
+# Everything else is a mirror or marketing surface, not a release source.
+#
 # End-to-end release pipeline:
 #   1. Build and sign the app (hardened runtime + entitlements)
-#   2. Create a signed DMG
-#   3. Notarize the DMG with Apple
-#   4. Staple the ticket
-#   5. Create GitHub release and upload DMG
+#   2. Notarize + staple the app bundle
+#   3. Create a signed DMG from the stapled app
+#   4. Notarize + staple the DMG
+#   5. Verify the local DMG and the app inside it
+#   6. Create GitHub release and upload DMG
+#   7. Re-download the hosted DMG from GitHub Releases and verify that exact file
 #
 # Prerequisites:
 #   - Developer ID cert in keychain
@@ -18,10 +26,25 @@ set -euo pipefail
 #   If no version given, auto-increments patch from latest GitHub release.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
 SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
 APP_DIR="/Applications/Muesli.app"
 OUTPUT_DIR="$ROOT/dist-release"
+GENERATE_APPCAST="$ROOT/native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+VERIFY_DIR=""
+HOSTED_MOUNT_POINT=""
+
+cleanup() {
+  if [[ -n "$HOSTED_MOUNT_POINT" ]]; then
+    hdiutil detach "$HOSTED_MOUNT_POINT" -quiet 2>/dev/null || true
+  fi
+  if [[ -n "$VERIFY_DIR" && -d "$VERIFY_DIR" ]]; then
+    rm -rf "$VERIFY_DIR"
+  fi
+}
+
+trap cleanup EXIT
 
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
@@ -46,21 +69,48 @@ if [[ -z "$VERSION" ]]; then
   fi
 fi
 
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "ERROR: Working tree must be clean before running the release pipeline." >&2
+  exit 1
+fi
+
+if [[ ! -x "$GENERATE_APPCAST" ]]; then
+  echo "ERROR: generate_appcast not found at $GENERATE_APPCAST" >&2
+  exit 1
+fi
+
+DOWNLOAD_URL="https://github.com/pHequals7/muesli/releases/download/v${VERSION}/Muesli-${VERSION}.dmg"
+TAG="v${VERSION}"
+RELEASE_TITLE="Muesli ${VERSION}"
+RELEASE_NOTES="$(cat <<EOF
+## Muesli ${VERSION}
+
+Native macOS app — dictation + meeting transcription on Apple Silicon.
+
+### Install
+1. Download \`Muesli-${VERSION}.dmg\`
+2. Open the DMG and drag Muesli to Applications
+3. Launch from Applications
+
+Signed, notarized, and stapled by Apple.
+EOF
+)"
+
 echo "=== Muesli Release v${VERSION} ==="
 echo ""
 
 # --- Step 0: Update version in build script ---
-echo "[0/6] Setting version to ${VERSION}..."
+echo "[0/12] Setting version to ${VERSION}..."
 sed -i '' "/CFBundleVersion<\/key>/{n;s/<string>[^<]*<\/string>/<string>${VERSION}<\/string>/;}" "$ROOT/scripts/build_native_app.sh"
 sed -i '' "/CFBundleShortVersionString<\/key>/{n;s/<string>[^<]*<\/string>/<string>${VERSION}<\/string>/;}" "$ROOT/scripts/build_native_app.sh"
 
 # --- Step 1: Run tests ---
-echo "[1/6] Running tests..."
+echo "[1/12] Running tests..."
 swift test --package-path "$ROOT/native/MuesliNative"
 echo "  Tests passed."
 
 # --- Step 2: Build and sign ---
-echo "[2/6] Building and signing..."
+echo "[2/12] Building and signing..."
 echo "y" | "$ROOT/scripts/build_native_app.sh" > /dev/null 2>&1
 echo "  Installed to $APP_DIR"
 
@@ -69,7 +119,7 @@ FLAGS=$(codesign -dvvv "$APP_DIR" 2>&1 | grep -o 'flags=0x[0-9a-f]*([^)]*)')
 echo "  Signature: $FLAGS"
 
 # --- Step 3: Notarize app bundle ---
-echo "[3/8] Notarizing app bundle with Apple (this may take several minutes)..."
+echo "[3/12] Notarizing app bundle with Apple (this may take several minutes)..."
 APP_ZIP="$OUTPUT_DIR/Muesli-app-${VERSION}.zip"
 ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP"
 NOTARY_OUTPUT=$(xcrun notarytool submit "$APP_ZIP" \
@@ -88,17 +138,17 @@ else
 fi
 
 # --- Step 4: Staple app bundle ---
-echo "[4/8] Stapling notarization ticket to app bundle..."
+echo "[4/12] Stapling notarization ticket to app bundle..."
 xcrun stapler staple "$APP_DIR"
 echo "  App stapled."
 
 # --- Step 5: Create DMG from stapled app ---
-echo "[5/8] Creating DMG from stapled app..."
+echo "[5/12] Creating DMG from stapled app..."
 "$ROOT/scripts/create_dmg.sh" "$APP_DIR" "$OUTPUT_DIR"
 DMG_PATH="$OUTPUT_DIR/Muesli-${VERSION}.dmg"
 
 # --- Step 6: Notarize DMG ---
-echo "[6/8] Notarizing DMG with Apple..."
+echo "[6/12] Notarizing DMG with Apple..."
 NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
   --keychain-profile "$PROFILE_NAME" \
   --wait 2>&1)
@@ -114,7 +164,7 @@ else
 fi
 
 # --- Step 7: Staple DMG ---
-echo "[7/8] Stapling notarization ticket to DMG..."
+echo "[7/12] Stapling notarization ticket to DMG..."
 xcrun stapler staple "$DMG_PATH"
 echo "  DMG stapled."
 
@@ -159,45 +209,146 @@ echo "  DMG hardened runtime verified."
 echo "  Verified: app inside DMG is accepted by Gatekeeper and stapled."
 echo ""
 
-# --- Step 8: Generate appcast ---
-echo "[8/9] Generating appcast..."
-GENERATE_APPCAST="$ROOT/native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
-if [[ -x "$GENERATE_APPCAST" ]]; then
-  "$GENERATE_APPCAST" "$OUTPUT_DIR" -o "$ROOT/docs/appcast.xml"
-  echo "  Appcast updated at docs/appcast.xml"
+# --- Step 8: Commit version metadata before tagging ---
+echo "[8/12] Committing release metadata..."
+git add scripts/build_native_app.sh
+if git diff --cached --quiet; then
+  echo "  No version metadata changes to commit."
 else
-  echo "  Warning: generate_appcast not found — update docs/appcast.xml manually"
+  git commit -m "Prepare release v${VERSION}"
+  git push origin main
+  echo "  Pushed release prep commit to main."
 fi
 
-# --- Step 9: GitHub Release ---
-echo "[9/9] Creating GitHub release v${VERSION}..."
-TAG="v${VERSION}"
+if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+  echo "ERROR: Local tag ${TAG} already exists." >&2
+  exit 1
+fi
 
-git add docs/appcast.xml
-git commit -m "Update appcast for v${VERSION}" --allow-empty
+if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+  echo "ERROR: Remote tag ${TAG} already exists." >&2
+  exit 1
+fi
+
 git tag -a "$TAG" -m "Release ${VERSION}"
-git push origin main "$TAG"
+git push origin "$TAG"
+echo "  Pushed release tag $TAG."
 
+# --- Step 9: Create a draft GitHub release and upload the DMG ---
+echo "[9/12] Creating draft GitHub release v${VERSION}..."
 gh release create "$TAG" \
-  --title "Muesli ${VERSION}" \
-  --notes "$(cat <<EOF
-## Muesli ${VERSION}
-
-Native macOS app — dictation + meeting transcription on Apple Silicon.
-
-### Install
-1. Download \`Muesli-${VERSION}.dmg\`
-2. Open the DMG and drag Muesli to Applications
-3. Launch from Applications
-
-Signed, notarized, and stapled by Apple.
-EOF
-)" \
+  --draft \
+  --verify-tag \
+  --title "$RELEASE_TITLE" \
+  --notes "$RELEASE_NOTES" \
   "$DMG_PATH"
 
+DRAFT_RELEASE_URL=$(gh release view "$TAG" --json url -q .url)
+echo "  Draft release: $DRAFT_RELEASE_URL"
+
+# --- Step 10: Verify the hosted draft asset from GitHub Releases ---
+echo "[10/12] Verifying hosted GitHub Release DMG..."
+VERIFY_DIR=$(mktemp -d)
+HOSTED_DMG="$VERIFY_DIR/Muesli-${VERSION}.dmg"
+
+gh release download "$TAG" \
+  -p "Muesli-${VERSION}.dmg" \
+  -D "$VERIFY_DIR" \
+  --clobber >/dev/null
+
+LOCAL_SHA=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
+HOSTED_SHA=$(shasum -a 256 "$HOSTED_DMG" | awk '{print $1}')
+
+echo "  Local SHA256:  $LOCAL_SHA"
+echo "  Hosted SHA256: $HOSTED_SHA"
+
+if [[ "$LOCAL_SHA" != "$HOSTED_SHA" ]]; then
+  echo ""
+  echo "  RELEASE ABORTED: Hosted GitHub Release DMG does not match the verified local artifact."
+  exit 1
+fi
+
+HOSTED_SPCTL_RESULT=$(spctl -a -vv -t open --context context:primary-signature "$HOSTED_DMG" 2>&1)
+echo "  $HOSTED_SPCTL_RESULT"
+
+HOSTED_STAPLE_RESULT=$(xcrun stapler validate "$HOSTED_DMG" 2>&1)
+echo "  $HOSTED_STAPLE_RESULT"
+
+if ! echo "$HOSTED_SPCTL_RESULT" | grep -q "accepted"; then
+  echo ""
+  echo "  RELEASE ABORTED: Hosted DMG was rejected by Gatekeeper."
+  exit 1
+fi
+
+if ! echo "$HOSTED_STAPLE_RESULT" | grep -q "worked"; then
+  echo ""
+  echo "  RELEASE ABORTED: Hosted DMG does not have a valid staple."
+  exit 1
+fi
+
+echo "  Verifying app inside hosted DMG..."
+HOSTED_MOUNT_POINT=$(hdiutil attach "$HOSTED_DMG" -nobrowse 2>&1 | grep "/Volumes" | awk -F'\t' '{print $NF}')
+if [[ -z "$HOSTED_MOUNT_POINT" ]]; then
+  echo "  ERROR: Could not mount hosted DMG for verification"
+  exit 1
+fi
+
+HOSTED_APP_SPCTL_RESULT=$(spctl -a -vv "$HOSTED_MOUNT_POINT/Muesli.app" 2>&1)
+echo "  $HOSTED_APP_SPCTL_RESULT"
+
+HOSTED_APP_STAPLE_RESULT=$(xcrun stapler validate "$HOSTED_MOUNT_POINT/Muesli.app" 2>&1)
+echo "  $HOSTED_APP_STAPLE_RESULT"
+
+hdiutil detach "$HOSTED_MOUNT_POINT" -quiet 2>/dev/null
+
+if ! echo "$HOSTED_APP_SPCTL_RESULT" | grep -q "accepted"; then
+  echo ""
+  echo "  RELEASE ABORTED: App inside hosted DMG was rejected by Gatekeeper."
+  exit 1
+fi
+
+if ! echo "$HOSTED_APP_STAPLE_RESULT" | grep -q "worked"; then
+  echo ""
+  echo "  RELEASE ABORTED: App inside hosted DMG does not have a valid staple."
+  exit 1
+fi
+
+# --- Step 11: Publish the verified draft release ---
+echo "[11/12] Publishing verified GitHub release..."
+gh release edit "$TAG" \
+  --draft=false \
+  --title "$RELEASE_TITLE" \
+  --notes "$RELEASE_NOTES"
+
 RELEASE_URL=$(gh release view "$TAG" --json url -q .url)
+echo "  Release published: $RELEASE_URL"
+
+# --- Step 12: Update appcast and landing-page links after release publication ---
+echo "[12/12] Updating appcast and release metadata..."
+"$GENERATE_APPCAST" "$OUTPUT_DIR" -o "$ROOT/docs/appcast.xml"
+
+# Point appcast enclosures at GitHub Releases, not GitHub Pages.
+perl -0pi -e 's{https://pHequals7\.github\.io/muesli/(Muesli-([0-9][0-9A-Za-z\.\-]*)\.dmg)}{"https://github.com/pHequals7/muesli/releases/download/v$2/$1"}ge' "$ROOT/docs/appcast.xml"
+
+# Delta artifacts are not hosted, so strip delta enclosures from the appcast.
+perl -0pi -e 's{^\h*<enclosure\b[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>\n}{}mg' "$ROOT/docs/appcast.xml"
+
+# Keep the marketing/docs surface aligned with the published GitHub Release.
+sed -i '' "s|https://github.com/pHequals7/muesli/releases/download/[^\"]*\\.dmg|$DOWNLOAD_URL|g" "$ROOT/docs/index.html"
+sed -i '' "s|https://github.com/pHequals7/muesli/releases/download/.*\\.dmg|$DOWNLOAD_URL|g" "$ROOT/docs/llms.txt"
+
+git add docs/appcast.xml docs/index.html docs/llms.txt
+if git diff --cached --quiet; then
+  echo "  No docs changes to commit."
+else
+  git commit -m "Update release metadata for v${VERSION}"
+  git push origin main
+  echo "  Pushed appcast and landing-page updates to main."
+fi
+
 echo ""
 echo "=== Release complete ==="
 echo "  Version: ${VERSION}"
 echo "  DMG: $DMG_PATH"
 echo "  Release: $RELEASE_URL"
+echo "  Hosted asset verified."

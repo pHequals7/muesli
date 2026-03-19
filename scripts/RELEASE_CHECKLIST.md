@@ -1,6 +1,13 @@
 # Muesli Release Checklist
 
-Run `./scripts/release.sh [version]` — it automates steps 1-9. This checklist is for **verification** after the script runs, and for manual recovery if any step fails.
+Run `./scripts/release.sh [version]` — it automates steps 1-9 and is the only official release path.
+
+Source of truth:
+- GitHub Releases hosts the official DMG binaries
+- GitHub Pages hosts the Sparkle appcast consumed by the app
+- Marketing surfaces may link to those assets, but they are not release authorities
+
+This checklist is for **verification** after the script runs, and for manual recovery if any step fails.
 
 ## Pre-release
 
@@ -79,14 +86,29 @@ Run `./scripts/release.sh [version]` — it automates steps 1-9. This checklist 
   defaults read /Applications/Muesli.app/Contents/Info.plist CFBundleShortVersionString
   ```
 
-## Appcast & Release
+## Release Staging
 
-- [ ] **Generate appcast:**
+- [ ] **Create a draft GitHub Release and upload the DMG**
+- [ ] **Re-download the hosted draft DMG and verify it matches the local artifact**
+  ```bash
+  gh release download vX.Y.Z -p "Muesli-X.Y.Z.dmg" -D /tmp/muesli-release-verify --clobber
+  shasum -a 256 dist-release/Muesli-X.Y.Z.dmg /tmp/muesli-release-verify/Muesli-X.Y.Z.dmg
+  spctl -a -vv -t open --context context:primary-signature /tmp/muesli-release-verify/Muesli-X.Y.Z.dmg
+  xcrun stapler validate /tmp/muesli-release-verify/Muesli-X.Y.Z.dmg
+  ```
+  - The local and hosted SHA256 hashes must match exactly
+  - Must show `accepted` and `The validate action worked!`
+
+- [ ] **Publish the verified draft release**
+
+## Appcast & Docs
+
+- [ ] **Generate appcast on the single Sparkle host:**
   ```bash
   native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast dist-release/ -o docs/appcast.xml
   ```
 
-- [ ] **Fix appcast URLs** — `generate_appcast` writes GitHub Pages URLs. Replace with GitHub Releases URLs:
+- [ ] **Fix appcast enclosure URLs to GitHub Releases** — `generate_appcast` writes GitHub Pages URLs. Replace with GitHub Releases URLs:
   ```
   https://pHequals7.github.io/muesli/Muesli-X.Y.Z.dmg
   →
@@ -104,16 +126,9 @@ Run `./scripts/release.sh [version]` — it automates steps 1-9. This checklist 
   git push
   ```
 
-- [ ] **Create GitHub release:**
-  ```bash
-  git tag -a vX.Y.Z -m "Release X.Y.Z"
-  git push origin vX.Y.Z
-  gh release create vX.Y.Z dist-release/Muesli-X.Y.Z.dmg --title "Muesli X.Y.Z" --notes "..."
-  ```
-
 ## Post-release
 
 - [ ] Verify GitHub Pages serves appcast: `curl -s https://phequals7.github.io/muesli/appcast.xml | head -5`
-- [ ] Verify Vercel deployed with new download link: check `freedspeech.xyz`
-- [ ] Verify `update-download-link.yml` workflow ran (auto-updates `docs/index.html` on release)
+- [ ] Verify the GitHub Release page exposes the DMG you just uploaded
+- [ ] Verify `docs/index.html` and `docs/llms.txt` point to the newly published GitHub Release DMG
 - [ ] Optional: install previous version and confirm Sparkle shows update prompt

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Troubleshooting helper only.
+# Official releases must go through scripts/release.sh so GitHub Releases remains
+# the single binary source of truth and the appcast stays in sync with releases.
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_PATH="${1:-/Applications/Muesli.app}"
 PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
@@ -38,4 +42,3 @@ echo "Verifying Gatekeeper acceptance..."
 spctl -a -vv "$APP_PATH"
 
 echo "Notarization complete for $APP_PATH"
-

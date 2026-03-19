@@ -79,9 +79,9 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleVersion</key>
-  <string>0.5.4</string>
+  <string>0.5.5</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.4</string>
+  <string>0.5.5</string>
   <key>CFBundleExecutable</key>
   <string>$APP_EXECUTABLE_NAME</string>
   <key>CFBundlePackageType</key>
@@ -105,7 +105,7 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>SUPublicEDKey</key>
   <string>${MUESLI_SPARKLE_EDKEY:-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}</string>
   <key>SUEnableAutomaticChecks</key>
-  <false/>
+  <true/>
 </dict>
 </plist>
 PLIST

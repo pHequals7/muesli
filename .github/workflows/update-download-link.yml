@@ -1,8 +1,11 @@
 name: Update landing page download link
 
+# Manual fallback only.
+# The canonical release flow updates docs content in scripts/release.sh after the
+# hosted GitHub Release asset has been verified.
+
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: write
