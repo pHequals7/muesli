@@ -1,9 +1,18 @@
 <?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0">
-  <channel>
-    <title>Muesli</title>
-    <description>Muesli update feed</description>
-    <language>en</language>
-    <!-- Items are added by generate_appcast or the release script -->
-  </channel>
+    <channel>
+        <title>Muesli</title>
+        <description>Muesli update feed</description>
+        <language>en</language>
+        <!-- Items are added by generate_appcast or the release script -->
+        <item>
+            <title>0.5.1</title>
+            <pubDate>Thu, 19 Mar 2026 02:16:43 +0530</pubDate>
+            <sparkle:version>0.5.1</sparkle:version>
+            <sparkle:shortVersionString>0.5.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.5.1/Muesli-0.5.1.dmg" length="12942019" type="application/octet-stream" sparkle:edSignature="3Vp0QzqYbd5K6H41P9I3eTq5bGPLW02l09H9TGP/v7WC+NgrvmBqgoyDntCMm5ZF0vrM6Ja/7enKeUZre55KBw=="/>
+        </item>
+    </channel>
 </rss>
