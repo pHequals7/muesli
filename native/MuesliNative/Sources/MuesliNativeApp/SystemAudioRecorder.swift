@@ -2,6 +2,23 @@ import AVFoundation
 import Foundation
 import ScreenCaptureKit
 import MuesliCore
+import os
+
+private final class RecorderStartResultBox {
+    private let lock = OSAllocatedUnfairLock(initialState: Result<Void, Error>?.none)
+
+    func set(_ result: Result<Void, Error>) {
+        lock.withLock { state in
+            state = result
+        }
+    }
+
+    func get() -> Result<Void, Error>? {
+        lock.withLock { state in
+            state
+        }
+    }
+}
 
 final class SystemAudioRecorder: NSObject, SCStreamOutput {
     private var stream: SCStream?
@@ -37,20 +54,40 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
         totalBytesWritten = 0
         isRecording = true
 
-        // Start SCStream async
-        Task {
+        let resultBox = RecorderStartResultBox()
+        let semaphore = DispatchSemaphore(value: 0)
+        let startupTask = Task { [weak self] in
+            defer {
+                semaphore.signal()
+            }
+            guard let self else { return }
             do {
-                try await startStream()
+                try await self.startStream()
                 fputs("[system-audio] SCStream capture started\n", stderr)
+                resultBox.set(.success(()))
             } catch {
                 fputs("[system-audio] SCStream start failed: \(error)\n", stderr)
-                isRecording = false
+                self.cleanupFailedStart()
+                resultBox.set(.failure(error))
             }
+        }
+
+        let waitResult = semaphore.wait(timeout: .now() + 5)
+        if waitResult == .timedOut {
+            startupTask.cancel()
+            cleanupFailedStart()
+            throw NSError(domain: "SystemAudio", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "Timed out while starting system audio capture",
+            ])
+        }
+
+        if case .failure(let error)? = resultBox.get() {
+            throw error
         }
     }
 
     func stop() -> URL? {
-        guard isRecording else { return nil }
+        guard isRecording || outputFile != nil || outputURL != nil else { return nil }
         isRecording = false
 
         if let stream {
@@ -71,9 +108,13 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
             outputFile.closeFile()
         }
         outputFile = nil
+        let writtenBytes = totalBytesWritten
+        let completedURL = outputURL
+        outputURL = nil
+        totalBytesWritten = 0
 
-        fputs("[system-audio] capture stopped, \(totalBytesWritten) bytes written\n", stderr)
-        return outputURL
+        fputs("[system-audio] capture stopped, \(writtenBytes) bytes written\n", stderr)
+        return completedURL
     }
 
     // MARK: - SCStream setup
@@ -195,5 +236,21 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
         header.append(contentsOf: "data".utf8)
         header.append(contentsOf: withUnsafeBytes(of: UInt32(dataSize).littleEndian) { Array($0) })
         return header
+    }
+
+    private func cleanupFailedStart() {
+        isRecording = false
+        stream = nil
+
+        if let outputFile {
+            outputFile.closeFile()
+        }
+        outputFile = nil
+
+        if let outputURL {
+            try? FileManager.default.removeItem(at: outputURL)
+        }
+        outputURL = nil
+        totalBytesWritten = 0
     }
 }

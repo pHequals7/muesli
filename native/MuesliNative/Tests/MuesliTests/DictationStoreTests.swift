@@ -265,6 +265,30 @@ struct DictationStoreTests {
         #expect(try store.recentDictations(limit: 3).count == 3)
     }
 
+    @Test("recent dictations treats fromDate as a bound value, not SQL")
+    func recentDictationsBindsFromDate() throws {
+        let store = try makeStore()
+        let now = Date()
+
+        try store.insertDictation(
+            text: "Older entry",
+            durationSeconds: 1.0,
+            startedAt: now.addingTimeInterval(-120),
+            endedAt: now.addingTimeInterval(-120)
+        )
+        try store.insertDictation(
+            text: "Newer entry",
+            durationSeconds: 1.0,
+            startedAt: now,
+            endedAt: now
+        )
+
+        let injectedDate = "9999-12-31T00:00:00Z' OR 1=1 --"
+        let rows = try store.recentDictations(limit: 10, fromDate: injectedDate)
+
+        #expect(rows.isEmpty)
+    }
+
     // MARK: - Editable Meeting Title
 
     @Test("update meeting title only preserves notes")

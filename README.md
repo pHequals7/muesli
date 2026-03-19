@@ -41,7 +41,7 @@ Start a meeting recording → Muesli captures your mic (You) and system audio (O
 - **Camera-based meeting detection** — Instantly detects when your webcam turns on (CoreMediaIO event listener). Camera active = meeting detected, no matter which app.
 - **Filler word removal** — Automatically strips "uh", "um", "er", "hmm" and verbal disfluencies.
 - **AI meeting notes** — BYOK with OpenAI or OpenRouter, or sign in with your ChatGPT Plus/Pro subscription (no API key needed). Auto-generated meeting titles. Re-summarize any meeting.
-- **ChatGPT OAuth** — Sign in with your existing ChatGPT subscription via browser-based OAuth (PKCE). Tokens stored in macOS Keychain.
+- **ChatGPT OAuth** — Sign in with your existing ChatGPT subscription via browser-based OAuth (PKCE). Tokens stored in the app support directory with owner-only file permissions.
 - **Personal dictionary** — Add custom words and replacement pairs. Jaro-Winkler fuzzy matching auto-corrects transcription output.
 - **Model management** — Download, delete, and switch between models from the Models tab. Background downloads that don't block the app.
 - **Meeting auto-detection** — Detects when Zoom, Chrome, Teams, FaceTime, or Slack activates the mic or camera. Shows a notification to start recording.

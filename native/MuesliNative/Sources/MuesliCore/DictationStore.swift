@@ -116,8 +116,15 @@ public final class DictationStore {
         defer { sqlite3_close(db) }
 
         var conditions: [String] = []
-        if let fromDate { conditions.append("timestamp >= '\(fromDate)'") }
-        if let toDate { conditions.append("timestamp <= '\(toDate)'") }
+        var boundValues: [String] = []
+        if let fromDate {
+            conditions.append("timestamp >= ?")
+            boundValues.append(fromDate)
+        }
+        if let toDate {
+            conditions.append("timestamp <= ?")
+            boundValues.append(toDate)
+        }
         let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
 
         let sql = """
@@ -132,8 +139,13 @@ public final class DictationStore {
             throw lastError(db)
         }
         defer { sqlite3_finalize(statement) }
-        sqlite3_bind_int(statement, 1, Int32(limit))
-        sqlite3_bind_int(statement, 2, Int32(offset))
+        for (index, value) in boundValues.enumerated() {
+            sqlite3_bind_text(statement, Int32(index + 1), (value as NSString).utf8String, -1, nil)
+        }
+        let limitIndex = Int32(boundValues.count + 1)
+        let offsetIndex = Int32(boundValues.count + 2)
+        sqlite3_bind_int(statement, limitIndex, Int32(limit))
+        sqlite3_bind_int(statement, offsetIndex, Int32(offset))
 
         var rows: [DictationRecord] = []
         while sqlite3_step(statement) == SQLITE_ROW {

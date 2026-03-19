@@ -46,4 +46,17 @@ struct ConfigStoreTests {
         #expect(path.contains("Application Support"))
         #expect(path.hasSuffix("config.json"))
     }
+
+    @Test("saved config uses owner-only file permissions")
+    func configPermissions() throws {
+        let store = ConfigStore()
+        let original = store.load()
+
+        store.save(original)
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: store.configPath().path)
+        let permissions = attributes[.posixPermissions] as? NSNumber
+
+        #expect(permissions?.intValue == 0o600)
+    }
 }

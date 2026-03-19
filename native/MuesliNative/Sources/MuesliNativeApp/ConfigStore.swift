@@ -23,7 +23,15 @@ final class ConfigStore {
     func save(_ config: AppConfig) {
         ensureDirectory()
         guard let data = try? encoder.encode(config) else { return }
-        try? data.write(to: configURL, options: .atomic)
+        do {
+            try data.write(to: configURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: configURL.path
+            )
+        } catch {
+            fputs("[config-store] failed to save config: \(error)\n", stderr)
+        }
     }
 
     func configPath() -> URL {

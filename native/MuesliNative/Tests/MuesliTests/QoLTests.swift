@@ -121,3 +121,38 @@ struct DictationStateIdleTests {
         #expect(DictationState.idle != .transcribing)
     }
 }
+
+// MARK: - Meeting chunk collection
+
+@Suite("Meeting chunk collection")
+struct MeetingChunkCollectorTests {
+
+    @Test("collector waits for tasks, keeps completed segments, and sorts by start")
+    func collectorSortsSegments() async {
+        let collector = MeetingChunkCollector()
+
+        collector.add(
+            Task {
+                try? await Task.sleep(for: .milliseconds(30))
+                return SpeechSegment(start: 30, end: 31, text: "later")
+            }
+        )
+        collector.add(
+            Task {
+                try? await Task.sleep(for: .milliseconds(5))
+                return nil
+            }
+        )
+        collector.add(
+            Task {
+                try? await Task.sleep(for: .milliseconds(10))
+                return SpeechSegment(start: 10, end: 11, text: "earlier")
+            }
+        )
+
+        let segments = await collector.drainSortedSegments()
+
+        #expect(segments.map(\.text) == ["earlier", "later"])
+        #expect(segments.map(\.start) == [10, 30])
+    }
+}
