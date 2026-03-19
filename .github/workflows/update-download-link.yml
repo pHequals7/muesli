@@ -30,16 +30,16 @@ jobs:
           echo "Updating download link to: $DMG_URL"
 
           # Update index.html (both the <a> href and the JSON-LD downloadUrl)
-          sed -i "s|https://github.com/pHequals7/muesli/releases/download/[^\"]*\.dmg|$DMG_URL|g" site/index.html
+          sed -i "s|https://github.com/pHequals7/muesli/releases/download/[^\"]*\.dmg|$DMG_URL|g" docs/index.html
 
           # Update llms.txt
-          sed -i "s|https://github.com/pHequals7/muesli/releases/download/.*\.dmg|$DMG_URL|g" site/llms.txt
+          sed -i "s|https://github.com/pHequals7/muesli/releases/download/.*\.dmg|$DMG_URL|g" docs/llms.txt
 
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add site/index.html site/llms.txt
+          git add docs/index.html docs/llms.txt
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
