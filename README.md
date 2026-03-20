@@ -59,6 +59,13 @@ Start a meeting recording → Muesli captures your mic (You) and system audio (O
 
 Download the latest `.dmg` from [Releases](https://github.com/pHequals7/muesli/releases), open it, and drag Muesli to your Applications folder.
 
+### Homebrew
+
+```bash
+brew tap pHequals7/muesli
+brew install --cask muesli
+```
+
 ### Build from source
 
 **Requirements:** macOS 14.2+, Xcode 16+

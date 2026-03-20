@@ -170,6 +170,94 @@
       transform: translateY(-1px);
     }
 
+    .install-alt {
+      margin-top: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      opacity: 0;
+      animation: fadeUp 2s ease 1.28s forwards;
+    }
+
+    .install-alt span {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      color: rgba(255,255,255,0.62);
+      text-transform: uppercase;
+    }
+
+    .install-alt code {
+      display: inline-block;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.88);
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+
+    .troubleshooting {
+      position: fixed;
+      left: 50%;
+      bottom: 76px;
+      transform: translateX(-50%);
+      z-index: 10;
+      width: min(720px, calc(100vw - 32px));
+      opacity: 0;
+      animation: footerIn 2s ease 1.4s forwards;
+    }
+
+    .troubleshooting summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      text-align: center;
+      font-family: var(--system);
+      font-size: 19px;
+      color: rgba(255,255,255,0.75);
+    }
+
+    .troubleshooting p {
+      margin: 12px auto 0;
+      max-width: 640px;
+      line-height: 1.6;
+      text-align: center;
+      font-family: var(--system);
+      font-size: 19px;
+      color: rgba(255,255,255,0.9);
+    }
+
+    .troubleshooting .command-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .troubleshooting code {
+      padding: 6px 10px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 6px;
+      font-size: 19px;
+      color: rgba(255,255,255,1);
+    }
+
+    .troubleshooting button {
+      padding: 6px 10px;
+      font-size: 14px;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.22);
+      border-radius: 6px;
+      color: rgba(255,255,255,0.9);
+      cursor: pointer;
+    }
+
     /* ── header nav ── */
     .topnav {
       position: fixed;
@@ -237,6 +325,14 @@
       .topnav { font-size: 0.8rem; gap: 20px; }
       footer { bottom: 18px; font-size: 0.58rem; gap: 8px; flex-wrap: wrap; padding: 0 16px; }
       .get { font-size: 0.72rem; padding: 9px 24px; }
+      .install-alt { margin-top: 12px; gap: 6px; }
+      .install-alt span { font-size: 0.64rem; }
+      .install-alt code { font-size: 0.7rem; max-width: calc(100vw - 40px); white-space: normal; }
+      .troubleshooting { bottom: 64px; width: calc(100vw - 24px); }
+      .troubleshooting summary,
+      .troubleshooting p,
+      .troubleshooting code { font-size: 16px; }
+      .troubleshooting button { font-size: 13px; }
     }
     @media (max-width: 480px) {
       .name { font-size: 1.8rem; letter-spacing: -0.01em; }
@@ -247,7 +343,7 @@
       .sub { display: none; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .icon, .name, .sub, .get, .topnav, footer {
+      .icon, .name, .sub, .get, .install-alt, .troubleshooting, .topnav, footer {
         animation: none !important;
         opacity: 1 !important;
         transform: translateY(0) !important;
@@ -306,17 +402,22 @@
     <h1 class="name">muesli</h1>
     <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcriptions</p>
     <a class="get" href="https://github.com/pHequals7/muesli/releases/download/v0.5.5/Muesli-0.5.5.dmg">download for macOS</a>
-    <details style="margin-top:12px;font-size:11px;color:rgba(255,255,255,0.5);cursor:pointer;position:relative;z-index:10">
-      <summary style="list-style:none;-webkit-user-select:none;user-select:none">app won&rsquo;t open? &middot; troubleshooting</summary>
-      <p style="margin:10px 0 0;line-height:1.6;color:rgba(255,255,255,0.6);text-align:left;max-width:360px">
-        If macOS says &ldquo;Muesli is damaged,&rdquo; open <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. Or run in Terminal:<br>
-        <span style="display:inline-flex;align-items:center;gap:6px;margin-top:6px">
-          <code id="xattr-cmd" style="padding:4px 8px;background:rgba(255,255,255,0.08);border-radius:4px;font-size:11px;color:rgba(255,255,255,0.7)">sudo xattr -cr /Applications/Muesli.app</code>
-          <button onclick="navigator.clipboard.writeText(document.getElementById('xattr-cmd').textContent);this.textContent='copied';setTimeout(()=>this.textContent='copy',1500)" style="padding:3px 8px;font-size:10px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:rgba(255,255,255,0.6);cursor:pointer">copy</button>
-        </span>
-      </p>
-    </details>
+    <div class="install-alt">
+      <span>or install with homebrew</span>
+      <code>brew tap pHequals7/muesli && brew install --cask muesli</code>
+    </div>
   </div>
+
+  <details class="troubleshooting">
+    <summary>app won&rsquo;t open? &middot; troubleshooting</summary>
+    <p>
+      If macOS says &ldquo;Muesli is damaged,&rdquo; open <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. Or run in Terminal:
+      <span class="command-row">
+        <code id="xattr-cmd">sudo xattr -cr /Applications/Muesli.app</code>
+        <button onclick="navigator.clipboard.writeText(document.getElementById('xattr-cmd').textContent);this.textContent='copied';setTimeout(()=>this.textContent='copy',1500)">copy</button>
+      </span>
+    </p>
+  </details>
 
   <footer>
     <span>mit license</span>
