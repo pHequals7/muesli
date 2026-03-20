@@ -180,7 +180,7 @@
       animation: fadeUp 2s ease 1.28s forwards;
     }
 
-    .install-alt span {
+    .install-alt .install-label {
       font-family: var(--mono);
       font-size: 0.72rem;
       letter-spacing: 0.04em;
@@ -231,6 +231,7 @@
       color: rgba(255,255,255,0.9);
     }
 
+    .install-alt .command-row,
     .troubleshooting .command-row {
       display: inline-flex;
       align-items: center;
@@ -248,14 +249,28 @@
       color: rgba(255,255,255,1);
     }
 
+    .install-alt button,
     .troubleshooting button {
       padding: 6px 10px;
       font-size: 14px;
+      line-height: 1;
       background: rgba(255,255,255,0.14);
       border: 1px solid rgba(255,255,255,0.22);
       border-radius: 6px;
       color: rgba(255,255,255,0.9);
       cursor: pointer;
+    }
+
+    .install-alt button svg,
+    .troubleshooting button svg {
+      display: block;
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
 
     /* ── header nav ── */
@@ -403,8 +418,16 @@
     <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcriptions</p>
     <a class="get" href="https://github.com/pHequals7/muesli/releases/download/v0.5.5/Muesli-0.5.5.dmg">download for macOS</a>
     <div class="install-alt">
-      <span>or install with homebrew</span>
-      <code>brew tap pHequals7/muesli && brew install --cask muesli</code>
+      <span class="install-label">or install with homebrew</span>
+      <span class="command-row">
+        <code id="brew-cmd">brew tap pHequals7/muesli && brew install --cask muesli</code>
+        <button aria-label="Copy Homebrew install command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('brew-cmd').textContent)">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="9" width="10" height="12" rx="2"></rect>
+            <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+          </svg>
+        </button>
+      </span>
     </div>
   </div>
 
@@ -414,7 +437,12 @@
       If macOS says &ldquo;Muesli is damaged,&rdquo; open <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. Or run in Terminal:
       <span class="command-row">
         <code id="xattr-cmd">sudo xattr -cr /Applications/Muesli.app</code>
-        <button onclick="navigator.clipboard.writeText(document.getElementById('xattr-cmd').textContent);this.textContent='copied';setTimeout(()=>this.textContent='copy',1500)">copy</button>
+        <button aria-label="Copy troubleshooting command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('xattr-cmd').textContent)">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="9" width="10" height="12" rx="2"></rect>
+            <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+          </svg>
+        </button>
       </span>
     </p>
   </details>
