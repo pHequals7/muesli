@@ -15,6 +15,9 @@ set -euo pipefail
 #   5. Verify the local DMG and the app inside it
 #   6. Create GitHub release and upload DMG
 #   7. Re-download the hosted DMG from GitHub Releases and verify that exact file
+#   8. Update downstream release surfaces from the verified hosted DMG:
+#      - GitHub Pages appcast + landing-page metadata
+#      - Personal Homebrew tap cask
 #
 # Prerequisites:
 #   - Developer ID cert in keychain
@@ -32,8 +35,12 @@ SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Gur
 APP_DIR="/Applications/Muesli.app"
 OUTPUT_DIR="$ROOT/dist-release"
 GENERATE_APPCAST="$ROOT/native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
+TAP_REPO="${MUESLI_TAP_REPO:-pHequals7/homebrew-muesli}"
+TAP_CASK_REL_PATH="${MUESLI_TAP_CASK_REL_PATH:-Casks/m/muesli.rb}"
+SKIP_TAP_UPDATE="${MUESLI_SKIP_TAP_UPDATE:-0}"
 VERIFY_DIR=""
 HOSTED_MOUNT_POINT=""
+TAP_WORK_DIR=""
 
 cleanup() {
   if [[ -n "$HOSTED_MOUNT_POINT" ]]; then
@@ -41,6 +48,9 @@ cleanup() {
   fi
   if [[ -n "$VERIFY_DIR" && -d "$VERIFY_DIR" ]]; then
     rm -rf "$VERIFY_DIR"
+  fi
+  if [[ -n "$TAP_WORK_DIR" && -d "$TAP_WORK_DIR" ]]; then
+    rm -rf "$TAP_WORK_DIR"
   fi
 }
 
@@ -96,21 +106,50 @@ Signed, notarized, and stapled by Apple.
 EOF
 )"
 
+update_personal_tap() {
+  if [[ "$SKIP_TAP_UPDATE" == "1" ]]; then
+    echo "  Skipping personal tap update because MUESLI_SKIP_TAP_UPDATE=1."
+    return 0
+  fi
+
+  TAP_WORK_DIR="$(mktemp -d)"
+  echo "  Cloning $TAP_REPO..."
+  gh repo clone "$TAP_REPO" "$TAP_WORK_DIR" -- --quiet
+
+  local cask_path="$TAP_WORK_DIR/$TAP_CASK_REL_PATH"
+  if [[ ! -f "$cask_path" ]]; then
+    echo "ERROR: Personal tap cask not found at $TAP_CASK_REL_PATH in $TAP_REPO." >&2
+    return 1
+  fi
+
+  perl -0pi -e 's/version "[^"]+"/version "'"$VERSION"'"/; s/sha256 "[^"]+"/sha256 "'"$HOSTED_SHA"'"/' "$cask_path"
+
+  git -C "$TAP_WORK_DIR" add "$TAP_CASK_REL_PATH"
+  if git -C "$TAP_WORK_DIR" diff --cached --quiet; then
+    echo "  Personal tap already points at v${VERSION}."
+    return 0
+  fi
+
+  git -C "$TAP_WORK_DIR" commit -m "muesli ${VERSION}"
+  git -C "$TAP_WORK_DIR" push origin HEAD
+  echo "  Personal tap updated: https://github.com/$TAP_REPO"
+}
+
 echo "=== Muesli Release v${VERSION} ==="
 echo ""
 
 # --- Step 0: Update version in build script ---
-echo "[0/12] Setting version to ${VERSION}..."
+echo "[0/13] Setting version to ${VERSION}..."
 sed -i '' "/CFBundleVersion<\/key>/{n;s/<string>[^<]*<\/string>/<string>${VERSION}<\/string>/;}" "$ROOT/scripts/build_native_app.sh"
 sed -i '' "/CFBundleShortVersionString<\/key>/{n;s/<string>[^<]*<\/string>/<string>${VERSION}<\/string>/;}" "$ROOT/scripts/build_native_app.sh"
 
 # --- Step 1: Run tests ---
-echo "[1/12] Running tests..."
+echo "[1/13] Running tests..."
 swift test --package-path "$ROOT/native/MuesliNative"
 echo "  Tests passed."
 
 # --- Step 2: Build and sign ---
-echo "[2/12] Building and signing..."
+echo "[2/13] Building and signing..."
 echo "y" | "$ROOT/scripts/build_native_app.sh" > /dev/null 2>&1
 echo "  Installed to $APP_DIR"
 
@@ -119,7 +158,7 @@ FLAGS=$(codesign -dvvv "$APP_DIR" 2>&1 | grep -o 'flags=0x[0-9a-f]*([^)]*)')
 echo "  Signature: $FLAGS"
 
 # --- Step 3: Notarize app bundle ---
-echo "[3/12] Notarizing app bundle with Apple (this may take several minutes)..."
+echo "[3/13] Notarizing app bundle with Apple (this may take several minutes)..."
 APP_ZIP="$OUTPUT_DIR/Muesli-app-${VERSION}.zip"
 ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP"
 NOTARY_OUTPUT=$(xcrun notarytool submit "$APP_ZIP" \
@@ -138,17 +177,17 @@ else
 fi
 
 # --- Step 4: Staple app bundle ---
-echo "[4/12] Stapling notarization ticket to app bundle..."
+echo "[4/13] Stapling notarization ticket to app bundle..."
 xcrun stapler staple "$APP_DIR"
 echo "  App stapled."
 
 # --- Step 5: Create DMG from stapled app ---
-echo "[5/12] Creating DMG from stapled app..."
+echo "[5/13] Creating DMG from stapled app..."
 "$ROOT/scripts/create_dmg.sh" "$APP_DIR" "$OUTPUT_DIR"
 DMG_PATH="$OUTPUT_DIR/Muesli-${VERSION}.dmg"
 
 # --- Step 6: Notarize DMG ---
-echo "[6/12] Notarizing DMG with Apple..."
+echo "[6/13] Notarizing DMG with Apple..."
 NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
   --keychain-profile "$PROFILE_NAME" \
   --wait 2>&1)
@@ -164,7 +203,7 @@ else
 fi
 
 # --- Step 7: Staple DMG ---
-echo "[7/12] Stapling notarization ticket to DMG..."
+echo "[7/13] Stapling notarization ticket to DMG..."
 xcrun stapler staple "$DMG_PATH"
 echo "  DMG stapled."
 
@@ -210,7 +249,7 @@ echo "  Verified: app inside DMG is accepted by Gatekeeper and stapled."
 echo ""
 
 # --- Step 8: Commit version metadata before tagging ---
-echo "[8/12] Committing release metadata..."
+echo "[8/13] Committing release metadata..."
 git add scripts/build_native_app.sh
 if git diff --cached --quiet; then
   echo "  No version metadata changes to commit."
@@ -235,7 +274,7 @@ git push origin "$TAG"
 echo "  Pushed release tag $TAG."
 
 # --- Step 9: Create a draft GitHub release and upload the DMG ---
-echo "[9/12] Creating draft GitHub release v${VERSION}..."
+echo "[9/13] Creating draft GitHub release v${VERSION}..."
 gh release create "$TAG" \
   --draft \
   --verify-tag \
@@ -247,7 +286,7 @@ DRAFT_RELEASE_URL=$(gh release view "$TAG" --json url -q .url)
 echo "  Draft release: $DRAFT_RELEASE_URL"
 
 # --- Step 10: Verify the hosted draft asset from GitHub Releases ---
-echo "[10/12] Verifying hosted GitHub Release DMG..."
+echo "[10/13] Verifying hosted GitHub Release DMG..."
 VERIFY_DIR=$(mktemp -d)
 HOSTED_DMG="$VERIFY_DIR/Muesli-${VERSION}.dmg"
 
@@ -314,7 +353,7 @@ if ! echo "$HOSTED_APP_STAPLE_RESULT" | grep -q "worked"; then
 fi
 
 # --- Step 11: Publish the verified draft release ---
-echo "[11/12] Publishing verified GitHub release..."
+echo "[11/13] Publishing verified GitHub release..."
 gh release edit "$TAG" \
   --draft=false \
   --title "$RELEASE_TITLE" \
@@ -324,7 +363,7 @@ RELEASE_URL=$(gh release view "$TAG" --json url -q .url)
 echo "  Release published: $RELEASE_URL"
 
 # --- Step 12: Update appcast and landing-page links after release publication ---
-echo "[12/12] Updating appcast and release metadata..."
+echo "[12/13] Updating appcast and release metadata..."
 "$GENERATE_APPCAST" "$OUTPUT_DIR" -o "$ROOT/docs/appcast.xml"
 
 # Point appcast enclosures at GitHub Releases, not GitHub Pages.
@@ -346,9 +385,16 @@ else
   echo "  Pushed appcast and landing-page updates to main."
 fi
 
+# --- Step 13: Update the personal Homebrew tap from the verified hosted DMG ---
+echo "[13/13] Updating personal Homebrew tap..."
+update_personal_tap
+
 echo ""
 echo "=== Release complete ==="
 echo "  Version: ${VERSION}"
 echo "  DMG: $DMG_PATH"
 echo "  Release: $RELEASE_URL"
 echo "  Hosted asset verified."
+if [[ "$SKIP_TAP_UPDATE" != "1" ]]; then
+  echo "  Personal tap: https://github.com/$TAP_REPO"
+fi
