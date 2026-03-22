@@ -5,6 +5,20 @@ import MuesliCore
 
 @Suite("MeetingSummaryClient")
 struct MeetingSummaryClientTests {
+    private let customTemplate = MeetingTemplateSnapshot(
+        id: "custom-follow-up",
+        name: "Customer Follow-Up",
+        kind: .custom,
+        prompt: """
+        Use this structure exactly:
+
+        ## Follow-Up Summary
+        - Main takeaways
+
+        ## Risks
+        - Any risks
+        """
+    )
 
     @Test("summarize returns raw transcript fallback when no API key")
     func fallbackWithoutKey() async {
@@ -20,6 +34,24 @@ struct MeetingSummaryClientTests {
 
         #expect(result.contains("## Raw Transcript"))
         #expect(result.contains("Hello world"))
+    }
+
+    @Test("summary instructions include built-in template structure")
+    func promptIncludesBuiltInTemplate() {
+        let instructions = MeetingSummaryClient.summaryInstructions(for: MeetingTemplates.auto.snapshot)
+
+        #expect(instructions.contains("You are a meeting notes assistant"))
+        #expect(instructions.contains("## Meeting Summary"))
+        #expect(instructions.contains("## Action Items"))
+    }
+
+    @Test("summary instructions include custom template prompt verbatim")
+    func promptIncludesCustomTemplate() {
+        let instructions = MeetingSummaryClient.summaryInstructions(for: customTemplate)
+
+        #expect(instructions.contains("## Follow-Up Summary"))
+        #expect(instructions.contains("## Risks"))
+        #expect(instructions.contains("Do not invent facts"))
     }
 
     @Test("summarize routes to OpenRouter when configured")

@@ -15,48 +15,54 @@ enum MeetingSummaryClient {
     Examples: "Q3 Sprint Planning", "Customer Onboarding Review", "Security Audit Discussion"
     """
 
-    private static let summaryInstructions = """
-    You are a meeting notes assistant. Given a raw meeting transcript, produce structured meeting notes with the following sections:
-
-    ## Meeting Summary
-    A 2-3 sentence overview of what was discussed.
-
-    ## Key Discussion Points
-    - Bullet points of main topics discussed
-
-    ## Decisions Made
-    - Bullet points of any decisions reached
-
-    ## Action Items
-    - [ ] Bullet points of tasks assigned or agreed upon, with owners if mentioned
-
-    ## Notable Quotes
-    - Any important or notable statements (if applicable)
-
-    Keep it concise and professional. If a section has no content, write "None noted."
+    private static let baseSummaryInstructions = """
+    You are a meeting notes assistant. Given a raw meeting transcript, produce concise, professional markdown notes.
+    Do not invent facts. Prefer concrete takeaways over filler. Capture owners only when they are actually mentioned.
+    If a requested section has no content, write "None noted."
     """
 
-    static func summarize(transcript: String, meetingTitle: String, config: AppConfig) async -> String {
+    static func summarize(
+        transcript: String,
+        meetingTitle: String,
+        config: AppConfig,
+        template: MeetingTemplateSnapshot = MeetingTemplates.auto.snapshot
+    ) async -> String {
         let backend = (config.meetingSummaryBackend.isEmpty ? MeetingSummaryBackendOption.openAI.backend : config.meetingSummaryBackend).lowercased()
         if backend == MeetingSummaryBackendOption.chatGPT.backend {
-            return await summarizeWithChatGPT(transcript: transcript, meetingTitle: meetingTitle, config: config)
+            return await summarizeWithChatGPT(transcript: transcript, meetingTitle: meetingTitle, config: config, template: template)
         }
         if backend == MeetingSummaryBackendOption.openRouter.backend {
-            return await summarizeWithOpenRouter(transcript: transcript, meetingTitle: meetingTitle, config: config)
+            return await summarizeWithOpenRouter(transcript: transcript, meetingTitle: meetingTitle, config: config, template: template)
         }
-        return await summarizeWithOpenAI(transcript: transcript, meetingTitle: meetingTitle, config: config)
+        return await summarizeWithOpenAI(transcript: transcript, meetingTitle: meetingTitle, config: config, template: template)
     }
 
-    private static func summarizeWithOpenAI(transcript: String, meetingTitle: String, config: AppConfig) async -> String {
+    static func summaryInstructions(for template: MeetingTemplateSnapshot) -> String {
+        """
+        \(baseSummaryInstructions)
+
+        Follow this note template exactly:
+
+        \(template.prompt)
+        """
+    }
+
+    private static func summarizeWithOpenAI(
+        transcript: String,
+        meetingTitle: String,
+        config: AppConfig,
+        template: MeetingTemplateSnapshot
+    ) async -> String {
         let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? config.openAIAPIKey
         guard !apiKey.isEmpty else {
             return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
         }
 
+        let instructions = summaryInstructions(for: template)
         let body: [String: Any] = [
             "model": config.openAIModel.isEmpty ? defaultOpenAIModel : config.openAIModel,
             "input": [
-                ["role": "system", "content": summaryInstructions],
+                ["role": "system", "content": instructions],
                 ["role": "user", "content": "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)"],
             ],
             "reasoning": ["effort": "low"],
@@ -85,17 +91,23 @@ enum MeetingSummaryClient {
         }
     }
 
-    private static func summarizeWithOpenRouter(transcript: String, meetingTitle: String, config: AppConfig) async -> String {
+    private static func summarizeWithOpenRouter(
+        transcript: String,
+        meetingTitle: String,
+        config: AppConfig,
+        template: MeetingTemplateSnapshot
+    ) async -> String {
         let apiKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] ?? config.openRouterAPIKey
         guard !apiKey.isEmpty else {
             return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
         }
 
         let model = config.openRouterModel.isEmpty ? defaultOpenRouterModel : config.openRouterModel
+        let instructions = summaryInstructions(for: template)
         let body: [String: Any] = [
             "model": model,
             "messages": [
-                ["role": "system", "content": summaryInstructions],
+                ["role": "system", "content": instructions],
                 ["role": "user", "content": "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)"],
             ],
             "max_tokens": 1200,
@@ -123,10 +135,16 @@ enum MeetingSummaryClient {
         }
     }
 
-    private static func summarizeWithChatGPT(transcript: String, meetingTitle: String, config: AppConfig) async -> String {
+    private static func summarizeWithChatGPT(
+        transcript: String,
+        meetingTitle: String,
+        config: AppConfig,
+        template: MeetingTemplateSnapshot
+    ) async -> String {
         do {
+            let instructions = summaryInstructions(for: template)
             let text = try await callWHAM(
-                systemPrompt: summaryInstructions,
+                systemPrompt: instructions,
                 userPrompt: "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)",
                 model: config.chatGPTModel.isEmpty ? defaultChatGPTModel : config.chatGPTModel
             )
@@ -144,7 +162,7 @@ enum MeetingSummaryClient {
     private static func callWHAM(systemPrompt: String, userPrompt: String, model: String) async throws -> String? {
         let (token, accountId) = try await ChatGPTAuthManager.shared.validAccessToken()
 
-        var body: [String: Any] = [
+        let body: [String: Any] = [
             "model": model,
             "store": false,
             "stream": true,

@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import MuesliCore
+import SQLite3
 @testable import MuesliNativeApp
 
 @Suite("DictationStore", .serialized)
@@ -16,10 +17,64 @@ struct DictationStoreTests {
         return store
     }
 
+    private func makeLegacyStore() throws -> DictationStore {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muesli-legacy-test-\(UUID().uuidString).db")
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        defer { sqlite3_close(db) }
+        let sql = """
+        CREATE TABLE meetings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            calendar_event_id TEXT,
+            start_time TEXT NOT NULL,
+            end_time TEXT,
+            duration_seconds REAL,
+            raw_transcript TEXT,
+            formatted_notes TEXT,
+            mic_audio_path TEXT,
+            system_audio_path TEXT,
+            word_count INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'meeting',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        """
+        #expect(sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK)
+        return DictationStore(databaseURL: url)
+    }
+
     @Test("migration creates tables without error")
     func migration() throws {
         let store = try makeStore()
         try store.migrateIfNeeded() // idempotent
+    }
+
+    @Test("migration adds template columns to legacy meeting schema")
+    func migrationAddsTemplateColumns() throws {
+        let store = try makeLegacyStore()
+
+        try store.migrateIfNeeded()
+
+        let meeting = try store.meeting(id: 1)
+        #expect(meeting == nil)
+        try store.insertMeeting(
+            title: "Legacy Meeting",
+            calendarEventID: nil,
+            startTime: Date(),
+            endTime: Date().addingTimeInterval(60),
+            rawTranscript: "Legacy transcript",
+            formattedNotes: "Legacy notes",
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            selectedTemplateID: "one-to-one",
+            selectedTemplateName: "1 to 1",
+            selectedTemplateKind: .builtin,
+            selectedTemplatePrompt: "## Check-In"
+        )
+        let inserted = try store.recentMeetings(limit: 1).first
+        #expect(inserted?.selectedTemplateID == "one-to-one")
+        #expect(inserted?.selectedTemplateKind == .builtin)
     }
 
     @Test("insert and retrieve dictation")
@@ -60,6 +115,34 @@ struct DictationStoreTests {
         #expect(rows.count == 1)
         #expect(rows.first!.title == "Test Meeting")
         #expect(rows.first!.wordCount == 7)
+        #expect(rows.first!.appliedTemplateID == MeetingTemplates.autoID)
+    }
+
+    @Test("meeting template snapshot persists on insert")
+    func insertAndRetrieveMeetingTemplateSnapshot() throws {
+        let store = try makeStore()
+
+        let start = Date()
+        try store.insertMeeting(
+            title: "Template Meeting",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(300),
+            rawTranscript: "Transcript body",
+            formattedNotes: "## Summary\nStructured",
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            selectedTemplateID: "stand-up",
+            selectedTemplateName: "Stand-Up",
+            selectedTemplateKind: .builtin,
+            selectedTemplatePrompt: "## Yesterday"
+        )
+
+        let meeting = try store.recentMeetings(limit: 1).first
+        #expect(meeting?.selectedTemplateID == "stand-up")
+        #expect(meeting?.selectedTemplateName == "Stand-Up")
+        #expect(meeting?.selectedTemplateKind == .builtin)
+        #expect(meeting?.selectedTemplatePrompt == "## Yesterday")
     }
 
     @Test("update meeting notes and title")
@@ -112,6 +195,41 @@ struct DictationStoreTests {
         #expect(updated.first!.formattedNotes == "New notes")
     }
 
+    @Test("update meeting summary stores template snapshot")
+    func updateMeetingSummaryWithTemplateSnapshot() throws {
+        let store = try makeStore()
+
+        let start = Date()
+        try store.insertMeeting(
+            title: "Original Title",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(60),
+            rawTranscript: "Transcript",
+            formattedNotes: "Old notes",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        let meetingID = try store.recentMeetings(limit: 1).first!.id
+        try store.updateMeetingSummary(
+            id: meetingID,
+            title: "Standup",
+            formattedNotes: "## Yesterday\n- Fixed bugs",
+            selectedTemplateID: "stand-up",
+            selectedTemplateName: "Stand-Up",
+            selectedTemplateKind: .builtin,
+            selectedTemplatePrompt: "## Yesterday"
+        )
+
+        let updated = try store.recentMeetings(limit: 1).first
+        #expect(updated?.title == "Standup")
+        #expect(updated?.selectedTemplateID == "stand-up")
+        #expect(updated?.selectedTemplateName == "Stand-Up")
+        #expect(updated?.selectedTemplateKind == .builtin)
+        #expect(updated?.selectedTemplatePrompt == "## Yesterday")
+    }
+
     @Test("fetch dictation by id returns the full record")
     func fetchDictationByID() throws {
         let store = try makeStore()
@@ -157,6 +275,7 @@ struct DictationStoreTests {
         #expect(fetched?.micAudioPath == "/tmp/mic.wav")
         #expect(fetched?.systemAudioPath == "/tmp/system.wav")
         #expect(fetched?.notesState == .structuredNotes)
+        #expect(fetched?.appliedTemplateID == MeetingTemplates.autoID)
     }
 
     @Test("meeting notes state distinguishes raw transcript fallback from structured notes")

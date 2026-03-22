@@ -51,6 +51,10 @@ public final class DictationStore {
             mic_audio_path TEXT,
             system_audio_path TEXT,
             word_count INTEGER NOT NULL DEFAULT 0,
+            selected_template_id TEXT,
+            selected_template_name TEXT,
+            selected_template_kind TEXT,
+            selected_template_prompt TEXT,
             source TEXT NOT NULL DEFAULT 'meeting',
             created_at TEXT DEFAULT (datetime('now'))
         );
@@ -69,6 +73,18 @@ public final class DictationStore {
         try exec(foldersSQL, db: db)
 
         if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN folder_id INTEGER REFERENCES meeting_folders(id)", nil, nil, nil) != SQLITE_OK {
+            // Column may already exist.
+        }
+        if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN selected_template_id TEXT", nil, nil, nil) != SQLITE_OK {
+            // Column may already exist.
+        }
+        if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN selected_template_name TEXT", nil, nil, nil) != SQLITE_OK {
+            // Column may already exist.
+        }
+        if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN selected_template_kind TEXT", nil, nil, nil) != SQLITE_OK {
+            // Column may already exist.
+        }
+        if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN selected_template_prompt TEXT", nil, nil, nil) != SQLITE_OK {
             // Column may already exist.
         }
         let _ = sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_meetings_folder ON meetings(folder_id)", nil, nil, nil)
@@ -200,14 +216,14 @@ public final class DictationStore {
         let sql: String
         if folderID == nil {
             sql = """
-            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path
+            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
             FROM meetings
             ORDER BY id DESC
             LIMIT ?
             """
         } else {
             sql = """
-            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path
+            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
             FROM meetings
             WHERE folder_id = ?
             ORDER BY id DESC
@@ -239,7 +255,7 @@ public final class DictationStore {
         defer { sqlite3_close(db) }
 
         let sql = """
-        SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path
+        SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
         FROM meetings
         WHERE id = ?
         LIMIT 1
@@ -265,15 +281,19 @@ public final class DictationStore {
         rawTranscript: String,
         formattedNotes: String,
         micAudioPath: String?,
-        systemAudioPath: String?
+        systemAudioPath: String?,
+        selectedTemplateID: String? = nil,
+        selectedTemplateName: String? = nil,
+        selectedTemplateKind: MeetingTemplateKind? = nil,
+        selectedTemplatePrompt: String? = nil
     ) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
 
         let sql = """
         INSERT INTO meetings
-        (title, calendar_event_id, start_time, end_time, duration_seconds, raw_transcript, formatted_notes, mic_audio_path, system_audio_path, word_count, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'meeting')
+        (title, calendar_event_id, start_time, end_time, duration_seconds, raw_transcript, formatted_notes, mic_audio_path, system_audio_path, word_count, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'meeting')
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -297,6 +317,10 @@ public final class DictationStore {
         bindOptionalText(micAudioPath, at: 8, statement: statement)
         bindOptionalText(systemAudioPath, at: 9, statement: statement)
         sqlite3_bind_int(statement, 10, Int32(wordCount))
+        bindOptionalText(selectedTemplateID, at: 11, statement: statement)
+        bindOptionalText(selectedTemplateName, at: 12, statement: statement)
+        bindOptionalText(selectedTemplateKind?.rawValue, at: 13, statement: statement)
+        bindOptionalText(selectedTemplatePrompt, at: 14, statement: statement)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
@@ -425,6 +449,39 @@ public final class DictationStore {
         }
     }
 
+    public func updateMeetingSummary(
+        id: Int64,
+        title: String,
+        formattedNotes: String,
+        selectedTemplateID: String,
+        selectedTemplateName: String,
+        selectedTemplateKind: MeetingTemplateKind,
+        selectedTemplatePrompt: String
+    ) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = """
+        UPDATE meetings
+        SET title = ?, formatted_notes = ?, selected_template_id = ?, selected_template_name = ?, selected_template_kind = ?, selected_template_prompt = ?
+        WHERE id = ?
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (title as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (formattedNotes as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 3, (selectedTemplateID as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 4, (selectedTemplateName as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 5, (selectedTemplateKind.rawValue as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 6, (selectedTemplatePrompt as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(statement, 7, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+    }
+
     public func updateMeetingTitle(id: Int64, title: String) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
@@ -546,6 +603,12 @@ public final class DictationStore {
         let calendarEventID: String? = sqlite3_column_type(statement, 8) == SQLITE_NULL ? nil : stringColumn(statement, index: 8)
         let micAudioPath: String? = sqlite3_column_type(statement, 9) == SQLITE_NULL ? nil : stringColumn(statement, index: 9)
         let systemAudioPath: String? = sqlite3_column_type(statement, 10) == SQLITE_NULL ? nil : stringColumn(statement, index: 10)
+        let selectedTemplateID: String? = sqlite3_column_type(statement, 11) == SQLITE_NULL ? nil : stringColumn(statement, index: 11)
+        let selectedTemplateName: String? = sqlite3_column_type(statement, 12) == SQLITE_NULL ? nil : stringColumn(statement, index: 12)
+        let selectedTemplateKind: MeetingTemplateKind? = sqlite3_column_type(statement, 13) == SQLITE_NULL
+            ? nil
+            : MeetingTemplateKind(rawValue: stringColumn(statement, index: 13))
+        let selectedTemplatePrompt: String? = sqlite3_column_type(statement, 14) == SQLITE_NULL ? nil : stringColumn(statement, index: 14)
         return MeetingRecord(
             id: sqlite3_column_int64(statement, 0),
             title: stringColumn(statement, index: 1),
@@ -557,7 +620,11 @@ public final class DictationStore {
             folderID: folderID,
             calendarEventID: calendarEventID,
             micAudioPath: micAudioPath,
-            systemAudioPath: systemAudioPath
+            systemAudioPath: systemAudioPath,
+            selectedTemplateID: selectedTemplateID,
+            selectedTemplateName: selectedTemplateName,
+            selectedTemplateKind: selectedTemplateKind,
+            selectedTemplatePrompt: selectedTemplatePrompt
         )
     }
 

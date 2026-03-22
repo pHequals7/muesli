@@ -170,6 +170,9 @@ struct MeetingListRow: Encodable {
     let wordCount: Int
     let folderID: Int64?
     let notesState: String
+    let selectedTemplateID: String
+    let selectedTemplateName: String
+    let selectedTemplateKind: String
 
     init(_ record: MeetingRecord) {
         id = record.id
@@ -179,6 +182,9 @@ struct MeetingListRow: Encodable {
         wordCount = record.wordCount
         folderID = record.folderID
         notesState = record.notesState.rawValue
+        selectedTemplateID = record.appliedTemplateID
+        selectedTemplateName = record.appliedTemplateName
+        selectedTemplateKind = record.appliedTemplateKind.rawValue
     }
 }
 
@@ -195,6 +201,10 @@ struct MeetingDetailPayload: Encodable {
     let calendarEventID: String?
     let micAudioPath: String?
     let systemAudioPath: String?
+    let selectedTemplateID: String
+    let selectedTemplateName: String
+    let selectedTemplateKind: String
+    let selectedTemplatePrompt: String?
 
     init(_ record: MeetingRecord) {
         id = record.id
@@ -209,6 +219,10 @@ struct MeetingDetailPayload: Encodable {
         calendarEventID = record.calendarEventID
         micAudioPath = record.micAudioPath
         systemAudioPath = record.systemAudioPath
+        selectedTemplateID = record.appliedTemplateID
+        selectedTemplateName = record.appliedTemplateName
+        selectedTemplateKind = record.appliedTemplateKind.rawValue
+        selectedTemplatePrompt = record.selectedTemplatePrompt
     }
 }
 

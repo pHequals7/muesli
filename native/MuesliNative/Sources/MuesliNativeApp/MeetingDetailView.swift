@@ -9,6 +9,7 @@ struct MeetingDetailView: View {
     @State private var isEditingNotes = false
     @State private var editableTitle: String
     @State private var editableNotes: String
+    @State private var pendingTemplateID: String
     @State private var titleSaveTask: DispatchWorkItem?
     @State private var notesSaveTask: DispatchWorkItem?
 
@@ -16,8 +17,10 @@ struct MeetingDetailView: View {
         self.meeting = meeting
         self.controller = controller
         self.appState = appState
+        let initialTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
         _editableTitle = State(initialValue: meeting?.title ?? "")
         _editableNotes = State(initialValue: meeting.map { Self.notesContent(for: $0) } ?? "")
+        _pendingTemplateID = State(initialValue: initialTemplateID)
     }
 
     var body: some View {
@@ -47,6 +50,9 @@ struct MeetingDetailView: View {
                 }
             }
             .background(MuesliTheme.backgroundBase)
+            .onChange(of: meeting.id) { _, _ in
+                syncLocalState(with: meeting)
+            }
         } else {
             VStack(spacing: MuesliTheme.spacing12) {
                 Text("No meeting selected")
@@ -63,6 +69,7 @@ struct MeetingDetailView: View {
 
     @ViewBuilder
     private func header(_ meeting: MeetingRecord) -> some View {
+        let appliedTemplate = controller.meetingTemplateSnapshot(for: meeting)
         VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
@@ -80,6 +87,8 @@ struct MeetingDetailView: View {
                     Text(formatMeta(meeting))
                         .font(MuesliTheme.callout())
                         .foregroundStyle(MuesliTheme.textSecondary)
+
+                    templateChip(for: appliedTemplate)
                 }
 
                 Spacer()
@@ -92,6 +101,7 @@ struct MeetingDetailView: View {
                 iconButton("text.quote", label: "Copy transcript") {
                     controller.copyToClipboard(meeting.rawTranscript)
                 }
+                templateMenu(for: meeting, appliedTemplate: appliedTemplate)
                 if isSummarizing {
                     HStack(spacing: 6) {
                         ProgressView()
@@ -102,15 +112,18 @@ struct MeetingDetailView: View {
                     }
                     .padding(.horizontal, MuesliTheme.spacing8)
                 } else if !isEditingNotes {
-                    iconButton("sparkles", label: "Re-summarize") {
+                    iconButton("sparkles", label: hasPendingTemplateChange(for: meeting) ? "Apply Template" : "Re-summarize") {
                         isSummarizing = true
-                        controller.resummarize(meeting: meeting) { [meeting] in
+                        let completion = { [meeting] in
                             isSummarizing = false
-                            // Refresh title from updated appState
                             if let updated = appState.meetingRows.first(where: { $0.id == meeting.id }) {
-                                editableTitle = updated.title
-                                editableNotes = Self.notesContent(for: updated)
+                                syncLocalState(with: updated)
                             }
+                        }
+                        if hasPendingTemplateChange(for: meeting) {
+                            controller.applyMeetingTemplate(id: pendingTemplateID, to: meeting, completion: completion)
+                        } else {
+                            controller.resummarize(meeting: meeting, completion: completion)
                         }
                     }
                 }
@@ -136,6 +149,85 @@ struct MeetingDetailView: View {
     }
 
     @ViewBuilder
+    private func templateMenu(for meeting: MeetingRecord, appliedTemplate: MeetingTemplateSnapshot) -> some View {
+        Menu {
+            Button {
+                pendingTemplateID = MeetingTemplates.autoID
+            } label: {
+                templateMenuItem(
+                    title: MeetingTemplates.auto.title,
+                    systemImage: MeetingTemplates.auto.icon,
+                    isSelected: pendingTemplateID == MeetingTemplates.autoID
+                )
+            }
+
+            Section("Built-in Templates") {
+                ForEach(controller.builtInMeetingTemplates()) { template in
+                    Button {
+                        pendingTemplateID = template.id
+                    } label: {
+                        templateMenuItem(
+                            title: template.title,
+                            systemImage: template.icon,
+                            isSelected: pendingTemplateID == template.id
+                        )
+                    }
+                }
+            }
+
+            if !controller.customMeetingTemplates().isEmpty {
+                Section("Custom Templates") {
+                    ForEach(controller.customMeetingTemplates()) { template in
+                        Button {
+                            pendingTemplateID = template.id
+                        } label: {
+                            templateMenuItem(
+                                title: template.name,
+                                systemImage: "square.and.pencil",
+                                isSelected: pendingTemplateID == template.id
+                            )
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Manage Templates…") {
+                controller.openHistoryWindow(tab: .settings)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: iconName(forSelectionOn: meeting, appliedTemplate: appliedTemplate))
+                    .font(.system(size: 10))
+                Text(labelForSelection(on: meeting, appliedTemplate: appliedTemplate))
+                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9))
+            }
+            .foregroundStyle(MuesliTheme.textSecondary)
+            .padding(.horizontal, MuesliTheme.spacing8)
+            .padding(.vertical, 5)
+            .background(MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private func templateMenuItem(title: String, systemImage: String, isSelected: Bool) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: isSelected ? "checkmark" : systemImage)
+                .frame(width: 12)
+            Text(title)
+        }
+    }
+
+    @ViewBuilder
     private func iconButton(_ systemImage: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 4) {
@@ -155,6 +247,21 @@ struct MeetingDetailView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func templateChip(for snapshot: MeetingTemplateSnapshot) -> some View {
+        HStack(spacing: 5) {
+            Image(systemName: iconName(for: snapshot))
+                .font(.system(size: 10))
+            Text(snapshot.name)
+                .font(.system(size: 11, weight: .medium))
+        }
+        .foregroundStyle(MuesliTheme.accent)
+        .padding(.horizontal, MuesliTheme.spacing8)
+        .padding(.vertical, 4)
+        .background(MuesliTheme.accentSubtle)
+        .clipShape(Capsule())
     }
 
     private var transcriptCTA: some View {
@@ -202,6 +309,44 @@ struct MeetingDetailView: View {
         meeting.notesState != .structuredNotes
     }
 
+    private func hasPendingTemplateChange(for meeting: MeetingRecord) -> Bool {
+        pendingTemplateID != controller.meetingTemplateSnapshot(for: meeting).id
+    }
+
+    private func labelForSelection(on meeting: MeetingRecord, appliedTemplate: MeetingTemplateSnapshot) -> String {
+        if pendingTemplateID == appliedTemplate.id {
+            return appliedTemplate.name
+        }
+        return MeetingTemplates.resolveDefinition(
+            id: pendingTemplateID,
+            customTemplates: appState.config.customMeetingTemplates
+        ).title
+    }
+
+    private func iconName(forSelectionOn meeting: MeetingRecord, appliedTemplate: MeetingTemplateSnapshot) -> String {
+        if pendingTemplateID == appliedTemplate.id {
+            return iconName(for: appliedTemplate)
+        }
+        return MeetingTemplates.resolveDefinition(
+            id: pendingTemplateID,
+            customTemplates: appState.config.customMeetingTemplates
+        ).icon
+    }
+
+    private func iconName(for snapshot: MeetingTemplateSnapshot) -> String {
+        switch snapshot.kind {
+        case .auto:
+            return MeetingTemplates.auto.icon
+        case .builtin:
+            return MeetingTemplates.resolveDefinition(
+                id: snapshot.id,
+                customTemplates: appState.config.customMeetingTemplates
+            ).icon
+        case .custom:
+            return "square.and.pencil"
+        }
+    }
+
     static func notesContent(for meeting: MeetingRecord) -> String {
         if meeting.notesState != .structuredNotes {
             return "# \(meeting.title)\n\n## Raw Transcript\n\n\(meeting.rawTranscript)"
@@ -225,6 +370,12 @@ struct MeetingDetailView: View {
         let item = DispatchWorkItem { c.updateMeetingNotes(id: meetingID, notes: notes) }
         notesSaveTask = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
+    }
+
+    private func syncLocalState(with meeting: MeetingRecord?) {
+        editableTitle = meeting?.title ?? ""
+        editableNotes = meeting.map { Self.notesContent(for: $0) } ?? ""
+        pendingTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
     }
 
     private func formatMeta(_ meeting: MeetingRecord) -> String {

@@ -282,6 +282,10 @@ final class MuesliController: NSObject {
         } else {
             indicator.closeIfIdle()
         }
+        appState.selectedBackend = selectedBackend
+        appState.selectedMeetingSummaryBackend = selectedMeetingSummaryBackend
+        appState.config = config
+        appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
     }
 
     func selectBackend(_ option: BackendOption) {
@@ -302,6 +306,67 @@ final class MuesliController: NSObject {
     func selectMeetingSummaryBackend(_ option: MeetingSummaryBackendOption) {
         updateConfig {
             $0.meetingSummaryBackend = option.backend
+        }
+    }
+
+    func availableMeetingTemplates() -> [MeetingTemplateDefinition] {
+        MeetingTemplates.allDefinitions(customTemplates: config.customMeetingTemplates)
+    }
+
+    func builtInMeetingTemplates() -> [MeetingTemplateDefinition] {
+        MeetingTemplates.builtIns
+    }
+
+    func customMeetingTemplates() -> [CustomMeetingTemplate] {
+        config.customMeetingTemplates
+    }
+
+    func defaultMeetingTemplate() -> MeetingTemplateSnapshot {
+        MeetingTemplates.resolveSnapshot(
+            id: config.defaultMeetingTemplateID,
+            customTemplates: config.customMeetingTemplates
+        )
+    }
+
+    func meetingTemplateSnapshot(for meeting: MeetingRecord) -> MeetingTemplateSnapshot {
+        MeetingTemplates.snapshot(for: meeting, customTemplates: config.customMeetingTemplates)
+    }
+
+    func updateDefaultMeetingTemplate(id: String) {
+        let resolved = MeetingTemplates.resolveSnapshot(id: id, customTemplates: config.customMeetingTemplates)
+        updateConfig {
+            $0.defaultMeetingTemplateID = resolved.id
+        }
+    }
+
+    func createCustomMeetingTemplate(name: String, prompt: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedPrompt.isEmpty else { return }
+        updateConfig {
+            $0.customMeetingTemplates.append(
+                CustomMeetingTemplate(name: trimmedName, prompt: trimmedPrompt)
+            )
+        }
+    }
+
+    func updateCustomMeetingTemplate(id: String, name: String, prompt: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedPrompt.isEmpty else { return }
+        updateConfig {
+            guard let index = $0.customMeetingTemplates.firstIndex(where: { $0.id == id }) else { return }
+            $0.customMeetingTemplates[index].name = trimmedName
+            $0.customMeetingTemplates[index].prompt = trimmedPrompt
+        }
+    }
+
+    func deleteCustomMeetingTemplate(id: String) {
+        updateConfig {
+            $0.customMeetingTemplates.removeAll { $0.id == id }
+            if $0.defaultMeetingTemplateID == id {
+                $0.defaultMeetingTemplateID = MeetingTemplates.autoID
+            }
         }
     }
 
@@ -440,6 +505,23 @@ final class MuesliController: NSObject {
     }
 
     func resummarize(meeting: MeetingRecord, completion: @escaping () -> Void) {
+        let templateSnapshot = meetingTemplateSnapshot(for: meeting)
+        resummarize(meeting: meeting, using: templateSnapshot, completion: completion)
+    }
+
+    func applyMeetingTemplate(id: String, to meeting: MeetingRecord, completion: @escaping () -> Void) {
+        let templateSnapshot = MeetingTemplates.resolveSnapshot(
+            id: id,
+            customTemplates: config.customMeetingTemplates
+        )
+        resummarize(meeting: meeting, using: templateSnapshot, completion: completion)
+    }
+
+    private func resummarize(
+        meeting: MeetingRecord,
+        using templateSnapshot: MeetingTemplateSnapshot,
+        completion: @escaping () -> Void
+    ) {
         Task { [weak self] in
             guard let self else { return }
             // Regenerate title from transcript
@@ -453,9 +535,18 @@ final class MuesliController: NSObject {
             let notes = await MeetingSummaryClient.summarize(
                 transcript: meeting.rawTranscript,
                 meetingTitle: newTitle,
-                config: self.config
+                config: self.config,
+                template: templateSnapshot
             )
-            try? self.dictationStore.updateMeeting(id: meeting.id, title: newTitle, formattedNotes: notes)
+            try? self.dictationStore.updateMeetingSummary(
+                id: meeting.id,
+                title: newTitle,
+                formattedNotes: notes,
+                selectedTemplateID: templateSnapshot.id,
+                selectedTemplateName: templateSnapshot.name,
+                selectedTemplateKind: templateSnapshot.kind,
+                selectedTemplatePrompt: templateSnapshot.prompt
+            )
             await MainActor.run {
                 self.syncAppState()
                 self.historyWindowController?.reload()
@@ -640,7 +731,11 @@ final class MuesliController: NSObject {
                     rawTranscript: result.rawTranscript,
                     formattedNotes: result.formattedNotes,
                     micAudioPath: result.micAudioPath,
-                    systemAudioPath: result.systemAudioPath
+                    systemAudioPath: result.systemAudioPath,
+                    selectedTemplateID: result.templateSnapshot.id,
+                    selectedTemplateName: result.templateSnapshot.name,
+                    selectedTemplateKind: result.templateSnapshot.kind,
+                    selectedTemplatePrompt: result.templateSnapshot.prompt
                 )
             } catch {
                 fputs("[muesli-native] meeting transcription failed: \(error)\n", stderr)

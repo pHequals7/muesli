@@ -219,6 +219,7 @@ struct AppConfig: Codable {
     var sttBackend: String = BackendOption.whisper.backend
     var sttModel: String = BackendOption.whisper.model
     var meetingSummaryBackend: String = MeetingSummaryBackendOption.openAI.backend
+    var defaultMeetingTemplateID: String = MeetingTemplates.autoID
     var whisperModel: String = BackendOption.whisper.model
     var idleTimeout: Double = 120
     var autoRecordMeetings: Bool = false
@@ -239,6 +240,7 @@ struct AppConfig: Codable {
     var meetingSummaryModel: String = ""
     var hasCompletedOnboarding: Bool = false
     var userName: String = ""
+    var customMeetingTemplates: [CustomMeetingTemplate] = []
     var customWords: [CustomWord] = [
         CustomWord(word: "muesli", replacement: "muesli"),
     ]
@@ -248,6 +250,7 @@ struct AppConfig: Codable {
         case sttBackend = "stt_backend"
         case sttModel = "stt_model"
         case meetingSummaryBackend = "meeting_summary_backend"
+        case defaultMeetingTemplateID = "default_meeting_template_id"
         case whisperModel = "whisper_model"
         case idleTimeout = "idle_timeout"
         case autoRecordMeetings = "auto_record_meetings"
@@ -268,6 +271,7 @@ struct AppConfig: Codable {
         case meetingSummaryModel = "meeting_summary_model"
         case hasCompletedOnboarding = "has_completed_onboarding"
         case userName = "user_name"
+        case customMeetingTemplates = "custom_meeting_templates"
         case customWords = "custom_words"
     }
 
@@ -280,6 +284,7 @@ struct AppConfig: Codable {
         sttBackend = (try? c.decode(String.self, forKey: .sttBackend)) ?? defaults.sttBackend
         sttModel = (try? c.decode(String.self, forKey: .sttModel)) ?? defaults.sttModel
         meetingSummaryBackend = (try? c.decode(String.self, forKey: .meetingSummaryBackend)) ?? defaults.meetingSummaryBackend
+        defaultMeetingTemplateID = (try? c.decode(String.self, forKey: .defaultMeetingTemplateID)) ?? defaults.defaultMeetingTemplateID
         whisperModel = (try? c.decode(String.self, forKey: .whisperModel)) ?? defaults.whisperModel
         idleTimeout = (try? c.decode(Double.self, forKey: .idleTimeout)) ?? defaults.idleTimeout
         autoRecordMeetings = (try? c.decode(Bool.self, forKey: .autoRecordMeetings)) ?? defaults.autoRecordMeetings
@@ -300,6 +305,7 @@ struct AppConfig: Codable {
         meetingSummaryModel = (try? c.decode(String.self, forKey: .meetingSummaryModel)) ?? defaults.meetingSummaryModel
         hasCompletedOnboarding = (try? c.decode(Bool.self, forKey: .hasCompletedOnboarding)) ?? defaults.hasCompletedOnboarding
         userName = (try? c.decode(String.self, forKey: .userName)) ?? defaults.userName
+        customMeetingTemplates = (try? c.decode([CustomMeetingTemplate].self, forKey: .customMeetingTemplates)) ?? defaults.customMeetingTemplates
         customWords = (try? c.decode([CustomWord].self, forKey: .customWords)) ?? defaults.customWords
     }
 }

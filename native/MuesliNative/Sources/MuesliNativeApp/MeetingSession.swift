@@ -64,6 +64,7 @@ struct MeetingSessionResult {
     let formattedNotes: String
     let micAudioPath: String?
     let systemAudioPath: String?
+    let templateSnapshot: MeetingTemplateSnapshot
 }
 
 final class MeetingSession {
@@ -237,10 +238,15 @@ final class MeetingSession {
             generatedTitle = title
         }
 
+        let templateSnapshot = MeetingTemplates.resolveSnapshot(
+            id: config.defaultMeetingTemplateID,
+            customTemplates: config.customMeetingTemplates
+        )
         let formattedNotes = await MeetingSummaryClient.summarize(
             transcript: rawTranscript,
             meetingTitle: generatedTitle,
-            config: config
+            config: config,
+            template: templateSnapshot
         )
 
         return MeetingSessionResult(
@@ -252,7 +258,8 @@ final class MeetingSession {
             rawTranscript: rawTranscript,
             formattedNotes: formattedNotes,
             micAudioPath: nil,
-            systemAudioPath: nil
+            systemAudioPath: nil,
+            templateSnapshot: templateSnapshot
         )
     }
 

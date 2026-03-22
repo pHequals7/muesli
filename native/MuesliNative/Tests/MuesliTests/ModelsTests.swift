@@ -120,12 +120,14 @@ struct AppConfigTests {
         #expect(config.sttBackend == BackendOption.whisper.backend)
         #expect(config.sttModel == BackendOption.whisper.model)
         #expect(config.meetingSummaryBackend == "openai")
+        #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.openAIAPIKey.isEmpty)
         #expect(config.openRouterAPIKey.isEmpty)
         #expect(config.dictationHotkey == .default)
         #expect(config.showFloatingIndicator == true)
         #expect(config.hasCompletedOnboarding == false)
         #expect(config.userName.isEmpty)
+        #expect(config.customMeetingTemplates.isEmpty)
     }
 
     @Test("JSON encode/decode round-trip")
@@ -134,6 +136,10 @@ struct AppConfigTests {
         config.openAIAPIKey = "sk-test-key-123"
         config.userName = "Test User"
         config.hasCompletedOnboarding = true
+        config.defaultMeetingTemplateID = "weekly-team-meeting"
+        config.customMeetingTemplates = [
+            CustomMeetingTemplate(id: "tmpl_123", name: "Customer Follow-Up", prompt: "## Summary")
+        ]
 
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
@@ -141,6 +147,9 @@ struct AppConfigTests {
         #expect(decoded.openAIAPIKey == "sk-test-key-123")
         #expect(decoded.userName == "Test User")
         #expect(decoded.hasCompletedOnboarding == true)
+        #expect(decoded.defaultMeetingTemplateID == "weekly-team-meeting")
+        #expect(decoded.customMeetingTemplates.count == 1)
+        #expect(decoded.customMeetingTemplates.first?.name == "Customer Follow-Up")
     }
 
     @Test("JSON coding keys use snake_case")
@@ -153,6 +162,8 @@ struct AppConfigTests {
         #expect(json["stt_model"] != nil)
         #expect(json["has_completed_onboarding"] != nil)
         #expect(json["user_name"] != nil)
+        #expect(json["default_meeting_template_id"] != nil)
+        #expect(json["custom_meeting_templates"] != nil)
     }
 
     @Test("decodes with missing fields using defaults")
@@ -164,6 +175,8 @@ struct AppConfigTests {
         #expect(config.openAIAPIKey.isEmpty)
         #expect(config.showFloatingIndicator == true)
         #expect(config.hasCompletedOnboarding == false)
+        #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
+        #expect(config.customMeetingTemplates.isEmpty)
     }
 }
 
