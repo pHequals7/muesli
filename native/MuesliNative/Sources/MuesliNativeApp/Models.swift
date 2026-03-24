@@ -265,6 +265,7 @@ struct AppConfig: Codable {
     var customWords: [CustomWord] = [
         CustomWord(word: "muesli", replacement: "muesli"),
     ]
+    var disableClipboardCopy: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case dictationHotkey = "dictation_hotkey"
@@ -295,6 +296,7 @@ struct AppConfig: Codable {
         case userName = "user_name"
         case customMeetingTemplates = "custom_meeting_templates"
         case customWords = "custom_words"
+        case disableClipboardCopy = "disable_clipboard_copy"
     }
 
     init() {}
@@ -330,6 +332,7 @@ struct AppConfig: Codable {
         userName = (try? c.decode(String.self, forKey: .userName)) ?? defaults.userName
         customMeetingTemplates = (try? c.decode([CustomMeetingTemplate].self, forKey: .customMeetingTemplates)) ?? defaults.customMeetingTemplates
         customWords = (try? c.decode([CustomWord].self, forKey: .customWords)) ?? defaults.customWords
+        disableClipboardCopy = (try? c.decode(Bool.self, forKey: .disableClipboardCopy)) ?? defaults.disableClipboardCopy
     }
 }
 

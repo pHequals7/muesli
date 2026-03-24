@@ -4,6 +4,20 @@ import Foundation
 import MuesliCore
 
 enum PasteController {
+    /// Route transcription output to either clipboard+Cmd+V or direct keystroke simulation.
+    /// - Parameters:
+    ///   - text: The transcribed text to insert.
+    ///   - avoidClipboard: When `true`, uses `typeText(_:)` so the clipboard is never touched.
+    static func insert(text: String, avoidClipboard: Bool) {
+        if avoidClipboard && AXIsProcessTrusted() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                typeText(text)
+            }
+        } else {
+            paste(text: text)
+        }
+    }
+
     static func paste(text: String) {
         guard !text.isEmpty else { return }
         let pasteboard = NSPasteboard.general

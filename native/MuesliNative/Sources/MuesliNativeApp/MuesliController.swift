@@ -1310,7 +1310,7 @@ final class MuesliController: NSObject {
                     self.statusBarController?.refresh()
                     self.historyWindowController?.reload()
                     self.syncAppState()
-                    PasteController.paste(text: text)
+                    PasteController.insert(text: text, avoidClipboard: appState.config.disableClipboardCopy)
                     self.setState(.idle)
                     self.micActivityMonitor.resumeAfterCooldown()
                     TelemetryDeck.signal("dictation.completed", parameters: ["backend": self.selectedBackend.backend])

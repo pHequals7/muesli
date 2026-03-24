@@ -49,4 +49,30 @@ struct PasteControllerTypeTextTests {
             #expect(decoded == delta, "Round-trip failed for: \(delta)")
         }
     }
+
+    // MARK: - insert(text:avoidClipboard:) routing
+
+    @Test("insert with avoidClipboard:false writes to clipboard")
+    func insertWritesToClipboardWhenEnabled() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("before", forType: .string)
+
+        PasteController.insert(text: "hello", avoidClipboard: false)
+
+        // paste() sets clipboard contents before firing Cmd+V
+        #expect(pasteboard.string(forType: .string) == "hello")
+    }
+
+    @Test("insert with avoidClipboard:true does not touch clipboard")
+    func insertPreservesClipboardWhenDisabled() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("clipboard-sentinel", forType: .string)
+
+        PasteController.insert(text: "hello", avoidClipboard: true)
+
+        // typeText() must not modify the clipboard
+        #expect(pasteboard.string(forType: .string) == "clipboard-sentinel")
+    }
 }
