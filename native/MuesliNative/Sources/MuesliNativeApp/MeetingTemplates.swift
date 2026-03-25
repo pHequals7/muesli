@@ -309,8 +309,26 @@ enum MeetingTemplates {
         return auto
     }
 
+    static func resolveExactDefinition(id: String?, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateDefinition? {
+        let normalizedID = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? autoID
+        if normalizedID.isEmpty || normalizedID == autoID {
+            return auto
+        }
+        if let builtIn = builtIns.first(where: { $0.id == normalizedID }) {
+            return builtIn
+        }
+        if let custom = customTemplates.first(where: { $0.id == normalizedID }) {
+            return customDefinition(from: custom)
+        }
+        return nil
+    }
+
     static func resolveSnapshot(id: String?, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateSnapshot {
         resolveDefinition(id: id, customTemplates: customTemplates).snapshot
+    }
+
+    static func resolveExactSnapshot(id: String?, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateSnapshot? {
+        resolveExactDefinition(id: id, customTemplates: customTemplates)?.snapshot
     }
 
     static func snapshot(for meeting: MeetingRecord, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateSnapshot {

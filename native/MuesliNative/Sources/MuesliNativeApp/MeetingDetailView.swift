@@ -53,6 +53,9 @@ struct MeetingDetailView: View {
                 .onChange(of: meeting.id) { _, _ in
                     syncLocalState(with: meeting)
                 }
+                .onChange(of: appState.config.customMeetingTemplates) { _, _ in
+                    syncPendingTemplateSelectionIfNeeded(for: meeting)
+                }
             } else {
                 VStack(spacing: MuesliTheme.spacing12) {
                     Text("No meeting selected")
@@ -224,6 +227,9 @@ struct MeetingDetailView: View {
                             syncLocalState(with: updated)
                         }
                     case .failure(let error):
+                        syncPendingTemplateSelectionIfNeeded(
+                            for: appState.meetingRows.first(where: { $0.id == meeting.id }) ?? meeting
+                        )
                         summaryErrorMessage = error.localizedDescription
                     }
                 }
@@ -467,27 +473,21 @@ struct MeetingDetailView: View {
     }
 
     private func hasPendingTemplateChange(for meeting: MeetingRecord) -> Bool {
-        pendingTemplateID != controller.meetingTemplateSnapshot(for: meeting).id
+        resolvedPendingTemplateDefinition(for: meeting).id != controller.meetingTemplateSnapshot(for: meeting).id
     }
 
     private func labelForSelection(on meeting: MeetingRecord, appliedTemplate: MeetingTemplateSnapshot) -> String {
         if pendingTemplateID == appliedTemplate.id {
             return appliedTemplate.name
         }
-        return MeetingTemplates.resolveDefinition(
-            id: pendingTemplateID,
-            customTemplates: appState.config.customMeetingTemplates
-        ).title
+        return resolvedPendingTemplateDefinition(for: meeting).title
     }
 
     private func iconName(forSelectionOn meeting: MeetingRecord, appliedTemplate: MeetingTemplateSnapshot) -> String {
         if pendingTemplateID == appliedTemplate.id {
             return iconName(for: appliedTemplate)
         }
-        return MeetingTemplates.resolveDefinition(
-            id: pendingTemplateID,
-            customTemplates: appState.config.customMeetingTemplates
-        ).icon
+        return resolvedPendingTemplateDefinition(for: meeting).icon
     }
 
     private func iconName(for snapshot: MeetingTemplateSnapshot) -> String {
@@ -540,6 +540,30 @@ struct MeetingDetailView: View {
                 }
             }
         )
+    }
+
+    private func resolvedPendingTemplateDefinition(for meeting: MeetingRecord) -> MeetingTemplateDefinition {
+        if let resolved = MeetingTemplates.resolveExactDefinition(
+            id: pendingTemplateID,
+            customTemplates: appState.config.customMeetingTemplates
+        ) {
+            return resolved
+        }
+        return MeetingTemplates.resolveDefinition(
+            id: controller.meetingTemplateSnapshot(for: meeting).id,
+            customTemplates: appState.config.customMeetingTemplates
+        )
+    }
+
+    private func syncPendingTemplateSelectionIfNeeded(for meeting: MeetingRecord?) {
+        guard let meeting else { return }
+        guard MeetingTemplates.resolveExactDefinition(
+            id: pendingTemplateID,
+            customTemplates: appState.config.customMeetingTemplates
+        ) == nil else {
+            return
+        }
+        pendingTemplateID = controller.meetingTemplateSnapshot(for: meeting).id
     }
 
     private func syncLocalState(with meeting: MeetingRecord?) {

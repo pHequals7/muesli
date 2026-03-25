@@ -36,6 +36,17 @@ enum MeetingSummaryPersistenceError: Error, LocalizedError {
     }
 }
 
+enum MeetingTemplateSelectionError: Error, LocalizedError {
+    case templateNoLongerExists
+
+    var errorDescription: String? {
+        switch self {
+        case .templateNoLongerExists:
+            return "That template no longer exists. Choose another template and try again."
+        }
+    }
+}
+
 @MainActor
 final class MuesliController: NSObject {
     private let runtime: RuntimePaths
@@ -564,10 +575,13 @@ final class MuesliController: NSObject {
     }
 
     func applyMeetingTemplate(id: String, to meeting: MeetingRecord, completion: @escaping (Result<Void, Error>) -> Void) {
-        let templateSnapshot = MeetingTemplates.resolveSnapshot(
+        guard let templateSnapshot = MeetingTemplates.resolveExactSnapshot(
             id: id,
             customTemplates: config.customMeetingTemplates
-        )
+        ) else {
+            completion(.failure(MeetingTemplateSelectionError.templateNoLongerExists))
+            return
+        }
         resummarize(meeting: meeting, using: templateSnapshot, completion: completion)
     }
 

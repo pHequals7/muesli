@@ -281,6 +281,47 @@ struct MeetingResummarizationPolicyTests {
     }
 }
 
+@Suite("Meeting template resolution")
+struct MeetingTemplateResolutionTests {
+
+    @Test("exact resolution returns nil for deleted custom templates")
+    func exactResolutionReturnsNilForDeletedCustomTemplates() {
+        let customTemplates = [
+            CustomMeetingTemplate(
+                id: "tmpl_existing",
+                name: "Existing Template",
+                prompt: "## Summary",
+                icon: "person.2"
+            )
+        ]
+
+        #expect(
+            MeetingTemplates.resolveExactDefinition(
+                id: "tmpl_deleted",
+                customTemplates: customTemplates
+            ) == nil
+        )
+    }
+
+    @Test("exact resolution still supports auto and built-in templates")
+    func exactResolutionSupportsDefaultTemplates() {
+        let builtIn = MeetingTemplates.builtIns.first!
+
+        #expect(
+            MeetingTemplates.resolveExactDefinition(
+                id: MeetingTemplates.autoID,
+                customTemplates: []
+            )?.id == MeetingTemplates.autoID
+        )
+        #expect(
+            MeetingTemplates.resolveExactDefinition(
+                id: builtIn.id,
+                customTemplates: []
+            )?.id == builtIn.id
+        )
+    }
+}
+
 @Suite("DictationState")
 struct DictationStateTests {
     @Test("raw values")
