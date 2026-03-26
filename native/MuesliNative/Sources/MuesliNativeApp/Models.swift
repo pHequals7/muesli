@@ -13,7 +13,7 @@ struct BackendOption: Equatable {
         backend: "fluidaudio",
         model: "FluidInference/parakeet-tdt-0.6b-v3-coreml",
         label: "Parakeet v3",
-        sizeLabel: "~250 MB",
+        sizeLabel: "~450 MB",
         description: "Multilingual, 25 languages. Runs on Apple Neural Engine.",
         recommended: true
     )
@@ -22,7 +22,7 @@ struct BackendOption: Equatable {
         backend: "fluidaudio",
         model: "FluidInference/parakeet-tdt-0.6b-v2-coreml",
         label: "Parakeet v2",
-        sizeLabel: "~250 MB",
+        sizeLabel: "~450 MB",
         description: "English-only, highest recall. Runs on Apple Neural Engine.",
         recommended: false
     )
@@ -86,7 +86,7 @@ struct BackendOption: Equatable {
         backend: "qwen",
         model: "FluidInference/qwen3-asr-0.6b-coreml",
         label: "Qwen3 ASR",
-        sizeLabel: "~900 MB",
+        sizeLabel: "~1.3 GB",
         description: "Multilingual, 52 languages. Slower than Parakeet (~2-3s). First use takes ~30s to warm up.",
         recommended: false
     )

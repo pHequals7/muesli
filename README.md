@@ -79,7 +79,7 @@ cd muesli
 ./scripts/build_native_app.sh
 ```
 
-The transcription model (~250MB for Parakeet v3) downloads automatically on first use.
+The transcription model (~450MB for Parakeet v3) downloads automatically on first use.
 
 ---
 
@@ -197,9 +197,9 @@ Important meeting fields:
 
 | Model | Backend | Runtime | Size | Languages | Latency |
 |-------|---------|---------|------|-----------|---------|
-| **Parakeet v3** (recommended) | FluidAudio | CoreML / Neural Engine | ~250 MB | 25 languages | ~0.13s |
-| Parakeet v2 | FluidAudio | CoreML / Neural Engine | ~250 MB | English only | ~0.13s |
-| Qwen3 ASR | FluidAudio | CoreML / Neural Engine | ~900 MB | 52 languages | ~2-3s |
+| **Parakeet v3** (recommended) | FluidAudio | CoreML / Neural Engine | ~450 MB | 25 languages | ~0.13s |
+| Parakeet v2 | FluidAudio | CoreML / Neural Engine | ~450 MB | English only | ~0.13s |
+| Qwen3 ASR | FluidAudio | CoreML / Neural Engine | ~1.3 GB | 52 languages | ~2-3s |
 | Whisper Small | whisper.cpp | Metal / CPU | ~190 MB | English only | ~1-2s |
 | Whisper Medium | whisper.cpp | Metal / CPU | ~1.5 GB | English only | ~2-3s |
 | Whisper Large Turbo | whisper.cpp | Metal / CPU | ~600 MB | Multilingual | ~2-4s |
