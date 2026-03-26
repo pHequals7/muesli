@@ -201,6 +201,7 @@ struct MeetingDetailPayload: Encodable {
     let calendarEventID: String?
     let micAudioPath: String?
     let systemAudioPath: String?
+    let savedRecordingPath: String?
     let selectedTemplateID: String
     let selectedTemplateName: String
     let selectedTemplateKind: String
@@ -219,6 +220,7 @@ struct MeetingDetailPayload: Encodable {
         calendarEventID = record.calendarEventID
         micAudioPath = record.micAudioPath
         systemAudioPath = record.systemAudioPath
+        savedRecordingPath = record.savedRecordingPath
         selectedTemplateID = record.appliedTemplateID
         selectedTemplateName = record.appliedTemplateName
         selectedTemplateKind = record.appliedTemplateKind.rawValue

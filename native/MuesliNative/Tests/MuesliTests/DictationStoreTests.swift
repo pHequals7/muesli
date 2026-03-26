@@ -75,6 +75,30 @@ struct DictationStoreTests {
         let inserted = try store.recentMeetings(limit: 1).first
         #expect(inserted?.selectedTemplateID == "one-to-one")
         #expect(inserted?.selectedTemplateKind == .builtin)
+        #expect(inserted?.savedRecordingPath == nil)
+    }
+
+    @Test("migration adds saved recording path column to legacy meeting schema")
+    func migrationAddsSavedRecordingColumn() throws {
+        let store = try makeLegacyStore()
+
+        try store.migrateIfNeeded()
+
+        let start = Date()
+        try store.insertMeeting(
+            title: "Saved Meeting",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(60),
+            rawTranscript: "Transcript",
+            formattedNotes: "Notes",
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            savedRecordingPath: "/tmp/meeting.wav"
+        )
+
+        let inserted = try store.recentMeetings(limit: 1).first
+        #expect(inserted?.savedRecordingPath == "/tmp/meeting.wav")
     }
 
     @Test("insert and retrieve dictation")
@@ -264,7 +288,8 @@ struct DictationStoreTests {
             rawTranscript: "Discussed roadmap items",
             formattedNotes: "## Summary\nRoadmap reviewed",
             micAudioPath: "/tmp/mic.wav",
-            systemAudioPath: "/tmp/system.wav"
+            systemAudioPath: "/tmp/system.wav",
+            savedRecordingPath: "/tmp/meeting.wav"
         )
 
         let inserted = try store.recentMeetings(limit: 1).first!
@@ -274,6 +299,7 @@ struct DictationStoreTests {
         #expect(fetched?.calendarEventID == "evt_123")
         #expect(fetched?.micAudioPath == "/tmp/mic.wav")
         #expect(fetched?.systemAudioPath == "/tmp/system.wav")
+        #expect(fetched?.savedRecordingPath == "/tmp/meeting.wav")
         #expect(fetched?.notesState == .structuredNotes)
         #expect(fetched?.appliedTemplateID == MeetingTemplates.autoID)
     }
@@ -386,6 +412,41 @@ struct DictationStoreTests {
         try store.insertMeeting(title: "Del", calendarEventID: nil, startTime: now, endTime: now.addingTimeInterval(60), rawTranscript: "x", formattedNotes: "", micAudioPath: nil, systemAudioPath: nil)
         try store.clearMeetings()
         #expect(try store.recentMeetings(limit: 100).isEmpty)
+    }
+
+    @Test("delete meeting removes a single meeting row")
+    func deleteMeeting() throws {
+        let store = try makeStore()
+        let now = Date()
+
+        try store.insertMeeting(
+            title: "Delete Me",
+            calendarEventID: nil,
+            startTime: now,
+            endTime: now.addingTimeInterval(60),
+            rawTranscript: "first meeting",
+            formattedNotes: "",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+        try store.insertMeeting(
+            title: "Keep Me",
+            calendarEventID: nil,
+            startTime: now.addingTimeInterval(120),
+            endTime: now.addingTimeInterval(180),
+            rawTranscript: "second meeting",
+            formattedNotes: "",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        let meetings = try store.recentMeetings(limit: 10)
+        let deleteID = meetings.first(where: { $0.title == "Delete Me" })!.id
+        try store.deleteMeeting(id: deleteID)
+
+        let remaining = try store.recentMeetings(limit: 10)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.title == "Keep Me")
     }
 
     @Test("recent dictations respects limit")

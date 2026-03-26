@@ -20,6 +20,7 @@ struct MeetingDetailView: View {
     @State private var titleSaveTask: DispatchWorkItem?
     @State private var notesSaveTask: DispatchWorkItem?
     @State private var summaryErrorMessage: String?
+    @State private var showDeleteConfirmation = false
 
     init(
         meeting: MeetingRecord?,
@@ -76,6 +77,16 @@ struct MeetingDetailView: View {
         } message: {
             Text(summaryErrorMessage ?? "The updated meeting notes could not be saved.")
         }
+        .alert("Delete Meeting", isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                if let meeting {
+                    controller.deleteMeeting(id: meeting.id)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this meeting? Saved notes, transcript, and any retained recording will be removed.")
+        }
     }
 
     @ViewBuilder
@@ -124,17 +135,21 @@ struct MeetingDetailView: View {
                     ViewThatFits(in: .horizontal) {
                         HStack(spacing: MuesliTheme.spacing8) {
                             templateMenu(for: meeting, appliedTemplate: appliedTemplate)
+                            recordingAction(for: meeting)
                             summaryAction(for: meeting)
                             editButton(for: meeting)
+                            deleteButton
                         }
 
                         VStack(alignment: .trailing, spacing: MuesliTheme.spacing8) {
                             HStack(spacing: MuesliTheme.spacing8) {
                                 templateMenu(for: meeting, appliedTemplate: appliedTemplate)
+                                recordingAction(for: meeting)
                                 summaryAction(for: meeting)
                             }
                             HStack(spacing: MuesliTheme.spacing8) {
                                 editButton(for: meeting)
+                                deleteButton
                             }
                         }
                     }
@@ -256,6 +271,15 @@ struct MeetingDetailView: View {
                 editableNotes = Self.notesContent(for: meeting)
             }
             isEditingNotes.toggle()
+        }
+    }
+
+    @ViewBuilder
+    private func recordingAction(for meeting: MeetingRecord) -> some View {
+        if let savedRecordingPath = meeting.savedRecordingPath {
+            iconButton("folder", label: "Show Recording") {
+                controller.revealMeetingRecordingInFinder(path: savedRecordingPath)
+            }
         }
     }
 
@@ -390,6 +414,12 @@ struct MeetingDetailView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private var deleteButton: some View {
+        iconButton("trash", label: "Delete") {
+            showDeleteConfirmation = true
+        }
     }
 
     @ViewBuilder

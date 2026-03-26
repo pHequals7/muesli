@@ -236,6 +236,16 @@ struct SettingsView: View {
                             controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
                         }
                     }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Save meeting recording") {
+                        settingsMenu(
+                            selection: recordingSaveLabel(for: appState.config.meetingRecordingSavePolicy),
+                            options: MeetingRecordingSavePolicy.allCases.map(recordingSaveLabel(for:))
+                        ) { label in
+                            guard let policy = recordingSavePolicy(for: label) else { return }
+                            controller.updateConfig { $0.meetingRecordingSavePolicy = policy }
+                        }
+                    }
                 }
 
                 settingsSection("Data") {
@@ -411,6 +421,21 @@ struct SettingsView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    private func recordingSaveLabel(for policy: MeetingRecordingSavePolicy) -> String {
+        switch policy {
+        case .never:
+            return "Never"
+        case .prompt:
+            return "Ask every time"
+        case .always:
+            return "Always"
+        }
+    }
+
+    private func recordingSavePolicy(for label: String) -> MeetingRecordingSavePolicy? {
+        MeetingRecordingSavePolicy.allCases.first { recordingSaveLabel(for: $0) == label }
     }
 }
 

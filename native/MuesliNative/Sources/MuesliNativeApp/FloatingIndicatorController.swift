@@ -101,42 +101,32 @@ final class FloatingIndicatorController {
     var onStopToggleDictation: (() -> Void)?
 
     func handleClick(atX x: CGFloat? = nil) {
-        if isMeetingRecording {
-            onStopMeeting?()
-        } else if state == .recording, let x {
+        if state == .recording, let x {
             if x < 30 {
-                // X region → discard
-                onCancelToggleDictation?()
+                if isMeetingRecording {
+                    onDiscardMeeting?()
+                } else {
+                    onCancelToggleDictation?()
+                }
             } else {
-                // Stop region or middle → save
-                onStopToggleDictation?()
+                if isMeetingRecording {
+                    onStopMeeting?()
+                } else {
+                    onStopToggleDictation?()
+                }
             }
         } else if state == .recording {
-            onStopToggleDictation?()
+            if isMeetingRecording {
+                onStopMeeting?()
+            } else {
+                onStopToggleDictation?()
+            }
         }
     }
 
     func handleOptionClick() {
-        if isMeetingRecording {
-            showDiscardConfirmation()
-        } else if state == .recording {
+        if !isMeetingRecording, state == .recording {
             onCancelToggleDictation?()
-        }
-    }
-
-    private func showDiscardConfirmation() {
-        let alert = NSAlert()
-        alert.messageText = "Discard recording?"
-        alert.informativeText = "This will stop the meeting recording and delete all captured audio. This cannot be undone."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Discard")
-        alert.addButton(withTitle: "Cancel")
-        // Make the discard button red-tinted
-        alert.buttons.first?.hasDestructiveAction = true
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            onDiscardMeeting?()
         }
     }
 
@@ -237,41 +227,22 @@ final class FloatingIndicatorController {
             contentView.layer?.borderColor = style.border.cgColor
 
             if state == .recording {
-                if isMeetingRecording {
-                    // Meeting: stop icon on the left, waveform fills the rest
-                    iconLabel.isHidden = false
-                    iconLabel.animator().alphaValue = 1
-                    iconLabel.stringValue = style.icon
-                    iconLabel.textColor = style.iconColor
-                    let iconSize = iconLabel.attributedStringValue.size()
-                    let iconWidth = max(24, ceil(iconSize.width) + 2)
-                    let iconHeight = max(18, ceil(iconSize.height))
-                    iconLabel.frame = NSRect(
-                        x: 8,
-                        y: (targetFrame.height - iconHeight) / 2,
-                        width: iconWidth,
-                        height: iconHeight
-                    )
-                    textLabel.animator().alphaValue = 0
-                    textLabel.isHidden = true
-                } else {
-                    // All dictation (hold + toggle): X on left, waveform in middle, stop on right
-                    iconLabel.isHidden = false
-                    iconLabel.animator().alphaValue = 1
-                    iconLabel.stringValue = "\u{2715}"  // ✕
-                    iconLabel.textColor = .white.withAlphaComponent(0.45)
-                    iconLabel.font = NSFont.systemFont(ofSize: 7, weight: .semibold)
-                    let xSize: CGFloat = 10
-                    iconLabel.frame = NSRect(
-                        x: 7,
-                        y: floor((targetFrame.height - xSize) / 2) - 1,
-                        width: xSize,
-                        height: xSize
-                    )
+                // All recordings: X on left, waveform in middle, stop on right.
+                iconLabel.isHidden = false
+                iconLabel.animator().alphaValue = 1
+                iconLabel.stringValue = "\u{2715}"  // ✕
+                iconLabel.textColor = .white.withAlphaComponent(0.45)
+                iconLabel.font = NSFont.systemFont(ofSize: 7, weight: .semibold)
+                let xSize: CGFloat = 10
+                iconLabel.frame = NSRect(
+                    x: 7,
+                    y: floor((targetFrame.height - xSize) / 2) - 1,
+                    width: xSize,
+                    height: xSize
+                )
 
-                    textLabel.animator().alphaValue = 0
-                    textLabel.isHidden = true
-                }
+                textLabel.animator().alphaValue = 0
+                textLabel.isHidden = true
             } else {
                 iconLabel.isHidden = false
                 iconLabel.animator().alphaValue = 1
@@ -293,12 +264,8 @@ final class FloatingIndicatorController {
         }
 
         if state == .recording {
-            if isMeetingRecording {
-                startWaveformAnimation(in: targetFrame.size, xOffset: 26, barCount: 4)
-            } else {
-                startWaveformAnimation(in: targetFrame.size, xOffset: 24, rightPadding: 24)
-                addStopLayer(in: targetFrame.size)
-            }
+            startWaveformAnimation(in: targetFrame.size, xOffset: 24, rightPadding: 24)
+            addStopLayer(in: targetFrame.size)
         }
 
         panel.orderFrontRegardless()
@@ -424,8 +391,6 @@ final class FloatingIndicatorController {
     private static let barMinHeight: CGFloat = 5.0
     private static let barMaxHeight: CGFloat = 26.0
     private static let barMultipliers5: [CGFloat] = [0.6, 0.85, 1.0, 0.85, 0.6]
-    private static let barMultipliers4: [CGFloat] = [0.7, 1.0, 1.0, 0.7]
-
     private func startWaveformAnimation(in size: NSSize, xOffset: CGFloat = 0, rightPadding: CGFloat = 0, barCount: Int? = nil) {
         let savedProvider = powerProvider
         stopWaveformAnimation()
@@ -433,7 +398,7 @@ final class FloatingIndicatorController {
         guard let contentView else { return }
 
         let count = barCount ?? Self.barCount
-        let multipliers = count == 4 ? Self.barMultipliers4 : Self.barMultipliers5
+        let multipliers = Self.barMultipliers5
         let totalWidth = CGFloat(count) * Self.barWidth + CGFloat(count - 1) * Self.barSpacing
         let availableWidth = size.width - xOffset - rightPadding
         let startX = xOffset + (availableWidth - totalWidth) / 2
@@ -452,16 +417,6 @@ final class FloatingIndicatorController {
             bar.backgroundColor = NSColor.white.withAlphaComponent(0.85).cgColor
             bar.anchorPoint = CGPoint(x: 0.5, y: 0.5)
             bar.position = CGPoint(x: x + Self.barWidth / 2, y: size.height / 2)
-
-            let anim = CABasicAnimation(keyPath: "transform.scale.y")
-            anim.fromValue = 0.3
-            anim.toValue = 1.0
-            anim.duration = 0.6
-            anim.autoreverses = true
-            anim.repeatCount = .infinity
-            anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            anim.beginTime = CACurrentMediaTime() + Double(i) * 0.07
-            bar.add(anim, forKey: "pulse")
 
             contentView.layer?.addSublayer(bar)
             barLayers.append(bar)
@@ -490,14 +445,15 @@ final class FloatingIndicatorController {
 
     private func updateBarAmplitudes() {
         let dB = CGFloat(powerProvider?() ?? -160)
-        let normalized = max(0, min(1, (dB + 40) / 35))
-        smoothedAmplitude = smoothedAmplitude * 0.5 + normalized * 0.5
+        let normalized = max(0, min(1, (dB + 50) / 42))
+        smoothedAmplitude = smoothedAmplitude * 0.35 + normalized * 0.65
 
         let pillHeight = panel?.frame.height ?? 32
-        let multipliers = barLayers.count == 4 ? Self.barMultipliers4 : Self.barMultipliers5
+        let multipliers = Self.barMultipliers5
         for (i, bar) in barLayers.enumerated() {
             let multiplier = multipliers[i]
-            let height = Self.barMinHeight + smoothedAmplitude * (Self.barMaxHeight - Self.barMinHeight) * multiplier
+            let baseline = Self.barMinHeight + (1 - multiplier) * 2
+            let height = baseline + smoothedAmplitude * (Self.barMaxHeight - baseline) * multiplier
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             bar.bounds = CGRect(x: 0, y: 0, width: Self.barWidth, height: height)
@@ -555,12 +511,7 @@ final class FloatingIndicatorController {
         case .idle:
             size = isHovered ? NSSize(width: 220, height: 36) : NSSize(width: 44, height: 28)
         case .preparing: size = NSSize(width: 44, height: 28)
-        case .recording:
-            if isMeetingRecording {
-                size = NSSize(width: 72, height: 32)
-            } else {
-                size = NSSize(width: 76, height: 22)
-            }
+        case .recording: size = NSSize(width: 76, height: 22)
         case .transcribing: size = NSSize(width: 120, height: 32)
         }
 

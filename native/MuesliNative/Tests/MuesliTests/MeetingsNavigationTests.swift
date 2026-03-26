@@ -18,6 +18,14 @@ struct MeetingsNavigationTests {
         )
     }
 
+    private func makeStore() throws -> DictationStore {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("muesli-nav-test-\(UUID().uuidString).db")
+        let store = DictationStore(databaseURL: url)
+        try store.migrateIfNeeded()
+        return store
+    }
+
     @Test("app state defaults meetings to browser mode")
     func meetingsDefaultToBrowser() {
         let appState = AppState()
@@ -94,6 +102,49 @@ struct MeetingsNavigationTests {
 
         #expect(controller.appState.selectedFolderID == nil)
         #expect(controller.appState.meetingsNavigationState == .browser)
+    }
+
+    @Test("deleteMeeting clears selected detail state and removes saved recording")
+    func deleteMeetingClearsSelection() throws {
+        let store = try makeStore()
+        let savedRecordingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-recording-\(UUID().uuidString).wav")
+        try Data("test".utf8).write(to: savedRecordingURL)
+
+        let now = Date()
+        try store.insertMeeting(
+            title: "Delete Target",
+            calendarEventID: nil,
+            startTime: now,
+            endTime: now.addingTimeInterval(60),
+            rawTranscript: "Transcript",
+            formattedNotes: "## Notes",
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            savedRecordingPath: savedRecordingURL.path
+        )
+
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+        let meetingID = try store.recentMeetings(limit: 1).first!.id
+        controller.appState.selectedMeetingID = meetingID
+        controller.appState.selectedMeetingRecord = try store.meeting(id: meetingID)
+        controller.appState.meetingsNavigationState = .document(meetingID)
+
+        controller.deleteMeeting(id: meetingID)
+
+        #expect(try store.meeting(id: meetingID) == nil)
+        #expect(controller.appState.selectedMeetingID == nil)
+        #expect(controller.appState.selectedMeetingRecord == nil)
+        #expect(controller.appState.meetingsNavigationState == .browser)
+        #expect(FileManager.default.fileExists(atPath: savedRecordingURL.path) == false)
     }
 
     @Test("showMeetingTemplatesManager preserves current meetings context and presents manager")

@@ -212,6 +212,9 @@ struct MeetingsView: View {
                                 onSelect: { controller.showMeetingDocument(id: meeting.id) },
                                 onMove: { folderID in
                                     controller.moveMeeting(id: meeting.id, toFolder: folderID)
+                                },
+                                onDelete: {
+                                    controller.deleteMeeting(id: meeting.id)
                                 }
                             )
                         }

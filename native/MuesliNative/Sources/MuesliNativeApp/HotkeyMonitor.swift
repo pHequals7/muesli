@@ -10,7 +10,7 @@ final class HotkeyMonitor {
     var onCancel: (() -> Void)?
     var onToggleStart: (() -> Void)?
     var onToggleStop: (() -> Void)?
-    var onEscapePressed: (() -> Void)?
+    var onEscapeLongPress: (() -> Void)?
     var targetKeyCode: UInt16 = 55
     var doubleTapEnabled: Bool = true
 
@@ -18,7 +18,9 @@ final class HotkeyMonitor {
     private var localMonitor: Any?
     private var prepareWorkItem: DispatchWorkItem?
     private var startWorkItem: DispatchWorkItem?
+    private var escapeTask: Task<Void, Never>?
     private var targetKeyDown = false
+    private var escapeKeyDown = false
     private var otherKeyPressed = false
     private var prepared = false
     private var active = false
@@ -28,9 +30,22 @@ final class HotkeyMonitor {
     private var lastTapWasShort = false
     private var toggleActive = false
 
-    private let prepareDelay: TimeInterval = 0.15
-    private let startDelay: TimeInterval = 0.25
-    private let doubleTapWindow: TimeInterval = 0.35
+    private let prepareDelay: TimeInterval
+    private let startDelay: TimeInterval
+    private let doubleTapWindow: TimeInterval
+    private let escapeLongPressDuration: TimeInterval
+
+    init(
+        prepareDelay: TimeInterval = 0.15,
+        startDelay: TimeInterval = 0.25,
+        doubleTapWindow: TimeInterval = 0.35,
+        escapeLongPressDuration: TimeInterval = 1.0
+    ) {
+        self.prepareDelay = prepareDelay
+        self.startDelay = startDelay
+        self.doubleTapWindow = doubleTapWindow
+        self.escapeLongPressDuration = escapeLongPressDuration
+    }
 
     func start() {
         guard globalMonitor == nil, localMonitor == nil else { return }
@@ -42,10 +57,10 @@ final class HotkeyMonitor {
             fputs("[hotkey] requested listen event access: \(requested)\n", stderr)
         }
 
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown, .keyUp]) { [weak self] event in
             self?.handle(event)
         }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .keyUp]) { [weak self] event in
             self?.handle(event)
             return event
         }
@@ -59,6 +74,7 @@ final class HotkeyMonitor {
 
     func stop() {
         cancelTimers()
+        cancelEscapeLongPress()
         if let globalMonitor {
             NSEvent.removeMonitor(globalMonitor)
         }
@@ -68,6 +84,7 @@ final class HotkeyMonitor {
         globalMonitor = nil
         localMonitor = nil
         targetKeyDown = false
+        escapeKeyDown = false
         otherKeyPressed = false
         prepared = false
         active = false
@@ -114,18 +131,17 @@ final class HotkeyMonitor {
     private func handle(_ event: NSEvent) {
         switch event.type {
         case .flagsChanged:
-            handleFlagsChanged(event)
+            handleFlagsChanged(keyCode: event.keyCode, flags: event.modifierFlags)
         case .keyDown:
-            handleKeyDown(event)
+            handleKeyDown(keyCode: event.keyCode)
+        case .keyUp:
+            handleKeyUp(keyCode: event.keyCode)
         default:
             break
         }
     }
 
-    private func handleFlagsChanged(_ event: NSEvent) {
-        let keyCode = event.keyCode
-        let flags = event.modifierFlags
-
+    func handleFlagsChanged(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
         if keyCode == targetKeyCode {
             let isDown = isModifierDown(keyCode: targetKeyCode, flags: flags)
             if isDown {
@@ -215,9 +231,7 @@ final class HotkeyMonitor {
         }
     }
 
-    private func handleKeyDown(_ event: NSEvent) {
-        let keyCode = event.keyCode
-
+    func handleKeyDown(keyCode: UInt16) {
         // Escape cancels any active recording
         if keyCode == 53 {
             if toggleActive {
@@ -235,8 +249,9 @@ final class HotkeyMonitor {
                 onCancel?()
                 return
             }
-            // For meetings, the escape is handled by onEscapePressed
-            onEscapePressed?()
+            guard !escapeKeyDown else { return }
+            escapeKeyDown = true
+            scheduleEscapeLongPress()
             return
         }
 
@@ -255,6 +270,12 @@ final class HotkeyMonitor {
                 }
             }
         }
+    }
+
+    func handleKeyUp(keyCode: UInt16) {
+        guard keyCode == 53 else { return }
+        escapeKeyDown = false
+        cancelEscapeLongPress()
     }
 
     private func scheduleTimers() {
@@ -282,5 +303,33 @@ final class HotkeyMonitor {
         startWorkItem?.cancel()
         prepareWorkItem = nil
         startWorkItem = nil
+    }
+
+    private func scheduleEscapeLongPress() {
+        cancelEscapeLongPress()
+        let duration = escapeLongPressDuration
+        escapeTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            } catch {
+                return
+            }
+            await MainActor.run { [weak self] in
+                guard let self, self.escapeKeyDown else { return }
+                self.escapeKeyDown = false
+                fputs("[hotkey] escape → discard meeting via long press\n", stderr)
+                self.onEscapeLongPress?()
+            }
+        }
+    }
+
+    private func cancelEscapeLongPress() {
+        escapeTask?.cancel()
+        escapeTask = nil
+    }
+
+    func setHoldRecordingActiveForTests() {
+        targetKeyDown = true
+        active = true
     }
 }
