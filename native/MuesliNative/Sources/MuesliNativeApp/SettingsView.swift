@@ -279,77 +279,33 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func meetingTemplateMenu(selectionID: String, onChange: @escaping (String) -> Void) -> some View {
-        let selected = MeetingTemplates.resolveDefinition(
-            id: selectionID,
-            customTemplates: appState.config.customMeetingTemplates
-        )
-        Menu {
-            Button {
-                onChange(MeetingTemplates.autoID)
-            } label: {
-                templateMenuItem(
-                    title: MeetingTemplates.auto.title,
-                    icon: MeetingTemplates.auto.icon,
-                    isSelected: selectionID == MeetingTemplates.autoID
-                )
-            }
-
+        Picker(
+            "",
+            selection: Binding(
+                get: { selectionID },
+                set: { onChange($0) }
+            )
+        ) {
+            Text(MeetingTemplates.auto.title)
+                .tag(MeetingTemplates.autoID)
             Section("Built-in Templates") {
                 ForEach(controller.builtInMeetingTemplates()) { template in
-                    Button {
-                        onChange(template.id)
-                    } label: {
-                        templateMenuItem(
-                            title: template.title,
-                            icon: template.icon,
-                            isSelected: selectionID == template.id
-                        )
-                    }
+                    Text(template.title)
+                        .tag(template.id)
                 }
             }
 
             if !controller.customMeetingTemplates().isEmpty {
                 Section("Custom Templates") {
                     ForEach(controller.customMeetingTemplates()) { template in
-                        Button {
-                            onChange(template.id)
-                        } label: {
-                            let resolved = MeetingTemplates.customDefinition(from: template)
-                            templateMenuItem(
-                                title: template.name,
-                                icon: resolved.icon,
-                                isSelected: selectionID == template.id
-                            )
-                        }
+                        Text(template.name)
+                            .tag(template.id)
                     }
                 }
             }
-        } label: {
-            HStack(spacing: 6) {
-                Spacer(minLength: 0)
-                HStack(spacing: 6) {
-                    Image(systemName: selected.icon)
-                        .font(.system(size: 10))
-                    Text(selected.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                }
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-            }
-            .foregroundStyle(MuesliTheme.textPrimary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(width: controlWidth, alignment: .trailing)
-            .background(MuesliTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-            )
         }
-        .menuStyle(.borderlessButton)
+        .pickerStyle(.menu)
+        .frame(width: controlWidth)
     }
 
     @ViewBuilder
@@ -376,14 +332,6 @@ struct SettingsView: View {
                 .foregroundStyle(key.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
         }
         .frame(minHeight: 20)
-    }
-
-    private func templateMenuItem(title: String, icon: String, isSelected: Bool) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: isSelected ? "checkmark" : icon)
-                .frame(width: 12)
-            Text(title)
-        }
     }
 
     @ViewBuilder
