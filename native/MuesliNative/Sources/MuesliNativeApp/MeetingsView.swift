@@ -158,7 +158,10 @@ struct MeetingsView: View {
 
     private var currentDocumentMeeting: MeetingRecord? {
         guard case let .document(id) = appState.meetingsNavigationState else { return nil }
-        return appState.meetingRows.first(where: { $0.id == id })
+        if appState.selectedMeetingID == id, let selectedMeeting = appState.selectedMeeting {
+            return selectedMeeting
+        }
+        return controller.meeting(id: id)
     }
 
     var body: some View {

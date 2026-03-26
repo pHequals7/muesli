@@ -24,6 +24,7 @@ final class AppState {
     var dictationRows: [DictationRecord] = []
     var meetingRows: [MeetingRecord] = []
     var selectedMeetingID: Int64?
+    var selectedMeetingRecord: MeetingRecord?
     var folders: [MeetingFolder] = []
     var selectedFolderID: Int64?  // nil = "All Meetings"
     var meetingsNavigationState: MeetingsNavigationState = .browser
@@ -55,6 +56,10 @@ final class AppState {
     // Computed
     var selectedMeeting: MeetingRecord? {
         guard let id = selectedMeetingID else { return nil }
-        return meetingRows.first(where: { $0.id == id })
+        if let row = meetingRows.first(where: { $0.id == id }) {
+            return row
+        }
+        guard selectedMeetingRecord?.id == id else { return nil }
+        return selectedMeetingRecord
     }
 }

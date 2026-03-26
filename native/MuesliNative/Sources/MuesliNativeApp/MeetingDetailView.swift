@@ -223,12 +223,12 @@ struct MeetingDetailView: View {
                     isSummarizing = false
                     switch result {
                     case .success:
-                        if let updated = appState.meetingRows.first(where: { $0.id == meeting.id }) {
+                        if let updated = controller.meeting(id: meeting.id) {
                             syncLocalState(with: updated)
                         }
                     case .failure(let error):
                         syncPendingTemplateSelectionIfNeeded(
-                            for: appState.meetingRows.first(where: { $0.id == meeting.id }) ?? meeting
+                            for: controller.meeting(id: meeting.id) ?? meeting
                         )
                         summaryErrorMessage = error.localizedDescription
                     }

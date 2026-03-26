@@ -40,6 +40,19 @@ struct MeetingsNavigationTests {
         #expect(appState.selectedMeeting?.title == "Second")
     }
 
+    @Test("selectedMeeting falls back to the stored document record outside the browser slice")
+    func selectedMeetingUsesStoredRecordWhenNotInRows() {
+        let appState = AppState()
+        let visible = makeMeeting(id: 101, title: "Visible")
+        let selected = makeMeeting(id: 202, title: "Selected Outside Slice")
+        appState.meetingRows = [visible]
+        appState.selectedMeetingID = 202
+        appState.selectedMeetingRecord = selected
+
+        #expect(appState.selectedMeeting?.id == 202)
+        #expect(appState.selectedMeeting?.title == "Selected Outside Slice")
+    }
+
     @Test("showMeetingDocument enters meetings document route and records selection")
     func showMeetingDocumentRoutesToDocument() {
         let controller = makeController()

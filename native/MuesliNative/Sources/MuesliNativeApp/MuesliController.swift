@@ -249,6 +249,13 @@ final class MuesliController: NSObject {
         (try? dictationStore.recentMeetings(limit: 10)) ?? []
     }
 
+    func meeting(id: Int64) -> MeetingRecord? {
+        if let row = appState.meetingRows.first(where: { $0.id == id }) {
+            return row
+        }
+        return try? dictationStore.meeting(id: id)
+    }
+
     func dictationStats() -> DictationStats {
         (try? dictationStore.dictationStats()) ?? DictationStats(
             totalWords: 0,
@@ -298,6 +305,12 @@ final class MuesliController: NSObject {
         appState.dictationRows = rows
         appState.hasMoreDictations = rows.count >= appState.dictationPageSize
         appState.meetingRows = (try? dictationStore.recentMeetings(limit: 50)) ?? []
+        if let selectedMeetingID = appState.selectedMeetingID {
+            appState.selectedMeetingRecord = appState.meetingRows.first(where: { $0.id == selectedMeetingID })
+                ?? meeting(id: selectedMeetingID)
+        } else {
+            appState.selectedMeetingRecord = nil
+        }
         appState.folders = (try? dictationStore.listFolders()) ?? []
         appState.dictationStats = dictationStats()
         appState.meetingStats = meetingStats()
@@ -516,6 +529,7 @@ final class MuesliController: NSObject {
     func showMeetingDocument(id: Int64) {
         appState.selectedTab = .meetings
         appState.selectedMeetingID = id
+        appState.selectedMeetingRecord = meeting(id: id)
         appState.meetingsNavigationState = .document(id)
     }
 

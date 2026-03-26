@@ -299,7 +299,7 @@ struct DictationStoreTests {
             startTime: "2026-03-17T10:00:00Z",
             durationSeconds: 60,
             rawTranscript: "Hello world",
-            formattedNotes: "# Fallback\n\n## Raw Transcript\n\nHello world",
+            formattedNotes: "## Raw Transcript\n\nHello world",
             wordCount: 2,
             folderID: nil,
             calendarEventID: nil,
@@ -319,10 +319,24 @@ struct DictationStoreTests {
             micAudioPath: nil,
             systemAudioPath: nil
         )
+        let structuredWithTranscriptSection = MeetingRecord(
+            id: 4,
+            title: "Structured With Transcript Section",
+            startTime: "2026-03-17T10:00:00Z",
+            durationSeconds: 60,
+            rawTranscript: "Hello world",
+            formattedNotes: "## Summary\nNext steps captured\n\n## Raw Transcript\n\nQuoted transcript for reference",
+            wordCount: 2,
+            folderID: nil,
+            calendarEventID: nil,
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
 
         #expect(missing.notesState == .missing)
         #expect(fallback.notesState == .rawTranscriptFallback)
         #expect(structured.notesState == .structuredNotes)
+        #expect(structuredWithTranscriptSection.notesState == .structuredNotes)
     }
 
     @Test("dictation stats aggregate correctly")
