@@ -8,6 +8,7 @@ enum MeetingSummaryClient {
     private static let defaultOpenAIModel = "gpt-5.4-mini"
     private static let defaultOpenRouterModel = "stepfun/step-3.5-flash:free"
     private static let defaultChatGPTModel = "gpt-5.4-mini"
+    private static let defaultSummaryMaxOutputTokens = 2500
 
     private static let titleInstructions = """
     Generate a short, descriptive meeting title (3-7 words) from this transcript. \
@@ -25,31 +26,72 @@ enum MeetingSummaryClient {
         transcript: String,
         meetingTitle: String,
         config: AppConfig,
-        template: MeetingTemplateSnapshot = MeetingTemplates.auto.snapshot
+        template: MeetingTemplateSnapshot = MeetingTemplates.auto.snapshot,
+        existingNotes: String? = nil
     ) async -> String {
         let backend = (config.meetingSummaryBackend.isEmpty ? MeetingSummaryBackendOption.openAI.backend : config.meetingSummaryBackend).lowercased()
         if backend == MeetingSummaryBackendOption.chatGPT.backend {
-            return await summarizeWithChatGPT(transcript: transcript, meetingTitle: meetingTitle, config: config, template: template)
+            return await summarizeWithChatGPT(
+                transcript: transcript,
+                meetingTitle: meetingTitle,
+                existingNotes: existingNotes,
+                config: config,
+                template: template
+            )
         }
         if backend == MeetingSummaryBackendOption.openRouter.backend {
-            return await summarizeWithOpenRouter(transcript: transcript, meetingTitle: meetingTitle, config: config, template: template)
+            return await summarizeWithOpenRouter(
+                transcript: transcript,
+                meetingTitle: meetingTitle,
+                existingNotes: existingNotes,
+                config: config,
+                template: template
+            )
         }
-        return await summarizeWithOpenAI(transcript: transcript, meetingTitle: meetingTitle, config: config, template: template)
+        return await summarizeWithOpenAI(
+            transcript: transcript,
+            meetingTitle: meetingTitle,
+            existingNotes: existingNotes,
+            config: config,
+            template: template
+        )
     }
 
-    static func summaryInstructions(for template: MeetingTemplateSnapshot) -> String {
-        """
-        \(baseSummaryInstructions)
+    static func summaryInstructions(for template: MeetingTemplateSnapshot, existingNotes: String? = nil) -> String {
+        let notePreservationInstructions: String
+        if let existingNotes,
+           !existingNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            notePreservationInstructions = "\n\nCurrent notes may also be provided. Preserve any concrete user-added details, clarifications, and edits from those notes when they do not conflict with the transcript. Reformat that information into the requested template instead of discarding it."
+        } else {
+            notePreservationInstructions = ""
+        }
 
-        Follow this note template exactly:
+        return baseSummaryInstructions
+            + notePreservationInstructions
+            + "\n\nFollow this note template exactly:\n\n"
+            + template.prompt
+    }
 
-        \(template.prompt)
+    static func summaryUserPrompt(transcript: String, meetingTitle: String, existingNotes: String? = nil) -> String {
+        let trimmedNotes = existingNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmedNotes.isEmpty {
+            return "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)"
+        }
+        return """
+        Meeting title: \(meetingTitle)
+
+        Current notes to preserve and reformat:
+        \(trimmedNotes)
+
+        Raw transcript:
+        \(transcript)
         """
     }
 
     private static func summarizeWithOpenAI(
         transcript: String,
         meetingTitle: String,
+        existingNotes: String?,
         config: AppConfig,
         template: MeetingTemplateSnapshot
     ) async -> String {
@@ -58,16 +100,21 @@ enum MeetingSummaryClient {
             return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
         }
 
-        let instructions = summaryInstructions(for: template)
+        let instructions = summaryInstructions(for: template, existingNotes: existingNotes)
+        let userPrompt = summaryUserPrompt(
+            transcript: transcript,
+            meetingTitle: meetingTitle,
+            existingNotes: existingNotes
+        )
         let body: [String: Any] = [
             "model": config.openAIModel.isEmpty ? defaultOpenAIModel : config.openAIModel,
             "input": [
                 ["role": "system", "content": instructions],
-                ["role": "user", "content": "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)"],
+                ["role": "user", "content": userPrompt],
             ],
             "reasoning": ["effort": "low"],
             "text": ["verbosity": "low"],
-            "max_output_tokens": 1200,
+            "max_output_tokens": defaultSummaryMaxOutputTokens,
         ]
 
         var request = URLRequest(url: openAIURL)
@@ -94,6 +141,7 @@ enum MeetingSummaryClient {
     private static func summarizeWithOpenRouter(
         transcript: String,
         meetingTitle: String,
+        existingNotes: String?,
         config: AppConfig,
         template: MeetingTemplateSnapshot
     ) async -> String {
@@ -103,14 +151,19 @@ enum MeetingSummaryClient {
         }
 
         let model = config.openRouterModel.isEmpty ? defaultOpenRouterModel : config.openRouterModel
-        let instructions = summaryInstructions(for: template)
+        let instructions = summaryInstructions(for: template, existingNotes: existingNotes)
+        let userPrompt = summaryUserPrompt(
+            transcript: transcript,
+            meetingTitle: meetingTitle,
+            existingNotes: existingNotes
+        )
         let body: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "system", "content": instructions],
-                ["role": "user", "content": "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)"],
+                ["role": "user", "content": userPrompt],
             ],
-            "max_tokens": 1200,
+            "max_tokens": defaultSummaryMaxOutputTokens,
         ]
 
         var request = URLRequest(url: openRouterURL)
@@ -138,14 +191,19 @@ enum MeetingSummaryClient {
     private static func summarizeWithChatGPT(
         transcript: String,
         meetingTitle: String,
+        existingNotes: String?,
         config: AppConfig,
         template: MeetingTemplateSnapshot
     ) async -> String {
         do {
-            let instructions = summaryInstructions(for: template)
+            let instructions = summaryInstructions(for: template, existingNotes: existingNotes)
             let text = try await callWHAM(
                 systemPrompt: instructions,
-                userPrompt: "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)",
+                userPrompt: summaryUserPrompt(
+                    transcript: transcript,
+                    meetingTitle: meetingTitle,
+                    existingNotes: existingNotes
+                ),
                 model: config.chatGPTModel.isEmpty ? defaultChatGPTModel : config.chatGPTModel
             )
             if let text, !text.isEmpty {

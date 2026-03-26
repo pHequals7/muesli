@@ -2,15 +2,44 @@ import SwiftUI
 import MuesliCore
 
 struct SettingsView: View {
+    private enum PendingDataDestruction {
+        case dictations
+        case meetings
+
+        var title: String {
+            switch self {
+            case .dictations:
+                return "Clear dictation history?"
+            case .meetings:
+                return "Clear meeting history?"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .dictations:
+                return "This will permanently remove all saved dictations. This cannot be undone."
+            case .meetings:
+                return "This will permanently remove all saved meetings, notes, and transcripts. This cannot be undone."
+            }
+        }
+
+        var confirmLabel: String {
+            switch self {
+            case .dictations:
+                return "Clear Dictations"
+            case .meetings:
+                return "Clear Meetings"
+            }
+        }
+    }
+
     let appState: AppState
     let controller: MuesliController
 
     @State private var chatGPTSignInError: String?
     @State private var isSigningInChatGPT = false
-    @State private var isCreatingTemplate = false
-    @State private var editingTemplateID: String?
-    @State private var draftTemplateName = ""
-    @State private var draftTemplatePrompt = ""
+    @State private var pendingDataDestruction: PendingDataDestruction?
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
@@ -190,6 +219,12 @@ struct SettingsView: View {
                         }
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Templates") {
+                        actionButton("Manage Templates…") {
+                            controller.showMeetingTemplatesManager()
+                        }
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Auto-record calendar meetings") {
                         settingsSwitch(isOn: appState.config.autoRecordMeetings) { newValue in
                             controller.updateConfig { $0.autoRecordMeetings = newValue }
@@ -201,17 +236,15 @@ struct SettingsView: View {
                             controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
                         }
                     }
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    customTemplatesBlock
                 }
 
                 settingsSection("Data") {
                     HStack(spacing: MuesliTheme.spacing12) {
                         actionButton("Clear dictation history", role: .destructive) {
-                            controller.clearDictationHistory()
+                            pendingDataDestruction = .dictations
                         }
                         actionButton("Clear meeting history", role: .destructive) {
-                            controller.clearMeetingHistory()
+                            pendingDataDestruction = .meetings
                         }
                     }
                 }
@@ -219,6 +252,30 @@ struct SettingsView: View {
             .padding(MuesliTheme.spacing32)
         }
         .background(MuesliTheme.backgroundBase)
+        .alert(
+            pendingDataDestruction?.title ?? "Confirm Destructive Action",
+            isPresented: Binding(
+                get: { pendingDataDestruction != nil },
+                set: { if !$0 { pendingDataDestruction = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                pendingDataDestruction = nil
+            }
+            Button(pendingDataDestruction?.confirmLabel ?? "Delete", role: .destructive) {
+                switch pendingDataDestruction {
+                case .dictations:
+                    controller.clearDictationHistory()
+                case .meetings:
+                    controller.clearMeetingHistory()
+                case nil:
+                    break
+                }
+                pendingDataDestruction = nil
+            }
+        } message: {
+            Text(pendingDataDestruction?.message ?? "")
+        }
     }
 
     // MARK: - Layout Primitives
@@ -279,74 +336,33 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func meetingTemplateMenu(selectionID: String, onChange: @escaping (String) -> Void) -> some View {
-        let selected = MeetingTemplates.resolveDefinition(
-            id: selectionID,
-            customTemplates: appState.config.customMeetingTemplates
-        )
-        Menu {
-            Button {
-                onChange(MeetingTemplates.autoID)
-            } label: {
-                templateMenuItem(
-                    title: MeetingTemplates.auto.title,
-                    icon: MeetingTemplates.auto.icon,
-                    isSelected: selectionID == MeetingTemplates.autoID
-                )
-            }
-
+        Picker(
+            "",
+            selection: Binding(
+                get: { selectionID },
+                set: { onChange($0) }
+            )
+        ) {
+            Text(MeetingTemplates.auto.title)
+                .tag(MeetingTemplates.autoID)
             Section("Built-in Templates") {
                 ForEach(controller.builtInMeetingTemplates()) { template in
-                    Button {
-                        onChange(template.id)
-                    } label: {
-                        templateMenuItem(
-                            title: template.title,
-                            icon: template.icon,
-                            isSelected: selectionID == template.id
-                        )
-                    }
+                    Text(template.title)
+                        .tag(template.id)
                 }
             }
 
             if !controller.customMeetingTemplates().isEmpty {
                 Section("Custom Templates") {
                     ForEach(controller.customMeetingTemplates()) { template in
-                        Button {
-                            onChange(template.id)
-                        } label: {
-                            templateMenuItem(
-                                title: template.name,
-                                icon: "square.and.pencil",
-                                isSelected: selectionID == template.id
-                            )
-                        }
+                        Text(template.name)
+                            .tag(template.id)
                     }
                 }
             }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: selected.icon)
-                    .font(.system(size: 10))
-                Text(selected.title)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 10))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-            }
-            .foregroundStyle(MuesliTheme.textPrimary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(width: controlWidth)
-            .background(MuesliTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-            )
         }
-        .menuStyle(.borderlessButton)
+        .pickerStyle(.menu)
+        .frame(width: controlWidth)
     }
 
     @ViewBuilder
@@ -373,189 +389,6 @@ struct SettingsView: View {
                 .foregroundStyle(key.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
         }
         .frame(minHeight: 20)
-    }
-
-    private func templateMenuItem(title: String, icon: String, isSelected: Bool) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: isSelected ? "checkmark" : icon)
-                .frame(width: 12)
-            Text(title)
-        }
-    }
-
-    @ViewBuilder
-    private var customTemplatesBlock: some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Custom templates")
-                        .font(MuesliTheme.body())
-                        .foregroundStyle(MuesliTheme.textPrimary)
-                    Text("Create reusable prompt-based note formats for meetings.")
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.textSecondary)
-                }
-                Spacer()
-                if isCreatingTemplate || editingTemplateID != nil {
-                    actionButton("Cancel") {
-                        resetTemplateEditor()
-                    }
-                } else {
-                    actionButton("New template") {
-                        beginCreatingTemplate()
-                    }
-                }
-            }
-
-            if controller.customMeetingTemplates().isEmpty {
-                Text("No custom templates yet.")
-                    .font(MuesliTheme.callout())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .padding(.vertical, 4)
-            } else {
-                VStack(spacing: MuesliTheme.spacing8) {
-                    ForEach(controller.customMeetingTemplates()) { template in
-                        customTemplateRow(template)
-                    }
-                }
-            }
-
-            if isCreatingTemplate || editingTemplateID != nil {
-                customTemplateEditor
-            }
-        }
-        .padding(.top, MuesliTheme.spacing4)
-    }
-
-    @ViewBuilder
-    private func customTemplateRow(_ template: CustomMeetingTemplate) -> some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.and.pencil")
-                            .font(.system(size: 10))
-                            .foregroundStyle(MuesliTheme.accent)
-                        Text(template.name)
-                            .font(MuesliTheme.captionMedium())
-                            .foregroundStyle(MuesliTheme.textPrimary)
-                    }
-                    Text(template.prompt)
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.textSecondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-                HStack(spacing: MuesliTheme.spacing8) {
-                    actionButton("Edit") {
-                        beginEditingTemplate(template)
-                    }
-                    actionButton("Delete", role: .destructive) {
-                        controller.deleteCustomMeetingTemplate(id: template.id)
-                        if editingTemplateID == template.id {
-                            resetTemplateEditor()
-                        }
-                    }
-                }
-            }
-        }
-        .padding(MuesliTheme.spacing12)
-        .background(MuesliTheme.backgroundBase)
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-        .overlay(
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-        )
-    }
-
-    @ViewBuilder
-    private var customTemplateEditor: some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            Text(isCreatingTemplate ? "New template" : "Edit template")
-                .font(MuesliTheme.captionMedium())
-                .foregroundStyle(MuesliTheme.textPrimary)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Name")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                TextField("Customer follow-up", text: $draftTemplateName)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Prompt")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                TextEditor(text: $draftTemplatePrompt)
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuesliTheme.textPrimary)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 120)
-                    .padding(MuesliTheme.spacing8)
-                    .background(MuesliTheme.backgroundBase)
-                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-                    )
-            }
-
-            HStack {
-                Spacer()
-                actionButton(isCreatingTemplate ? "Create template" : "Save changes") {
-                    saveTemplateEditor()
-                }
-            }
-        }
-        .padding(MuesliTheme.spacing12)
-        .background(MuesliTheme.surfacePrimary.opacity(0.45))
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
-        .overlay(
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
-                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-        )
-    }
-
-    private func beginCreatingTemplate() {
-        isCreatingTemplate = true
-        editingTemplateID = nil
-        draftTemplateName = ""
-        draftTemplatePrompt = ""
-    }
-
-    private func beginEditingTemplate(_ template: CustomMeetingTemplate) {
-        isCreatingTemplate = false
-        editingTemplateID = template.id
-        draftTemplateName = template.name
-        draftTemplatePrompt = template.prompt
-    }
-
-    private func resetTemplateEditor() {
-        isCreatingTemplate = false
-        editingTemplateID = nil
-        draftTemplateName = ""
-        draftTemplatePrompt = ""
-    }
-
-    private func saveTemplateEditor() {
-        let trimmedName = draftTemplateName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPrompt = draftTemplatePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty, !trimmedPrompt.isEmpty else { return }
-
-        if let editingTemplateID {
-            controller.updateCustomMeetingTemplate(
-                id: editingTemplateID,
-                name: trimmedName,
-                prompt: trimmedPrompt
-            )
-        } else {
-            controller.createCustomMeetingTemplate(
-                name: trimmedName,
-                prompt: trimmedPrompt
-            )
-        }
-        resetTemplateEditor()
     }
 
     @ViewBuilder

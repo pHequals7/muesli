@@ -54,6 +54,30 @@ struct MeetingSummaryClientTests {
         #expect(instructions.contains("Do not invent facts"))
     }
 
+    @Test("summary instructions mention preserving current notes when provided")
+    func promptMentionsPreservingCurrentNotes() {
+        let instructions = MeetingSummaryClient.summaryInstructions(
+            for: customTemplate,
+            existingNotes: "## Notes\n- User added follow-up detail"
+        )
+
+        #expect(instructions.contains("Preserve any concrete user-added details"))
+        #expect(instructions.contains("requested template instead of discarding it"))
+    }
+
+    @Test("summary user prompt includes existing notes context when provided")
+    func userPromptIncludesExistingNotes() {
+        let prompt = MeetingSummaryClient.summaryUserPrompt(
+            transcript: "Transcript body",
+            meetingTitle: "Customer Call",
+            existingNotes: "## Notes\n- User added detail"
+        )
+
+        #expect(prompt.contains("Current notes to preserve and reformat:"))
+        #expect(prompt.contains("User added detail"))
+        #expect(prompt.contains("Raw transcript:\nTranscript body"))
+    }
+
     @Test("summarize routes to OpenRouter when configured")
     func routesToOpenRouter() async {
         var config = AppConfig()

@@ -2,9 +2,47 @@ import Foundation
 import MuesliCore
 
 struct CustomMeetingTemplate: Codable, Equatable, Identifiable, Sendable {
-    var id: String = UUID().uuidString
+    let id: String
     var name: String
     var prompt: String
+    var icon: String
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        prompt: String,
+        icon: String = MeetingTemplates.customIconFallback
+    ) {
+        self.id = id
+        self.name = name
+        self.prompt = prompt
+        self.icon = MeetingTemplates.normalizedCustomIcon(named: icon)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case prompt
+        case icon
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        name = try c.decode(String.self, forKey: .name)
+        prompt = try c.decode(String.self, forKey: .prompt)
+        icon = MeetingTemplates.normalizedCustomIcon(
+            named: try c.decodeIfPresent(String.self, forKey: .icon)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(prompt, forKey: .prompt)
+        try c.encode(MeetingTemplates.normalizedCustomIcon(named: icon), forKey: .icon)
+    }
 }
 
 struct MeetingTemplateSnapshot: Equatable, Sendable {
@@ -34,6 +72,14 @@ struct MeetingTemplateDefinition: Identifiable, Equatable, Sendable {
 
 enum MeetingTemplates {
     static let autoID = "auto"
+    static let customIconFallback = "square.and.pencil"
+
+    struct CustomIconOption: Identifiable, Equatable, Sendable {
+        let symbolName: String
+        let label: String
+
+        var id: String { symbolName }
+    }
 
     static let auto = MeetingTemplateDefinition(
         id: autoID,
@@ -186,12 +232,57 @@ enum MeetingTemplates {
         ),
     ]
 
+    static let customIconOptions: [CustomIconOption] = [
+        CustomIconOption(symbolName: "square.and.pencil", label: "Notes"),
+        CustomIconOption(symbolName: "person.2.fill", label: "1 to 1"),
+        CustomIconOption(symbolName: "person.crop.circle.badge.questionmark", label: "Discovery"),
+        CustomIconOption(symbolName: "briefcase.fill", label: "Hiring"),
+        CustomIconOption(symbolName: "calendar", label: "Weekly"),
+        CustomIconOption(symbolName: "figure.stand", label: "Stand-Up"),
+        CustomIconOption(symbolName: "person.fill.questionmark", label: "Interview"),
+        CustomIconOption(symbolName: "person.fill.checkmark", label: "Review"),
+        CustomIconOption(symbolName: "building.2.fill", label: "Business"),
+        CustomIconOption(symbolName: "chart.line.uptrend.xyaxis", label: "Strategy"),
+        CustomIconOption(symbolName: "dollarsign.circle", label: "Sales"),
+        CustomIconOption(symbolName: "megaphone.fill", label: "Marketing"),
+        CustomIconOption(symbolName: "hammer.fill", label: "Execution"),
+        CustomIconOption(symbolName: "shippingbox.fill", label: "Ops"),
+        CustomIconOption(symbolName: "doc.text.fill", label: "Docs"),
+        CustomIconOption(symbolName: "checklist", label: "Checklist"),
+        CustomIconOption(symbolName: "lightbulb.fill", label: "Ideas"),
+        CustomIconOption(symbolName: "waveform.path.ecg", label: "Health"),
+        CustomIconOption(symbolName: "graduationcap.fill", label: "Learning"),
+        CustomIconOption(symbolName: "globe", label: "Global"),
+        CustomIconOption(symbolName: "phone.fill", label: "Calls"),
+        CustomIconOption(symbolName: "message.fill", label: "Conversation"),
+        CustomIconOption(symbolName: "person.3.fill", label: "Team"),
+        CustomIconOption(symbolName: "target", label: "Goals"),
+        CustomIconOption(symbolName: "flag.fill", label: "Milestones"),
+        CustomIconOption(symbolName: "sparkles", label: "Enhanced"),
+        CustomIconOption(symbolName: "wand.and.stars", label: "Creative"),
+        CustomIconOption(symbolName: "paperplane.fill", label: "Launch"),
+        CustomIconOption(symbolName: "gearshape.fill", label: "Systems"),
+        CustomIconOption(symbolName: "folder.fill", label: "Projects"),
+        CustomIconOption(symbolName: "clock.fill", label: "Timeline"),
+        CustomIconOption(symbolName: "bolt.fill", label: "Sprint"),
+    ]
+
+    static func normalizedCustomIcon(named icon: String?) -> String {
+        let trimmed = icon?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return customIconFallback }
+        // Older configs stored rocket.fill for launch-style templates; remap it for compatibility.
+        if trimmed == "rocket.fill" {
+            return "paperplane.fill"
+        }
+        return customIconOptions.contains(where: { $0.symbolName == trimmed }) ? trimmed : customIconFallback
+    }
+
     static func customDefinition(from customTemplate: CustomMeetingTemplate) -> MeetingTemplateDefinition {
         MeetingTemplateDefinition(
             id: customTemplate.id,
             title: customTemplate.name,
             category: "Custom",
-            icon: "square.and.pencil",
+            icon: normalizedCustomIcon(named: customTemplate.icon),
             kind: .custom,
             promptBody: customTemplate.prompt
         )
@@ -219,8 +310,26 @@ enum MeetingTemplates {
         return auto
     }
 
+    static func resolveExactDefinition(id: String?, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateDefinition? {
+        let normalizedID = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? autoID
+        if normalizedID.isEmpty || normalizedID == autoID {
+            return auto
+        }
+        if let builtIn = builtIns.first(where: { $0.id == normalizedID }) {
+            return builtIn
+        }
+        if let custom = customTemplates.first(where: { $0.id == normalizedID }) {
+            return customDefinition(from: custom)
+        }
+        return nil
+    }
+
     static func resolveSnapshot(id: String?, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateSnapshot {
         resolveDefinition(id: id, customTemplates: customTemplates).snapshot
+    }
+
+    static func resolveExactSnapshot(id: String?, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateSnapshot? {
+        resolveExactDefinition(id: id, customTemplates: customTemplates)?.snapshot
     }
 
     static func snapshot(for meeting: MeetingRecord, customTemplates: [CustomMeetingTemplate]) -> MeetingTemplateSnapshot {

@@ -85,7 +85,7 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         let trimmed = formattedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .missing }
         let normalized = trimmed.lowercased()
-        if normalized.contains("## raw transcript") {
+        if normalized == "## raw transcript" || normalized.hasPrefix("## raw transcript\n") {
             return .rawTranscriptFallback
         }
         return .structuredNotes

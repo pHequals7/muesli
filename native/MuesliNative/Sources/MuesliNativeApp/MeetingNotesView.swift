@@ -6,14 +6,15 @@ struct MeetingNotesView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+            LazyVStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
                 let lines = markdown.components(separatedBy: .newlines)
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     markdownLine(line.trimmingCharacters(in: .whitespaces))
                 }
             }
+            .frame(maxWidth: 860, alignment: .leading)
             .padding(MuesliTheme.spacing24)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
             .textSelection(.enabled)
         }
     }

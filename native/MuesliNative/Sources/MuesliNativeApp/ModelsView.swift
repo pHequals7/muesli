@@ -8,6 +8,7 @@ struct ModelsView: View {
     @State private var downloadingModels: Set<String> = []
     @State private var downloadProgress: [String: Double] = [:]
     @State private var downloadedModels: Set<String> = []
+    @State private var modelToDelete: BackendOption?
 
     var body: some View {
         ScrollView {
@@ -48,6 +49,24 @@ struct ModelsView: View {
         }
         .background(MuesliTheme.backgroundBase)
         .onAppear { checkDownloadedModels() }
+        .alert(
+            "Delete \"\(modelToDelete?.label ?? "")\"?",
+            isPresented: Binding(
+                get: { modelToDelete != nil },
+                set: { if !$0 { modelToDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                modelToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let option = modelToDelete else { return }
+                deleteModel(option)
+                modelToDelete = nil
+            }
+        } message: {
+            Text("The downloaded model files will be removed from this Mac. You can download the model again later.")
+        }
     }
 
     private func modelCard(option: BackendOption) -> some View {
@@ -135,7 +154,7 @@ struct ModelsView: View {
                         .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
 
                         Button("Delete") {
-                            deleteModel(option)
+                            modelToDelete = option
                         }
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .medium))

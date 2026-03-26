@@ -75,6 +75,8 @@ public final class DictationStore {
         if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN folder_id INTEGER REFERENCES meeting_folders(id)", nil, nil, nil) != SQLITE_OK {
             // Column may already exist.
         }
+        // These template columns are also present in CREATE TABLE for fresh databases.
+        // The ALTER TABLE path upgrades pre-existing databases where meetings already exists.
         if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN selected_template_id TEXT", nil, nil, nil) != SQLITE_OK {
             // Column may already exist.
         }
@@ -534,20 +536,38 @@ public final class DictationStore {
     public func deleteFolder(id: Int64) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        var s1: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "UPDATE meetings SET folder_id = NULL WHERE folder_id = ?", -1, &s1, nil) == SQLITE_OK else {
+        guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
             throw lastError(db)
         }
-        sqlite3_bind_int64(s1, 1, id)
-        sqlite3_step(s1)
-        sqlite3_finalize(s1)
-        var s2: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "DELETE FROM meeting_folders WHERE id = ?", -1, &s2, nil) == SQLITE_OK else {
-            throw lastError(db)
+
+        do {
+            var s1: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "UPDATE meetings SET folder_id = NULL WHERE folder_id = ?", -1, &s1, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(s1) }
+            sqlite3_bind_int64(s1, 1, id)
+            guard sqlite3_step(s1) == SQLITE_DONE else {
+                throw lastError(db)
+            }
+
+            var s2: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "DELETE FROM meeting_folders WHERE id = ?", -1, &s2, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(s2) }
+            sqlite3_bind_int64(s2, 1, id)
+            guard sqlite3_step(s2) == SQLITE_DONE else {
+                throw lastError(db)
+            }
+
+            guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
         }
-        sqlite3_bind_int64(s2, 1, id)
-        sqlite3_step(s2)
-        sqlite3_finalize(s2)
     }
 
     public func listFolders() throws -> [MeetingFolder] {
