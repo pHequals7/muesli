@@ -248,14 +248,6 @@ struct SettingsView: View {
                     }
                 }
 
-                settingsSection("Privacy") {
-                    settingsRow("Don't modify clipboard when pasting") {
-                        settingsSwitch(isOn: appState.config.disableClipboardCopy) { newValue in
-                            controller.updateConfig { $0.disableClipboardCopy = newValue }
-                        }
-                    }
-                }
-
                 settingsSection("Data") {
                     HStack(spacing: MuesliTheme.spacing12) {
                         actionButton("Clear dictation history", role: .destructive) {

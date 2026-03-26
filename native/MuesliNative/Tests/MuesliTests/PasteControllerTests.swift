@@ -3,8 +3,10 @@ import AppKit
 @testable import MuesliNativeApp
 
 // .serialized: all tests here touch NSPasteboard.general (shared mutable state)
-@Suite("PasteController.typeText — clipboard-free keystroke simulation", .serialized)
-struct PasteControllerTypeTextTests {
+@Suite("PasteController — clipboard-preserving paste and keystroke simulation", .serialized)
+struct PasteControllerTests {
+
+    // MARK: - typeText tests
 
     @Test("typeText with empty string does not crash")
     func typeTextEmpty() {
@@ -50,29 +52,58 @@ struct PasteControllerTypeTextTests {
         }
     }
 
-    // MARK: - insert(text:avoidClipboard:) routing
+    // MARK: - paste() clipboard restoration
 
-    @Test("insert with avoidClipboard:false writes to clipboard")
-    func insertWritesToClipboardWhenEnabled() {
+    @Test("paste with empty string is a no-op")
+    func pasteEmptyIsNoOp() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString("before", forType: .string)
+        pasteboard.setString("original", forType: .string)
 
-        PasteController.insert(text: "hello", avoidClipboard: false)
+        PasteController.paste(text: "")
 
-        // paste() sets clipboard contents before firing Cmd+V
-        #expect(pasteboard.string(forType: .string) == "hello")
+        #expect(pasteboard.string(forType: .string) == "original")
     }
 
-    @Test("insert with avoidClipboard:true does not touch clipboard")
-    func insertPreservesClipboardWhenDisabled() {
+    @Test("paste temporarily writes text to clipboard for Cmd+V")
+    func pasteWritesTextToClipboard() {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString("clipboard-sentinel", forType: .string)
+        pasteboard.setString("original", forType: .string)
 
-        PasteController.insert(text: "hello", avoidClipboard: true)
+        PasteController.paste(text: "dictated text")
 
-        // typeText() must not modify the clipboard
-        #expect(pasteboard.string(forType: .string) == "clipboard-sentinel")
+        // Immediately after paste(), the clipboard holds the dictation text
+        // (restoration happens asynchronously after ~500ms)
+        #expect(pasteboard.string(forType: .string) == "dictated text")
+    }
+
+    @Test("paste restores clipboard after delay")
+    func pasteRestoresClipboard() async throws {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("user-copied-text", forType: .string)
+
+        PasteController.paste(text: "dictated text")
+
+        // Wait for the restore delay (50ms paste delay + 500ms restore delay + margin)
+        try await Task.sleep(for: .milliseconds(800))
+
+        // Clipboard should be restored to the original content
+        #expect(pasteboard.string(forType: .string) == "user-copied-text")
+    }
+
+    @Test("paste restores empty clipboard state")
+    func pasteRestoresEmptyClipboard() async throws {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+
+        PasteController.paste(text: "dictated text")
+
+        // Wait for restore
+        try await Task.sleep(for: .milliseconds(800))
+
+        // Clipboard should be cleared (no lingering dictation text)
+        #expect(pasteboard.string(forType: .string) == nil)
     }
 }
