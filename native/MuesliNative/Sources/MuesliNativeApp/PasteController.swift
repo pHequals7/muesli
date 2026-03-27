@@ -73,6 +73,9 @@ enum PasteController {
 
     /// Snapshot every item on the pasteboard so we can put it back later.
     /// Returns an array of (type, data) pairs for each item.
+    /// Note: Lazy/promised clipboard providers may return nil for some types —
+    /// those types are skipped, so restoration may be partial for apps that use
+    /// deferred clipboard rendering.
     private static func saveClipboard(_ pasteboard: NSPasteboard) -> [[(NSPasteboard.PasteboardType, Data)]] {
         guard let items = pasteboard.pasteboardItems else { return [] }
         var saved: [[(NSPasteboard.PasteboardType, Data)]] = []
@@ -95,12 +98,14 @@ enum PasteController {
     private static func restoreClipboard(_ pasteboard: NSPasteboard, from saved: [[(NSPasteboard.PasteboardType, Data)]]) {
         pasteboard.clearContents()
         if saved.isEmpty { return }
+        var restoredItems: [NSPasteboardItem] = []
         for itemPairs in saved {
             let item = NSPasteboardItem()
             for (type, data) in itemPairs {
                 item.setData(data, forType: type)
             }
-            pasteboard.writeObjects([item])
+            restoredItems.append(item)
         }
+        pasteboard.writeObjects(restoredItems)
     }
 }

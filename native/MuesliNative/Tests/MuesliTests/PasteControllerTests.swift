@@ -85,13 +85,7 @@ struct PasteControllerTests {
         pasteboard.setString("user-copied-text", forType: .string)
 
         PasteController.paste(text: "dictated text")
-
-        // Spin the main run loop so DispatchQueue.main.asyncAfter blocks fire.
-        // Total delay: 50ms (paste) + 500ms (restore) — we spin for 800ms with margin.
-        let deadline = Date().addingTimeInterval(0.8)
-        while Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        }
+        drainMainRunLoop(for: 0.8)
 
         // Clipboard should be restored to the original content
         #expect(pasteboard.string(forType: .string) == "user-copied-text")
@@ -103,13 +97,44 @@ struct PasteControllerTests {
         pasteboard.clearContents()
 
         PasteController.paste(text: "dictated text")
-
-        let deadline = Date().addingTimeInterval(0.8)
-        while Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        }
+        drainMainRunLoop(for: 0.8)
 
         // Clipboard should be cleared (no lingering dictation text)
         #expect(pasteboard.string(forType: .string) == nil)
+    }
+
+    @Test("paste restores multi-item clipboard")
+    func pasteRestoresMultiItemClipboard() async throws {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+
+        // Write two distinct items to the clipboard (e.g., Finder multi-file copy)
+        let item1 = NSPasteboardItem()
+        item1.setString("item-one", forType: .string)
+        let item2 = NSPasteboardItem()
+        item2.setString("item-two", forType: .string)
+        pasteboard.writeObjects([item1, item2])
+
+        let countBefore = pasteboard.pasteboardItems?.count ?? 0
+        #expect(countBefore == 2)
+
+        PasteController.paste(text: "dictated text")
+        drainMainRunLoop(for: 0.8)
+
+        // Both items should be restored
+        let countAfter = pasteboard.pasteboardItems?.count ?? 0
+        #expect(countAfter == 2)
+        let texts = pasteboard.pasteboardItems?.compactMap { $0.string(forType: .string) } ?? []
+        #expect(texts == ["item-one", "item-two"])
+    }
+
+    // MARK: - Helpers
+
+    /// Spin the main run loop so DispatchQueue.main.asyncAfter blocks fire.
+    private func drainMainRunLoop(for seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
     }
 }

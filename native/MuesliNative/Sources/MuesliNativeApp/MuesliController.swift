@@ -1313,7 +1313,10 @@ final class MuesliController: NSObject {
                     PasteController.paste(text: text)
                     self.setState(.idle)
                     self.micActivityMonitor.resumeAfterCooldown()
-                    TelemetryDeck.signal("dictation.completed", parameters: ["backend": self.selectedBackend.backend])
+                    TelemetryDeck.signal("dictation.completed", parameters: [
+                        "backend": self.selectedBackend.backend,
+                        "paste_method": "clipboard_restore",
+                    ])
                 }
             } catch {
                 fputs("[muesli-native] transcription failed: \(error)\n", stderr)
