@@ -47,13 +47,33 @@ enum MeetingTemplateSelectionError: Error, LocalizedError {
     }
 }
 
+enum MeetingLifecycleError: Error, LocalizedError {
+    case failedToSaveRecording(underlying: Error)
+    case failedToDeleteRecording(underlying: Error)
+    case failedToDeleteMeeting(underlying: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .failedToSaveRecording(let underlying):
+            return "The meeting finished transcribing, but the recording could not be saved. \(underlying.localizedDescription)"
+        case .failedToDeleteRecording(let underlying):
+            return "The saved meeting recording could not be deleted, so the meeting was left in place. \(underlying.localizedDescription)"
+        case .failedToDeleteMeeting(let underlying):
+            return "The meeting could not be deleted. \(underlying.localizedDescription)"
+        }
+    }
+}
+
+struct CompletedMeetingPersistenceResult {
+    let meetingID: Int64
+    let recordingSaveError: MeetingLifecycleError?
+}
+
 @MainActor
 final class MuesliController: NSObject {
     private let runtime: RuntimePaths
     private let configStore = ConfigStore()
-    private let dictationStore = DictationStore(
-        databaseURL: MuesliPaths.defaultDatabaseURL(appName: AppIdentity.supportDirectoryName)
-    )
+    private let dictationStore: DictationStore
     let transcriptionCoordinator = TranscriptionCoordinator()
     private let hotkeyMonitor = HotkeyMonitor()
     private let recorder = MicrophoneRecorder()
@@ -86,9 +106,12 @@ final class MuesliController: NSObject {
     private var dataDidChangeObserver: NSObjectProtocol?
     private var isStartingMeetingRecording = false
 
-    init(runtime: RuntimePaths) {
+    init(runtime: RuntimePaths, dictationStore: DictationStore? = nil) {
         let loadedConfig = configStore.load()
         self.runtime = runtime
+        self.dictationStore = dictationStore ?? DictationStore(
+            databaseURL: MuesliPaths.defaultDatabaseURL(appName: AppIdentity.supportDirectoryName)
+        )
         self.config = loadedConfig
         self.selectedBackend = BackendOption.all.first(where: {
             $0.backend == loadedConfig.sttBackend && $0.model == loadedConfig.sttModel
@@ -107,16 +130,15 @@ final class MuesliController: NSObject {
             fputs("[muesli-native] startup error: \(error)\n", stderr)
         }
 
-        // Clean up leftover audio temp files from previous sessions
-        let tempAudioDir = FileManager.default.temporaryDirectory.appendingPathComponent("muesli-system-audio")
-        if let files = try? FileManager.default.contentsOfDirectory(at: tempAudioDir, includingPropertiesForKeys: nil) {
-            for file in files {
-                try? FileManager.default.removeItem(at: file)
-            }
-            if !files.isEmpty {
-                fputs("[muesli-native] cleaned up \(files.count) leftover temp audio files\n", stderr)
-            }
-        }
+        // Clean up leftover audio temp files from previous sessions.
+        cleanupTemporaryDirectory(
+            named: "muesli-system-audio",
+            logDescription: "leftover temp audio files"
+        )
+        cleanupTemporaryDirectory(
+            named: "muesli-meeting-recordings",
+            logDescription: "leftover temp meeting recording files"
+        )
 
         hotkeyMonitor.targetKeyCode = config.dictationHotkey.keyCode
         hotkeyMonitor.onPrepare = { [weak self] in self?.handlePrepare() }
@@ -129,7 +151,7 @@ final class MuesliController: NSObject {
         hotkeyMonitor.start()
         indicator.hotkeyLabel = config.dictationHotkey.label
         indicator.onStopMeeting = { [weak self] in self?.stopMeetingRecording() }
-        indicator.onDiscardMeeting = { [weak self] in self?.discardMeetingRecording() }
+        indicator.onDiscardMeeting = { [weak self] in self?.discardMeetingWithConfirmation() }
         indicator.onStopToggleDictation = { [weak self] in
             guard let self else { return }
             if self.hotkeyMonitor.isToggleRecording {
@@ -142,12 +164,6 @@ final class MuesliController: NSObject {
             self?.handleCancel()
             self?.indicator.isToggleDictation = false
             self?.hotkeyMonitor.cancelToggleMode()
-        }
-        hotkeyMonitor.onEscapePressed = { [weak self] in
-            guard let self else { return }
-            if self.isMeetingRecording() {
-                self.discardMeetingWithConfirmation()
-            }
         }
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
@@ -715,6 +731,40 @@ final class MuesliController: NSObject {
         syncAppState()
     }
 
+    func deleteMeeting(id: Int64) {
+        guard let meeting = meeting(id: id) else { return }
+
+        do {
+            // Delete the retained file first so a failed file removal does not orphan
+            // user-visible recording data after the meeting row disappears.
+            if let savedRecordingPath = meeting.savedRecordingPath {
+                try deleteSavedMeetingRecording(at: savedRecordingPath)
+            }
+            try dictationStore.deleteMeeting(id: id)
+        } catch let error as MeetingLifecycleError {
+            presentErrorAlert(title: "Couldn't Delete Meeting", message: error.localizedDescription)
+            return
+        } catch {
+            presentErrorAlert(
+                title: "Couldn't Delete Meeting",
+                message: MeetingLifecycleError.failedToDeleteMeeting(underlying: error).localizedDescription
+            )
+            return
+        }
+
+        if appState.selectedMeetingID == id {
+            appState.selectedMeetingID = nil
+            appState.selectedMeetingRecord = nil
+            if case .document(let selectedID) = appState.meetingsNavigationState, selectedID == id {
+                appState.meetingsNavigationState = .browser
+            }
+        }
+
+        historyWindowController?.reload()
+        statusBarController?.refresh()
+        syncAppState()
+    }
+
     func clearDictationHistory() {
         try? dictationStore.clearDictations()
         statusBarController?.refresh()
@@ -723,7 +773,28 @@ final class MuesliController: NSObject {
     }
 
     func clearMeetingHistory() {
+        guard !isMeetingRecording() else {
+            presentErrorAlert(
+                title: "Couldn't Clear Meeting History",
+                message: "Stop the current meeting recording before clearing saved meetings."
+            )
+            return
+        }
+
+        do {
+            try clearSavedMeetingRecordingsDirectory()
+        } catch {
+            presentErrorAlert(
+                title: "Couldn't Clear Meeting History",
+                message: "Saved meeting recordings could not be deleted, so meeting history was left in place. \(error.localizedDescription)"
+            )
+            return
+        }
+
         try? dictationStore.clearMeetings()
+        appState.selectedMeetingID = nil
+        appState.selectedMeetingRecord = nil
+        appState.meetingsNavigationState = .browser
         statusBarController?.refresh()
         historyWindowController?.reload()
         syncAppState()
@@ -809,25 +880,27 @@ final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             var meetingTitle = "Meeting"
+            var meetingResult: MeetingSessionResult?
+            defer {
+                if let meetingResult {
+                    self.cleanupTemporaryMeetingAudioFiles(for: meetingResult)
+                }
+            }
             do {
                 let result = try await activeMeetingSession.stop()
+                meetingResult = result
                 meetingTitle = result.title
-                try self.dictationStore.insertMeeting(
-                    title: result.title,
-                    calendarEventID: result.calendarEventID,
-                    startTime: result.startTime,
-                    endTime: result.endTime,
-                    rawTranscript: result.rawTranscript,
-                    formattedNotes: result.formattedNotes,
-                    micAudioPath: result.micAudioPath,
-                    systemAudioPath: result.systemAudioPath,
-                    selectedTemplateID: result.templateSnapshot.id,
-                    selectedTemplateName: result.templateSnapshot.name,
-                    selectedTemplateKind: result.templateSnapshot.kind,
-                    selectedTemplatePrompt: result.templateSnapshot.prompt
-                )
+                let persistenceResult = try self.persistCompletedMeetingResult(result)
+                if let recordingSaveError = persistenceResult.recordingSaveError {
+                    self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
+                }
             } catch {
                 fputs("[muesli-native] meeting transcription failed: \(error)\n", stderr)
+                if let lifecycleError = error as? MeetingLifecycleError {
+                    self.presentErrorAlert(title: "Meeting Recording", message: lifecycleError.localizedDescription)
+                } else {
+                    self.presentErrorAlert(title: "Meeting Recording", message: error.localizedDescription)
+                }
             }
             await MainActor.run {
                 self.activeMeetingSession = nil
@@ -848,6 +921,153 @@ final class MuesliController: NSObject {
                 )
             }
         }
+    }
+
+    func revealMeetingRecordingInFinder(path: String) {
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            presentErrorAlert(
+                title: "Recording Not Found",
+                message: "The saved meeting recording is no longer available on disk."
+            )
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func persistCompletedMeetingResult(_ result: MeetingSessionResult) throws -> CompletedMeetingPersistenceResult {
+        let meetingID = try dictationStore.insertMeeting(
+            title: result.title,
+            calendarEventID: result.calendarEventID,
+            startTime: result.startTime,
+            endTime: result.endTime,
+            rawTranscript: result.rawTranscript,
+            formattedNotes: result.formattedNotes,
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            savedRecordingPath: nil,
+            selectedTemplateID: result.templateSnapshot.id,
+            selectedTemplateName: result.templateSnapshot.name,
+            selectedTemplateKind: result.templateSnapshot.kind,
+            selectedTemplatePrompt: result.templateSnapshot.prompt
+        )
+
+        do {
+            if let savedRecordingPath = try persistMeetingRecordingIfNeeded(for: result) {
+                try dictationStore.updateMeetingSavedRecordingPath(id: meetingID, path: savedRecordingPath)
+            }
+            return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: nil)
+        } catch let error as MeetingLifecycleError {
+            return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: error)
+        } catch {
+            return CompletedMeetingPersistenceResult(
+                meetingID: meetingID,
+                recordingSaveError: .failedToSaveRecording(underlying: error)
+            )
+        }
+    }
+
+    private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) throws -> String? {
+        let shouldSave: Bool
+        switch config.meetingRecordingSavePolicy {
+        case .never:
+            shouldSave = false
+        case .always:
+            shouldSave = true
+        case .prompt:
+            shouldSave = promptToSaveMeetingRecording(for: result.title)
+        }
+
+        guard shouldSave else {
+            if let retainedRecordingURL = result.retainedRecordingURL {
+                try? FileManager.default.removeItem(at: retainedRecordingURL)
+            }
+            return nil
+        }
+
+        if let retainedRecordingError = result.retainedRecordingError {
+            throw MeetingLifecycleError.failedToSaveRecording(underlying: retainedRecordingError)
+        }
+
+        guard let retainedRecordingURL = result.retainedRecordingURL else {
+            return nil
+        }
+
+        do {
+            let outputURL = try MeetingRecordingWriter.persistTemporaryRecording(
+                from: retainedRecordingURL,
+                meetingTitle: result.title,
+                startedAt: result.startTime,
+                supportDirectory: AppIdentity.supportDirectoryURL
+            )
+            return outputURL.path
+        } catch {
+            throw MeetingLifecycleError.failedToSaveRecording(underlying: error)
+        }
+    }
+
+    private func cleanupTemporaryMeetingAudioFiles(for result: MeetingSessionResult) {
+        if let retainedRecordingURL = result.retainedRecordingURL {
+            try? FileManager.default.removeItem(at: retainedRecordingURL)
+        }
+        if let systemRecordingURL = result.systemRecordingURL {
+            try? FileManager.default.removeItem(at: systemRecordingURL)
+        }
+    }
+
+    private func cleanupTemporaryDirectory(named directoryName: String, logDescription: String) {
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(directoryName)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
+        }
+
+        for file in files {
+            try? FileManager.default.removeItem(at: file)
+        }
+
+        if !files.isEmpty {
+            fputs("[muesli-native] cleaned up \(files.count) \(logDescription)\n", stderr)
+        }
+    }
+
+    private func clearSavedMeetingRecordingsDirectory() throws {
+        let recordingsDirectory = AppIdentity.supportDirectoryURL
+            .appendingPathComponent("meeting-recordings", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: recordingsDirectory.path) else { return }
+        try FileManager.default.removeItem(at: recordingsDirectory)
+    }
+
+    private func deleteSavedMeetingRecording(at path: String) throws {
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            throw MeetingLifecycleError.failedToDeleteRecording(underlying: error)
+        }
+    }
+
+    private func promptToSaveMeetingRecording(for title: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Save meeting recording?"
+        alert.informativeText = "Keep a merged audio file for \"\(title)\" so you can inspect it later in Finder."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Save Recording")
+        alert.addButton(withTitle: "Don't Save")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    private func presentErrorAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     func copyToClipboard(_ text: String) {

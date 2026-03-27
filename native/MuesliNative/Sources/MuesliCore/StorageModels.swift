@@ -12,6 +12,12 @@ public enum MeetingTemplateKind: String, Codable, Sendable {
     case custom
 }
 
+public enum MeetingRecordingSavePolicy: String, Codable, CaseIterable, Sendable {
+    case never
+    case prompt
+    case always
+}
+
 public struct DictationRecord: Identifiable, Codable, Sendable {
     public let id: Int64
     public let timestamp: String
@@ -42,6 +48,7 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
     public let calendarEventID: String?
     public let micAudioPath: String?
     public let systemAudioPath: String?
+    public let savedRecordingPath: String?
     public let selectedTemplateID: String?
     public let selectedTemplateName: String?
     public let selectedTemplateKind: MeetingTemplateKind?
@@ -59,6 +66,7 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         calendarEventID: String? = nil,
         micAudioPath: String? = nil,
         systemAudioPath: String? = nil,
+        savedRecordingPath: String? = nil,
         selectedTemplateID: String? = nil,
         selectedTemplateName: String? = nil,
         selectedTemplateKind: MeetingTemplateKind? = nil,
@@ -75,6 +83,7 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         self.calendarEventID = calendarEventID
         self.micAudioPath = micAudioPath
         self.systemAudioPath = systemAudioPath
+        self.savedRecordingPath = savedRecordingPath
         self.selectedTemplateID = selectedTemplateID
         self.selectedTemplateName = selectedTemplateName
         self.selectedTemplateKind = selectedTemplateKind

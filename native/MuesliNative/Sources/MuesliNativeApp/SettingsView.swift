@@ -20,7 +20,7 @@ struct SettingsView: View {
             case .dictations:
                 return "This will permanently remove all saved dictations. This cannot be undone."
             case .meetings:
-                return "This will permanently remove all saved meetings, notes, and transcripts. This cannot be undone."
+                return "This will permanently remove all saved meetings, notes, transcripts, and retained audio recordings. This cannot be undone."
             }
         }
 
@@ -236,6 +236,16 @@ struct SettingsView: View {
                             controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
                         }
                     }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Save meeting recording") {
+                        settingsMenu(
+                            selection: recordingSaveLabel(for: appState.config.meetingRecordingSavePolicy),
+                            options: MeetingRecordingSavePolicy.allCases.map(recordingSaveLabel(for:))
+                        ) { label in
+                            guard let policy = recordingSavePolicy(for: label) else { return }
+                            controller.updateConfig { $0.meetingRecordingSavePolicy = policy }
+                        }
+                    }
                 }
 
                 settingsSection("Data") {
@@ -246,6 +256,8 @@ struct SettingsView: View {
                         actionButton("Clear meeting history", role: .destructive) {
                             pendingDataDestruction = .meetings
                         }
+                        .disabled(controller.isMeetingRecording())
+                        .help("Stop the current meeting recording before clearing meeting history.")
                     }
                 }
             }
@@ -411,6 +423,25 @@ struct SettingsView: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    private func recordingSaveLabel(for policy: MeetingRecordingSavePolicy) -> String {
+        switch policy {
+        case .never:
+            return "Never"
+        case .prompt:
+            return "Ask every time"
+        case .always:
+            return "Always"
+        }
+    }
+
+    private func recordingSavePolicy(for label: String) -> MeetingRecordingSavePolicy? {
+        let policy = MeetingRecordingSavePolicy.allCases.first { recordingSaveLabel(for: $0) == label }
+        if policy == nil {
+            assertionFailure("Unexpected recording save label: \(label)")
+        }
+        return policy
     }
 }
 

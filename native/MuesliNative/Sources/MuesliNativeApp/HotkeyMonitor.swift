@@ -10,7 +10,6 @@ final class HotkeyMonitor {
     var onCancel: (() -> Void)?
     var onToggleStart: (() -> Void)?
     var onToggleStop: (() -> Void)?
-    var onEscapePressed: (() -> Void)?
     var targetKeyCode: UInt16 = 55
     var doubleTapEnabled: Bool = true
 
@@ -28,9 +27,19 @@ final class HotkeyMonitor {
     private var lastTapWasShort = false
     private var toggleActive = false
 
-    private let prepareDelay: TimeInterval = 0.15
-    private let startDelay: TimeInterval = 0.25
-    private let doubleTapWindow: TimeInterval = 0.35
+    private let prepareDelay: TimeInterval
+    private let startDelay: TimeInterval
+    private let doubleTapWindow: TimeInterval
+
+    init(
+        prepareDelay: TimeInterval = 0.15,
+        startDelay: TimeInterval = 0.25,
+        doubleTapWindow: TimeInterval = 0.35
+    ) {
+        self.prepareDelay = prepareDelay
+        self.startDelay = startDelay
+        self.doubleTapWindow = doubleTapWindow
+    }
 
     func start() {
         guard globalMonitor == nil, localMonitor == nil else { return }
@@ -114,18 +123,15 @@ final class HotkeyMonitor {
     private func handle(_ event: NSEvent) {
         switch event.type {
         case .flagsChanged:
-            handleFlagsChanged(event)
+            handleFlagsChanged(keyCode: event.keyCode, flags: event.modifierFlags)
         case .keyDown:
-            handleKeyDown(event)
+            handleKeyDown(keyCode: event.keyCode)
         default:
             break
         }
     }
 
-    private func handleFlagsChanged(_ event: NSEvent) {
-        let keyCode = event.keyCode
-        let flags = event.modifierFlags
-
+    func handleFlagsChanged(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
         if keyCode == targetKeyCode {
             let isDown = isModifierDown(keyCode: targetKeyCode, flags: flags)
             if isDown {
@@ -215,9 +221,7 @@ final class HotkeyMonitor {
         }
     }
 
-    private func handleKeyDown(_ event: NSEvent) {
-        let keyCode = event.keyCode
-
+    func handleKeyDown(keyCode: UInt16) {
         // Escape cancels any active recording
         if keyCode == 53 {
             if toggleActive {
@@ -233,10 +237,7 @@ final class HotkeyMonitor {
                 targetKeyDown = false
                 cancelTimers()
                 onCancel?()
-                return
             }
-            // For meetings, the escape is handled by onEscapePressed
-            onEscapePressed?()
             return
         }
 
@@ -282,5 +283,10 @@ final class HotkeyMonitor {
         startWorkItem?.cancel()
         prepareWorkItem = nil
         startWorkItem = nil
+    }
+
+    func setHoldRecordingActiveForTests() {
+        targetKeyDown = true
+        active = true
     }
 }

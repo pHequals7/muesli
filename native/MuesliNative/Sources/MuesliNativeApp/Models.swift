@@ -244,6 +244,7 @@ struct AppConfig: Codable {
     var idleTimeout: Double = 120
     var autoRecordMeetings: Bool = false
     var showMeetingDetectionNotification: Bool = true
+    var meetingRecordingSavePolicy: MeetingRecordingSavePolicy = .never
     var darkMode: Bool = true
     var enableDoubleTapDictation: Bool = true
     var launchAtLogin: Bool = false
@@ -275,6 +276,7 @@ struct AppConfig: Codable {
         case idleTimeout = "idle_timeout"
         case autoRecordMeetings = "auto_record_meetings"
         case showMeetingDetectionNotification = "show_meeting_detection_notification"
+        case meetingRecordingSavePolicy = "meeting_recording_save_policy"
         case darkMode = "dark_mode"
         case enableDoubleTapDictation = "enable_double_tap_dictation"
         case launchAtLogin = "launch_at_login"
@@ -309,6 +311,7 @@ struct AppConfig: Codable {
         idleTimeout = (try? c.decode(Double.self, forKey: .idleTimeout)) ?? defaults.idleTimeout
         autoRecordMeetings = (try? c.decode(Bool.self, forKey: .autoRecordMeetings)) ?? defaults.autoRecordMeetings
         showMeetingDetectionNotification = (try? c.decode(Bool.self, forKey: .showMeetingDetectionNotification)) ?? defaults.showMeetingDetectionNotification
+        meetingRecordingSavePolicy = (try? c.decode(MeetingRecordingSavePolicy.self, forKey: .meetingRecordingSavePolicy)) ?? defaults.meetingRecordingSavePolicy
         darkMode = (try? c.decode(Bool.self, forKey: .darkMode)) ?? defaults.darkMode
         enableDoubleTapDictation = (try? c.decode(Bool.self, forKey: .enableDoubleTapDictation)) ?? defaults.enableDoubleTapDictation
         launchAtLogin = (try? c.decode(Bool.self, forKey: .launchAtLogin)) ?? defaults.launchAtLogin

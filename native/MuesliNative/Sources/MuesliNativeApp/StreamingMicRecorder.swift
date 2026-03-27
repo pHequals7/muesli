@@ -7,6 +7,8 @@ import os
 final class StreamingMicRecorder {
     /// Called with 4096-sample Float chunks (256ms at 16kHz) for VAD processing.
     var onAudioBuffer: (([Float]) -> Void)?
+    /// Called with 16-bit PCM mono samples for retained meeting recording.
+    var onPCMSamples: (([Int16]) -> Void)?
 
     private let engine = AVAudioEngine()
     private let lock = OSAllocatedUnfairLock(initialState: FileState())
@@ -16,6 +18,7 @@ final class StreamingMicRecorder {
         var fileHandle: FileHandle?
         var fileURL: URL?
         var bytesWritten: Int = 0
+        var latestPowerDB: Float = -160
     }
 
     private static let sampleRate: Double = 16_000
@@ -89,11 +92,25 @@ final class StreamingMicRecorder {
                 int16Samples[i] = Int16(clamped * 32767)
             }
             let pcmData = int16Samples.withUnsafeBufferPointer { Data(buffer: $0) }
+            let powerDB: Float = {
+                guard frameCount > 0 else { return -160 }
+                var sumSquares: Float = 0
+                for i in 0..<frameCount {
+                    let sample = floatData[i]
+                    sumSquares += sample * sample
+                }
+                let rms = sqrt(sumSquares / Float(frameCount))
+                let rawDB = rms > 0.000_001 ? 20 * log10(rms) : -160
+                return max(-160, min(0, rawDB))
+            }()
 
             self.lock.withLock { state in
                 state.fileHandle?.write(pcmData)
                 state.bytesWritten += pcmData.count
+                state.latestPowerDB = powerDB
             }
+
+            self.onPCMSamples?(int16Samples)
 
             // Forward Float samples for VAD (in 4096-sample chunks)
             let floats = Array(UnsafeBufferPointer(start: floatData, count: frameCount))
@@ -146,6 +163,8 @@ final class StreamingMicRecorder {
         isRunning = false
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        onAudioBuffer = nil
+        onPCMSamples = nil
 
         let state = lock.withLock { state -> FileState in
             let old = state
@@ -159,8 +178,7 @@ final class StreamingMicRecorder {
 
     /// Approximate current power level (dB) from recent samples.
     func currentPower() -> Float {
-        // Return a reasonable default — real metering would require tracking RMS in the tap
-        -30.0
+        lock.withLock { $0.latestPowerDB }
     }
 
     // MARK: - File Management

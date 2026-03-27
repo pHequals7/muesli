@@ -1,0 +1,71 @@
+import Foundation
+import Testing
+@testable import MuesliNativeApp
+
+@Suite("MeetingRecordingWriter")
+struct MeetingRecordingWriterTests {
+
+    @Test("streaming writer merges mic and system samples incrementally")
+    func writerMergesIncrementally() throws {
+        let writer = try MeetingRecordingWriter()
+        writer.appendMic([1000, 2000, 3000, 4000])
+        writer.appendSystem([3000, -2000])
+        writer.appendSystem([500, 1500])
+
+        let tempURL = try #require(writer.stop())
+        let samples = try readMonoPCM16WAVSamples(from: tempURL)
+
+        #expect(samples == [2000, 0, 1750, 2750])
+    }
+
+    @Test("streaming writer flushes single-track tail on stop")
+    func writerFlushesSingleTrackTail() throws {
+        let writer = try MeetingRecordingWriter()
+        writer.appendMic([1200, -800, 400])
+
+        let tempURL = try #require(writer.stop())
+        let samples = try readMonoPCM16WAVSamples(from: tempURL)
+
+        #expect(samples == [1200, -800, 400])
+    }
+
+    @Test("persistTemporaryRecording moves the temp wav into the meeting recordings directory with a slugged name")
+    func persistTemporaryRecordingMovesFile() throws {
+        let writer = try MeetingRecordingWriter()
+        writer.appendSystem([1200, -800, 400])
+        let tempURL = try #require(writer.stop())
+        let supportDirectory = makeTemporaryDirectory()
+        let startedAt = Date(timeIntervalSince1970: 1_711_000_000)
+
+        let savedURL = try MeetingRecordingWriter.persistTemporaryRecording(
+            from: tempURL,
+            meetingTitle: "Weekly Product Sync! With Very Long Title Extra Words",
+            startedAt: startedAt,
+            supportDirectory: supportDirectory
+        )
+
+        #expect(FileManager.default.fileExists(atPath: tempURL.path) == false)
+        #expect(savedURL.deletingLastPathComponent().lastPathComponent == "meeting-recordings")
+        #expect(savedURL.lastPathComponent.hasSuffix("-weekly-product-sync-with-very-long.wav"))
+        #expect(try readMonoPCM16WAVSamples(from: savedURL) == [1200, -800, 400])
+    }
+
+    private func makeTemporaryDirectory() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meeting-writer-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func readMonoPCM16WAVSamples(from url: URL) throws -> [Int16] {
+        let data = try Data(contentsOf: url)
+        #expect(String(data: data.subdata(in: 0..<4), encoding: .ascii) == "RIFF")
+        #expect(String(data: data.subdata(in: 8..<12), encoding: .ascii) == "WAVE")
+        let sampleBytes = data.subdata(in: 44..<data.count)
+        let count = sampleBytes.count / MemoryLayout<Int16>.size
+        return sampleBytes.withUnsafeBytes { rawBuffer in
+            let buffer = rawBuffer.bindMemory(to: Int16.self)
+            return Array(buffer.prefix(count)).map(Int16.init(littleEndian:))
+        }
+    }
+}

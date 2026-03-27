@@ -122,6 +122,7 @@ struct AppConfigTests {
         #expect(config.sttModel == BackendOption.whisper.model)
         #expect(config.meetingSummaryBackend == "openai")
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
+        #expect(config.meetingRecordingSavePolicy == .never)
         #expect(config.openAIAPIKey.isEmpty)
         #expect(config.openRouterAPIKey.isEmpty)
         #expect(config.dictationHotkey == .default)
@@ -138,6 +139,7 @@ struct AppConfigTests {
         config.userName = "Test User"
         config.hasCompletedOnboarding = true
         config.defaultMeetingTemplateID = "weekly-team-meeting"
+        config.meetingRecordingSavePolicy = .always
         config.customMeetingTemplates = [
             CustomMeetingTemplate(
                 id: "tmpl_123",
@@ -154,6 +156,7 @@ struct AppConfigTests {
         #expect(decoded.userName == "Test User")
         #expect(decoded.hasCompletedOnboarding == true)
         #expect(decoded.defaultMeetingTemplateID == "weekly-team-meeting")
+        #expect(decoded.meetingRecordingSavePolicy == .always)
         #expect(decoded.customMeetingTemplates.count == 1)
         #expect(decoded.customMeetingTemplates.first?.name == "Customer Follow-Up")
         #expect(decoded.customMeetingTemplates.first?.icon == "dollarsign.circle")
@@ -170,6 +173,7 @@ struct AppConfigTests {
         #expect(json["has_completed_onboarding"] != nil)
         #expect(json["user_name"] != nil)
         #expect(json["default_meeting_template_id"] != nil)
+        #expect(json["meeting_recording_save_policy"] != nil)
         #expect(json["custom_meeting_templates"] != nil)
     }
 
@@ -183,6 +187,7 @@ struct AppConfigTests {
         #expect(config.showFloatingIndicator == true)
         #expect(config.hasCompletedOnboarding == false)
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
+        #expect(config.meetingRecordingSavePolicy == .never)
         #expect(config.customMeetingTemplates.isEmpty)
     }
 
@@ -217,6 +222,28 @@ struct AppConfigTests {
 
         #expect(template.icon == MeetingTemplates.customIconFallback)
         #expect(MeetingTemplates.customDefinition(from: template).icon == MeetingTemplates.customIconFallback)
+    }
+}
+
+@Suite("HotkeyMonitor")
+struct HotkeyMonitorTests {
+
+    @Test("escape still cancels active hold dictation immediately")
+    func escapeCancelsActiveHoldDictation() async throws {
+        let monitor = HotkeyMonitor(
+            prepareDelay: 0.01,
+            startDelay: 0.02,
+            doubleTapWindow: 0.03
+        )
+        var cancelCount = 0
+        monitor.onCancel = {
+            cancelCount += 1
+        }
+
+        monitor.setHoldRecordingActiveForTests()
+        monitor.handleKeyDown(keyCode: 53)
+
+        #expect(cancelCount == 1)
     }
 }
 

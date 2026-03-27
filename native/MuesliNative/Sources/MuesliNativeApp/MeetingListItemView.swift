@@ -7,7 +7,9 @@ struct MeetingListItemView: View {
     let folders: [MeetingFolder]
     let onSelect: () -> Void
     let onMove: (Int64?) -> Void
+    let onDelete: (() -> Void)?
     @State private var isHovering = false
+    @State private var showDeleteConfirmation = false
 
     private var currentFolderName: String? {
         guard let fid = record.folderID else { return nil }
@@ -24,9 +26,13 @@ struct MeetingListItemView: View {
 
                 Spacer(minLength: 4)
 
-                // Visible folder move button
-                if !folders.isEmpty {
-                    folderMenuButton
+                HStack(spacing: 6) {
+                    if !folders.isEmpty {
+                        folderMenuButton
+                    }
+                    if onDelete != nil {
+                        deleteButton
+                    }
                 }
             }
 
@@ -69,6 +75,12 @@ struct MeetingListItemView: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
+        .alert("Delete Meeting", isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) { onDelete?() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this meeting? Saved notes, transcript, and any retained recording will be removed.")
+        }
     }
 
     // MARK: - Folder menu button
@@ -109,6 +121,26 @@ struct MeetingListItemView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Move to folder")
+    }
+
+    @ViewBuilder
+    private var deleteButton: some View {
+        Button {
+            showDeleteConfirmation = true
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 11))
+                .foregroundStyle(
+                    isHovering
+                        ? MuesliTheme.recording.opacity(0.85)
+                        : MuesliTheme.textTertiary
+                )
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isHovering ? 1 : 0)
+        .help("Delete meeting")
     }
 
     // MARK: - Formatting

@@ -62,8 +62,9 @@ struct MeetingSessionResult {
     let durationSeconds: Double
     let rawTranscript: String
     let formattedNotes: String
-    let micAudioPath: String?
-    let systemAudioPath: String?
+    let retainedRecordingURL: URL?
+    let retainedRecordingError: Error?
+    let systemRecordingURL: URL?
     let templateSnapshot: MeetingTemplateSnapshot
 }
 
@@ -78,6 +79,8 @@ final class MeetingSession {
 
     /// Streaming mic recorder with real-time buffer access (AVAudioEngine)
     private var streamingMicRecorder = StreamingMicRecorder()
+    private var retainedRecordingWriter: MeetingRecordingWriter?
+    private var retainedRecordingWriterError: Error?
     /// VAD controller for speech-boundary chunk rotation
     private var vadController: StreamingVadController?
     private let micChunkCollector = MeetingChunkCollector()
@@ -119,9 +122,29 @@ final class MeetingSession {
     }
 
     func start() async throws {
-        try streamingMicRecorder.prepare()
-        try streamingMicRecorder.start()
-        try await systemAudioRecorder.start()
+        streamingMicRecorder.onPCMSamples = { [weak self] samples in
+            self?.retainedRecordingWriter?.appendMic(samples)
+        }
+        systemAudioRecorder.onPCMSamples = { [weak self] samples in
+            self?.retainedRecordingWriter?.appendSystem(samples)
+        }
+
+        do {
+            try streamingMicRecorder.prepare()
+            setupRetainedRecordingWriterIfNeeded()
+            try streamingMicRecorder.start()
+            try await systemAudioRecorder.start()
+        } catch {
+            streamingMicRecorder.onPCMSamples = nil
+            systemAudioRecorder.onPCMSamples = nil
+            retainedRecordingWriter?.cancel()
+            retainedRecordingWriter = nil
+            streamingMicRecorder.cancel()
+            if let url = systemAudioRecorder.stop() {
+                try? FileManager.default.removeItem(at: url)
+            }
+            throw error
+        }
         let now = Date()
         startTime = now
         currentChunkStartTime = now
@@ -154,7 +177,13 @@ final class MeetingSession {
         isRecording = false
         vadController?.stop()
         vadController = nil
+        retainedRecordingWriter?.cancel()
+        retainedRecordingWriter = nil
+        retainedRecordingWriterError = nil
+        streamingMicRecorder.onAudioBuffer = nil
+        streamingMicRecorder.onPCMSamples = nil
         streamingMicRecorder.cancel()
+        systemAudioRecorder.onPCMSamples = nil
         if let url = systemAudioRecorder.stop() {
             try? FileManager.default.removeItem(at: url)
         }
@@ -171,96 +200,110 @@ final class MeetingSession {
         // Stop VAD controller
         vadController?.stop()
         vadController = nil
+        streamingMicRecorder.onAudioBuffer = nil
 
         // Stop mic and get last chunk
         let lastMicURL = streamingMicRecorder.stop()
         let lastChunkStart = currentChunkStartTime ?? meetingStart
+        let retainedRecordingURL = retainedRecordingWriter?.stop()
+        retainedRecordingWriter = nil
 
         // Stop system audio
         let systemAudioURL = systemAudioRecorder.stop()
-
-        // Transcribe last mic chunk
-        if let lastMicURL {
-            let chunkOffset = lastChunkStart.timeIntervalSince(meetingStart)
-            fputs("[meeting] transcribing final mic chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
-            do {
-                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastMicURL, backend: backend, customWords: serializedCustomWords)
-                if !result.text.isEmpty {
-                    micSegments.append(SpeechSegment(start: chunkOffset, end: chunkOffset, text: result.text))
+        systemAudioRecorder.onPCMSamples = nil
+        do {
+            // Transcribe last mic chunk
+            if let lastMicURL {
+                let chunkOffset = lastChunkStart.timeIntervalSince(meetingStart)
+                fputs("[meeting] transcribing final mic chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
+                do {
+                    let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastMicURL, backend: backend, customWords: serializedCustomWords)
+                    if !result.text.isEmpty {
+                        micSegments.append(SpeechSegment(start: chunkOffset, end: chunkOffset, text: result.text))
+                    }
+                } catch {
+                    fputs("[meeting] final mic chunk transcription failed: \(error)\n", stderr)
                 }
-            } catch {
-                fputs("[meeting] final mic chunk transcription failed: \(error)\n", stderr)
-            }
-            try? FileManager.default.removeItem(at: lastMicURL)
-        }
-
-        // Transcribe system audio (batch — this is the only wait after meeting ends)
-        let systemResult: SpeechTranscriptionResult
-        var diarizationSegments: [TimedSpeakerSegment]?
-        if let systemAudioURL {
-            fputs("[meeting] transcribing system audio (batch)\n", stderr)
-            systemResult = try await transcriptionCoordinator.transcribeMeeting(at: systemAudioURL, backend: backend, customWords: serializedCustomWords)
-
-            // Run speaker diarization on system audio (batch post-processing)
-            if let diarizationResult = try? await transcriptionCoordinator.diarizeSystemAudio(at: systemAudioURL) {
-                diarizationSegments = diarizationResult.segments
+                try? FileManager.default.removeItem(at: lastMicURL)
             }
 
-            try? FileManager.default.removeItem(at: systemAudioURL)
-        } else {
-            systemResult = SpeechTranscriptionResult(text: "", segments: [])
-        }
+            // Transcribe system audio (batch — this is the only wait after meeting ends)
+            let systemResult: SpeechTranscriptionResult
+            var diarizationSegments: [TimedSpeakerSegment]?
+            if let systemAudioURL {
+                fputs("[meeting] transcribing system audio (batch)\n", stderr)
+                systemResult = try await transcriptionCoordinator.transcribeMeeting(at: systemAudioURL, backend: backend, customWords: serializedCustomWords)
 
-        micSegments.append(contentsOf: await micChunkCollector.closeAndDrainSortedSegments())
-        micSegments.sort { lhs, rhs in
-            if lhs.start == rhs.start {
-                return lhs.text < rhs.text
+                // Run speaker diarization on system audio (batch post-processing)
+                if let diarizationResult = try? await transcriptionCoordinator.diarizeSystemAudio(at: systemAudioURL) {
+                    diarizationSegments = diarizationResult.segments
+                }
+            } else {
+                systemResult = SpeechTranscriptionResult(text: "", segments: [])
             }
-            return lhs.start < rhs.start
+
+            micSegments.append(contentsOf: await micChunkCollector.closeAndDrainSortedSegments())
+            micSegments.sort { lhs, rhs in
+                if lhs.start == rhs.start {
+                    return lhs.text < rhs.text
+                }
+                return lhs.start < rhs.start
+            }
+
+            fputs("[meeting] \(micSegments.count) mic chunks transcribed during meeting\n", stderr)
+
+            let rawTranscript = TranscriptFormatter.merge(
+                micSegments: micSegments,
+                systemSegments: systemResult.segments,
+                diarizationSegments: diarizationSegments,
+                meetingStart: meetingStart
+            )
+
+            let generatedTitle: String
+            if let autoTitle = await MeetingSummaryClient.generateTitle(transcript: rawTranscript, config: config),
+               !autoTitle.isEmpty {
+                generatedTitle = autoTitle
+                fputs("[meeting] auto-generated title: \(generatedTitle)\n", stderr)
+            } else {
+                generatedTitle = title
+            }
+
+            let templateSnapshot = MeetingTemplates.resolveSnapshot(
+                id: config.defaultMeetingTemplateID,
+                customTemplates: config.customMeetingTemplates
+            )
+            let formattedNotes = await MeetingSummaryClient.summarize(
+                transcript: rawTranscript,
+                meetingTitle: generatedTitle,
+                config: config,
+                template: templateSnapshot
+            )
+
+            return MeetingSessionResult(
+                title: generatedTitle,
+                calendarEventID: calendarEventID,
+                startTime: meetingStart,
+                endTime: endTime,
+                durationSeconds: max(endTime.timeIntervalSince(meetingStart), 0),
+                rawTranscript: rawTranscript,
+                formattedNotes: formattedNotes,
+                retainedRecordingURL: retainedRecordingURL,
+                retainedRecordingError: retainedRecordingWriterError,
+                systemRecordingURL: systemAudioURL,
+                templateSnapshot: templateSnapshot
+            )
+        } catch {
+            if let lastMicURL {
+                try? FileManager.default.removeItem(at: lastMicURL)
+            }
+            if let retainedRecordingURL {
+                try? FileManager.default.removeItem(at: retainedRecordingURL)
+            }
+            if let systemAudioURL {
+                try? FileManager.default.removeItem(at: systemAudioURL)
+            }
+            throw error
         }
-
-        fputs("[meeting] \(micSegments.count) mic chunks transcribed during meeting\n", stderr)
-
-        let rawTranscript = TranscriptFormatter.merge(
-            micSegments: micSegments,
-            systemSegments: systemResult.segments,
-            diarizationSegments: diarizationSegments,
-            meetingStart: meetingStart
-        )
-
-        // Auto-generate meeting title from transcript
-        let generatedTitle: String
-        if let autoTitle = await MeetingSummaryClient.generateTitle(transcript: rawTranscript, config: config),
-           !autoTitle.isEmpty {
-            generatedTitle = autoTitle
-            fputs("[meeting] auto-generated title: \(generatedTitle)\n", stderr)
-        } else {
-            generatedTitle = title
-        }
-
-        let templateSnapshot = MeetingTemplates.resolveSnapshot(
-            id: config.defaultMeetingTemplateID,
-            customTemplates: config.customMeetingTemplates
-        )
-        let formattedNotes = await MeetingSummaryClient.summarize(
-            transcript: rawTranscript,
-            meetingTitle: generatedTitle,
-            config: config,
-            template: templateSnapshot
-        )
-
-        return MeetingSessionResult(
-            title: generatedTitle,
-            calendarEventID: calendarEventID,
-            startTime: meetingStart,
-            endTime: endTime,
-            durationSeconds: max(endTime.timeIntervalSince(meetingStart), 0),
-            rawTranscript: rawTranscript,
-            formattedNotes: formattedNotes,
-            micAudioPath: nil,
-            systemAudioPath: nil,
-            templateSnapshot: templateSnapshot
-        )
     }
 
     /// Called by VAD on speech boundaries or max-duration fallback.
@@ -302,6 +345,20 @@ final class MeetingSession {
         }
         if !micChunkCollector.add(task) {
             task.cancel()
+        }
+    }
+
+    private func setupRetainedRecordingWriterIfNeeded() {
+        retainedRecordingWriter = nil
+        retainedRecordingWriterError = nil
+
+        guard config.meetingRecordingSavePolicy != .never else { return }
+
+        do {
+            retainedRecordingWriter = try MeetingRecordingWriter()
+        } catch {
+            retainedRecordingWriterError = error
+            fputs("[meeting] failed to prepare retained recording writer: \(error)\n", stderr)
         }
     }
 }
