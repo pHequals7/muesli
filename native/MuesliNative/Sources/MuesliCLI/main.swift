@@ -279,7 +279,7 @@ struct MuesliCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "muesli-cli",
         abstract: "Agent-friendly CLI for local Muesli meetings and dictations.",
-        subcommands: [SpecCommand.self, InfoCommand.self, MeetingsCommand.self, DictationsCommand.self]
+        subcommands: [SpecCommand.self, InfoCommand.self, MeetingsCommand.self, DictationsCommand.self, ProfileCommand.self]
     )
 
     static func exit(withError error: Error? = nil) -> Never {
@@ -324,6 +324,8 @@ struct MuesliCLI: ParsableCommand {
             .init(name: "meetings update-notes", usage: "muesli-cli meetings update-notes <id> (--stdin | --file <path>)", summary: "Replace stored meeting notes only.", examples: ["muesli-cli meetings update-notes 42 --file notes.md", "cat notes.md | muesli-cli meetings update-notes 42 --stdin"]),
             .init(name: "dictations list", usage: "muesli-cli dictations list [--limit <n>]", summary: "List recent dictations.", examples: ["muesli-cli dictations list --limit 10"]),
             .init(name: "dictations get", usage: "muesli-cli dictations get <id>", summary: "Return a full dictation record.", examples: ["muesli-cli dictations get 7"]),
+            .init(name: "profile list", usage: "muesli-cli profile list", summary: "List saved Speedscope profile files.", examples: ["muesli-cli profile list"]),
+            .init(name: "profile summary", usage: "muesli-cli profile summary <file|latest>", summary: "Print a timing table for a profile file.", examples: ["muesli-cli profile summary latest", "muesli-cli profile summary ~/Library/Application\\ Support/Muesli/profiles/2026-03-28T12-00-00.speedscope.json"]),
         ])
     }
 }
@@ -485,5 +487,143 @@ struct DictationsGetCommand: ParsableCommand {
             throw CLIError.notFound("No dictation exists with id \(id).", fix: "Run `muesli-cli dictations list` to find a valid ID.")
         }
         emitSuccess(command: "muesli-cli dictations get", data: DictationDetailPayload(dictation), dbPath: context.databaseURL)
+    }
+}
+
+// MARK: - Profile
+
+struct ProfileCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "profile",
+        abstract: "Inspect Muesli performance profiles.",
+        subcommands: [ProfileListCommand.self, ProfileSummaryCommand.self]
+    )
+}
+
+struct ProfileListCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "list", abstract: "List saved Speedscope profile files.")
+
+    struct ProfileEntry: Encodable {
+        let filename: String
+        let path: String
+        let sizeBytes: Int
+        let createdAt: String
+    }
+
+    struct Payload: Encodable {
+        let profilesDirectory: String
+        let count: Int
+        let profiles: [ProfileEntry]
+        let schemaVersion = 1
+    }
+
+    func run() throws {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Muesli/profiles")
+        let dbPath = MuesliPaths.defaultSupportDirectoryURL().appendingPathComponent("muesli.db")
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+
+        var entries: [ProfileEntry] = []
+        if let items = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey, .creationDateKey]) {
+            let jsonFiles = items.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+            for url in jsonFiles {
+                let resources = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey])
+                entries.append(ProfileEntry(
+                    filename: url.lastPathComponent,
+                    path: url.path,
+                    sizeBytes: resources?.fileSize ?? 0,
+                    createdAt: resources?.creationDate.map { formatter.string(from: $0) } ?? ""
+                ))
+            }
+        }
+
+        emitSuccess(
+            command: "muesli-cli profile list",
+            data: Payload(profilesDirectory: dir.path, count: entries.count, profiles: entries),
+            dbPath: dbPath
+        )
+    }
+}
+
+struct ProfileSummaryCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "summary", abstract: "Print a timing table for a profile file.")
+    @Argument(help: "Path to a .speedscope.json file, or 'latest' to use the most recent profile.") var file: String
+
+    struct SpanRow: Encodable {
+        let name: String
+        let category: String
+        let thread: String
+        let startMs: Double
+        let durationMs: Double
+    }
+
+    struct Payload: Encodable {
+        let file: String
+        let totalDurationMs: Double
+        let spanCount: Int
+        let spans: [SpanRow]
+        let schemaVersion = 1
+    }
+
+    func run() throws {
+        let dbPath = MuesliPaths.defaultSupportDirectoryURL().appendingPathComponent("muesli.db")
+        let url: URL
+
+        if file == "latest" {
+            let dir = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/Muesli/profiles")
+            let items = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            guard let latest = items.filter({ $0.pathExtension == "json" }).sorted(by: { $0.lastPathComponent > $1.lastPathComponent }).first else {
+                throw CLIError.notFound("No profile files found in \(dir.path).", fix: "Run Muesli with --profile flag to generate a profile.")
+            }
+            url = latest
+        } else {
+            url = URL(fileURLWithPath: file)
+        }
+
+        guard let data = FileManager.default.contents(atPath: url.path),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let shared = root["shared"] as? [String: Any],
+              let framesArr = shared["frames"] as? [[String: String]],
+              let profiles = root["profiles"] as? [[String: Any]] else {
+            throw CLIError.invalidInput(
+                "Could not parse speedscope JSON at \(url.path).",
+                fix: "Ensure the file is a valid .speedscope.json produced by Muesli."
+            )
+        }
+
+        var spans: [SpanRow] = []
+        for profile in profiles {
+            let threadName = profile["name"] as? String ?? "unknown"
+            let events = profile["events"] as? [[String: Any]] ?? []
+            var openAt: [Int: Double] = [:]
+            for event in events {
+                guard let type = event["type"] as? String,
+                      let frameIdx = event["frame"] as? Int,
+                      let at = event["at"] as? Double else { continue }
+                if type == "O" {
+                    openAt[frameIdx] = at
+                } else if type == "C", let start = openAt.removeValue(forKey: frameIdx) {
+                    let frame = frameIdx < framesArr.count ? framesArr[frameIdx] : [:]
+                    spans.append(SpanRow(
+                        name: frame["name"] ?? "unknown",
+                        category: frame["col"] ?? "",
+                        thread: threadName,
+                        startMs: start,
+                        durationMs: at - start
+                    ))
+                }
+            }
+        }
+
+        spans.sort { $0.startMs < $1.startMs }
+        let totalMs = spans.map { $0.startMs + $0.durationMs }.max() ?? 0
+
+        emitSuccess(
+            command: "muesli-cli profile summary",
+            data: Payload(file: url.path, totalDurationMs: totalMs, spanCount: spans.count, spans: spans),
+            dbPath: dbPath
+        )
     }
 }

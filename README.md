@@ -127,6 +127,8 @@ The CLI is designed for coding agents such as Codex and Claude Code. It exposes 
 - `muesli-cli meetings update-notes <id> (--stdin | --file <path>)`
 - `muesli-cli dictations list [--limit N]`
 - `muesli-cli dictations get <id>`
+- `muesli-cli profile list`
+- `muesli-cli profile summary <file|latest>`
 
 ### JSON contract
 
@@ -182,6 +184,52 @@ Important meeting fields:
 - `missing`
 - `raw_transcript_fallback`
 - `structured_notes`
+
+### Performance profiling
+
+Muesli has built-in span profiling that emits [Speedscope](https://speedscope.app)-compatible JSON. Useful for diagnosing model load times, transcription latency, and meeting pipeline performance.
+
+**Generate a profile:**
+
+Launch from Terminal with the `--profile` flag. Profiles are written to disk when the app quits.
+
+```bash
+/Applications/Muesli.app/Contents/MacOS/Muesli --profile
+# use Muesli normally, then quit from the menu bar
+# → profile written: ~/Library/Application Support/Muesli/profiles/<timestamp>.speedscope.json
+```
+
+**Inspect with the CLI:**
+
+```bash
+# List saved profiles
+muesli-cli profile list
+
+# Print a timing table for the most recent profile
+muesli-cli profile summary latest
+
+# Or point at a specific file
+muesli-cli profile summary ~/Library/Application\ Support/Muesli/profiles/2026-03-28T12-00-00.speedscope.json
+```
+
+**Visualise interactively:**
+
+Open `tools/flamegraph-viewer.html` in any browser, click **Open Profile**, and select the `.speedscope.json` file. Zoom with scroll or Ctrl+scroll, drag to pan, hover for exact timings. Or drag the file directly onto [speedscope.app](https://speedscope.app).
+
+**Instrumented spans:**
+
+| Span | Category | What it measures |
+|------|----------|-----------------|
+| `app.lifetime` | startup | Total time from launch to quit |
+| `model.preload` | startup | CoreML/ANE model warm-up |
+| `dictation.asr` | dictation | Time inside the ASR engine |
+| `dictation.db-write` | dictation | SQLite insert after transcription |
+| `dictation.paste` | dictation | Clipboard write + Cmd+V simulation |
+| `meeting.start` | meeting | Recording initialisation |
+| `meeting.stop` | meeting | Finalisation and segment assembly |
+| `meeting.db-write` | meeting | SQLite insert of the full meeting |
+
+---
 
 ### Notes for agent authors
 
