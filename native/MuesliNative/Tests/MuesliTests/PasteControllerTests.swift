@@ -85,10 +85,17 @@ struct PasteControllerTests {
         pasteboard.setString("user-copied-text", forType: .string)
 
         PasteController.paste(text: "dictated text")
-        drainMainRunLoop(for: 0.8)
 
-        // Clipboard should be restored to the original content
-        #expect(pasteboard.string(forType: .string) == "user-copied-text")
+        // Wait for restore on the main queue. DispatchQueue.main.asyncAfter blocks
+        // require the main thread to service them, so we use a continuation that
+        // dispatches verification onto main after the restore window has elapsed.
+        let restored: String? = await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                continuation.resume(returning: pasteboard.string(forType: .string))
+            }
+        }
+
+        #expect(restored == "user-copied-text")
     }
 
     @Test("paste restores empty clipboard state")
@@ -97,10 +104,14 @@ struct PasteControllerTests {
         pasteboard.clearContents()
 
         PasteController.paste(text: "dictated text")
-        drainMainRunLoop(for: 0.8)
 
-        // Clipboard should be cleared (no lingering dictation text)
-        #expect(pasteboard.string(forType: .string) == nil)
+        let restored: String? = await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                continuation.resume(returning: pasteboard.string(forType: .string))
+            }
+        }
+
+        #expect(restored == nil)
     }
 
     @Test("paste restores multi-item clipboard")
@@ -119,22 +130,16 @@ struct PasteControllerTests {
         #expect(countBefore == 2)
 
         PasteController.paste(text: "dictated text")
-        drainMainRunLoop(for: 0.8)
 
-        // Both items should be restored
-        let countAfter = pasteboard.pasteboardItems?.count ?? 0
-        #expect(countAfter == 2)
-        let texts = pasteboard.pasteboardItems?.compactMap { $0.string(forType: .string) } ?? []
-        #expect(texts == ["item-one", "item-two"])
-    }
-
-    // MARK: - Helpers
-
-    /// Spin the main run loop so DispatchQueue.main.asyncAfter blocks fire.
-    private func drainMainRunLoop(for seconds: TimeInterval) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let (countAfter, texts): (Int, [String]) = await withCheckedContinuation { continuation in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                let count = pasteboard.pasteboardItems?.count ?? 0
+                let strings = pasteboard.pasteboardItems?.compactMap { $0.string(forType: .string) } ?? []
+                continuation.resume(returning: (count, strings))
+            }
         }
+
+        #expect(countAfter == 2)
+        #expect(texts == ["item-one", "item-two"])
     }
 }
