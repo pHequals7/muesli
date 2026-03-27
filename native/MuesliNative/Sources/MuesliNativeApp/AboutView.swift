@@ -99,18 +99,13 @@ struct AboutView: View {
                 sectionHeader("Acknowledgements")
                 aboutCard {
                     acknowledgement(
-                        name: "MLX by Apple",
-                        description: "On-device machine learning framework for Apple Silicon. Powers all local transcription inference."
+                        name: "FluidAudio by FluidInference",
+                        description: "CoreML speech stack powering Parakeet, Qwen3 ASR, Silero VAD, and speaker diarization on Apple Silicon."
                     )
                     Divider().background(MuesliTheme.surfaceBorder)
                     acknowledgement(
-                        name: "mlx-whisper by Apple",
-                        description: "Optimized Whisper speech-to-text implementation on MLX. Delivers 0.3s transcription latency."
-                    )
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    acknowledgement(
-                        name: "ScreenCaptureKit by Apple",
-                        description: "System audio capture API for meeting transcription. Captures call audio including Bluetooth devices."
+                        name: "whisper.cpp",
+                        description: "Local Whisper inference engine used for the app's Whisper Small, Medium, and Large Turbo backends."
                     )
                 }
 
