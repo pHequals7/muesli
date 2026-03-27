@@ -165,12 +165,6 @@ final class MuesliController: NSObject {
             self?.indicator.isToggleDictation = false
             self?.hotkeyMonitor.cancelToggleMode()
         }
-        hotkeyMonitor.onEscapeLongPress = { [weak self] in
-            guard let self else { return }
-            if self.isMeetingRecording() {
-                self.discardMeetingRecording()
-            }
-        }
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,

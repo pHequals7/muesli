@@ -228,72 +228,12 @@ struct AppConfigTests {
 @Suite("HotkeyMonitor")
 struct HotkeyMonitorTests {
 
-    @MainActor
-    private func waitUntil(
-        timeoutNanoseconds: UInt64 = 2_000_000_000,
-        pollNanoseconds: UInt64 = 10_000_000,
-        _ condition: @escaping @MainActor () -> Bool
-    ) async -> Bool {
-        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-        while DispatchTime.now().uptimeNanoseconds < deadline {
-            if condition() {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: pollNanoseconds)
-        }
-        return condition()
-    }
-
-    @Test("escape long press triggers discard callback")
-    @MainActor
-    func escapeLongPressTriggersDiscard() async throws {
-        let monitor = HotkeyMonitor(
-            prepareDelay: 0.01,
-            startDelay: 0.02,
-            doubleTapWindow: 0.03,
-            escapeLongPressDuration: 0.05
-        )
-        var discardCount = 0
-        monitor.onEscapeLongPress = {
-            discardCount += 1
-        }
-
-        monitor.handleKeyDown(keyCode: 53)
-        let didDiscard = await waitUntil { discardCount == 1 }
-
-        #expect(didDiscard)
-        #expect(discardCount == 1)
-    }
-
-    @Test("short escape press does not trigger discard callback")
-    @MainActor
-    func shortEscapeDoesNotDiscard() async throws {
-        let monitor = HotkeyMonitor(
-            prepareDelay: 0.01,
-            startDelay: 0.02,
-            doubleTapWindow: 0.03,
-            escapeLongPressDuration: 0.05
-        )
-        var discardCount = 0
-        monitor.onEscapeLongPress = {
-            discardCount += 1
-        }
-
-        monitor.handleKeyDown(keyCode: 53)
-        try await Task.sleep(nanoseconds: 10_000_000)
-        monitor.handleKeyUp(keyCode: 53)
-        try await Task.sleep(nanoseconds: 80_000_000)
-
-        #expect(discardCount == 0)
-    }
-
     @Test("escape still cancels active hold dictation immediately")
     func escapeCancelsActiveHoldDictation() async throws {
         let monitor = HotkeyMonitor(
             prepareDelay: 0.01,
             startDelay: 0.02,
-            doubleTapWindow: 0.03,
-            escapeLongPressDuration: 0.05
+            doubleTapWindow: 0.03
         )
         var cancelCount = 0
         monitor.onCancel = {

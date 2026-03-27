@@ -10,7 +10,6 @@ final class HotkeyMonitor {
     var onCancel: (() -> Void)?
     var onToggleStart: (() -> Void)?
     var onToggleStop: (() -> Void)?
-    var onEscapeLongPress: (() -> Void)?
     var targetKeyCode: UInt16 = 55
     var doubleTapEnabled: Bool = true
 
@@ -18,9 +17,7 @@ final class HotkeyMonitor {
     private var localMonitor: Any?
     private var prepareWorkItem: DispatchWorkItem?
     private var startWorkItem: DispatchWorkItem?
-    private var escapeTask: Task<Void, Never>?
     private var targetKeyDown = false
-    private var escapeKeyDown = false
     private var otherKeyPressed = false
     private var prepared = false
     private var active = false
@@ -33,18 +30,15 @@ final class HotkeyMonitor {
     private let prepareDelay: TimeInterval
     private let startDelay: TimeInterval
     private let doubleTapWindow: TimeInterval
-    private let escapeLongPressDuration: TimeInterval
 
     init(
         prepareDelay: TimeInterval = 0.15,
         startDelay: TimeInterval = 0.25,
-        doubleTapWindow: TimeInterval = 0.35,
-        escapeLongPressDuration: TimeInterval = 1.0
+        doubleTapWindow: TimeInterval = 0.35
     ) {
         self.prepareDelay = prepareDelay
         self.startDelay = startDelay
         self.doubleTapWindow = doubleTapWindow
-        self.escapeLongPressDuration = escapeLongPressDuration
     }
 
     func start() {
@@ -57,10 +51,10 @@ final class HotkeyMonitor {
             fputs("[hotkey] requested listen event access: \(requested)\n", stderr)
         }
 
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown, .keyUp]) { [weak self] event in
+        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             self?.handle(event)
         }
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown, .keyUp]) { [weak self] event in
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             self?.handle(event)
             return event
         }
@@ -74,7 +68,6 @@ final class HotkeyMonitor {
 
     func stop() {
         cancelTimers()
-        cancelEscapeLongPress()
         if let globalMonitor {
             NSEvent.removeMonitor(globalMonitor)
         }
@@ -84,7 +77,6 @@ final class HotkeyMonitor {
         globalMonitor = nil
         localMonitor = nil
         targetKeyDown = false
-        escapeKeyDown = false
         otherKeyPressed = false
         prepared = false
         active = false
@@ -134,8 +126,6 @@ final class HotkeyMonitor {
             handleFlagsChanged(keyCode: event.keyCode, flags: event.modifierFlags)
         case .keyDown:
             handleKeyDown(keyCode: event.keyCode)
-        case .keyUp:
-            handleKeyUp(keyCode: event.keyCode)
         default:
             break
         }
@@ -247,11 +237,7 @@ final class HotkeyMonitor {
                 targetKeyDown = false
                 cancelTimers()
                 onCancel?()
-                return
             }
-            guard !escapeKeyDown else { return }
-            escapeKeyDown = true
-            scheduleEscapeLongPress()
             return
         }
 
@@ -270,12 +256,6 @@ final class HotkeyMonitor {
                 }
             }
         }
-    }
-
-    func handleKeyUp(keyCode: UInt16) {
-        guard keyCode == 53 else { return }
-        escapeKeyDown = false
-        cancelEscapeLongPress()
     }
 
     private func scheduleTimers() {
@@ -303,29 +283,6 @@ final class HotkeyMonitor {
         startWorkItem?.cancel()
         prepareWorkItem = nil
         startWorkItem = nil
-    }
-
-    private func scheduleEscapeLongPress() {
-        cancelEscapeLongPress()
-        let duration = escapeLongPressDuration
-        escapeTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
-            } catch {
-                return
-            }
-            await MainActor.run { [weak self] in
-                guard let self, self.escapeKeyDown else { return }
-                self.escapeKeyDown = false
-                fputs("[hotkey] escape → discard meeting via long press\n", stderr)
-                self.onEscapeLongPress?()
-            }
-        }
-    }
-
-    private func cancelEscapeLongPress() {
-        escapeTask?.cancel()
-        escapeTask = nil
     }
 
     func setHoldRecordingActiveForTests() {
