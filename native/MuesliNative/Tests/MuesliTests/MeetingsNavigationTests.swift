@@ -178,7 +178,7 @@ struct MeetingsNavigationTests {
             templateSnapshot: MeetingTemplates.auto.snapshot
         )
 
-        let persistenceResult = try await controller.persistCompletedMeetingResult(result)
+        let persistenceResult = try controller.persistCompletedMeetingResult(result)
 
         #expect(persistenceResult.recordingSaveError != nil)
         let storedMeeting = try store.meeting(id: persistenceResult.meetingID)

@@ -241,6 +241,5 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
         }
         outputURL = nil
         totalBytesWritten = 0
-        onPCMSamples = nil
     }
 }

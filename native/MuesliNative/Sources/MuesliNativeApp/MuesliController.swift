@@ -742,6 +742,8 @@ final class MuesliController: NSObject {
         guard let meeting = meeting(id: id) else { return }
 
         do {
+            // Delete the retained file first so a failed file removal does not orphan
+            // user-visible recording data after the meeting row disappears.
             if let savedRecordingPath = meeting.savedRecordingPath {
                 try deleteSavedMeetingRecording(at: savedRecordingPath)
             }
@@ -878,7 +880,7 @@ final class MuesliController: NSObject {
                 let result = try await activeMeetingSession.stop()
                 meetingResult = result
                 meetingTitle = result.title
-                let persistenceResult = try await self.persistCompletedMeetingResult(result)
+                let persistenceResult = try self.persistCompletedMeetingResult(result)
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
                 }
@@ -923,7 +925,7 @@ final class MuesliController: NSObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    func persistCompletedMeetingResult(_ result: MeetingSessionResult) async throws -> CompletedMeetingPersistenceResult {
+    func persistCompletedMeetingResult(_ result: MeetingSessionResult) throws -> CompletedMeetingPersistenceResult {
         let meetingID = try dictationStore.insertMeeting(
             title: result.title,
             calendarEventID: result.calendarEventID,
@@ -941,7 +943,7 @@ final class MuesliController: NSObject {
         )
 
         do {
-            if let savedRecordingPath = try await persistMeetingRecordingIfNeeded(for: result) {
+            if let savedRecordingPath = try persistMeetingRecordingIfNeeded(for: result) {
                 try dictationStore.updateMeetingSavedRecordingPath(id: meetingID, path: savedRecordingPath)
             }
             return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: nil)
@@ -955,7 +957,7 @@ final class MuesliController: NSObject {
         }
     }
 
-    private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) async throws -> String? {
+    private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) throws -> String? {
         let shouldSave: Bool
         switch config.meetingRecordingSavePolicy {
         case .never:
