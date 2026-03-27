@@ -435,7 +435,11 @@ struct SettingsView: View {
     }
 
     private func recordingSavePolicy(for label: String) -> MeetingRecordingSavePolicy? {
-        MeetingRecordingSavePolicy.allCases.first { recordingSaveLabel(for: $0) == label }
+        let policy = MeetingRecordingSavePolicy.allCases.first { recordingSaveLabel(for: $0) == label }
+        if policy == nil {
+            assertionFailure("Unexpected recording save label: \(label)")
+        }
+        return policy
     }
 }
 

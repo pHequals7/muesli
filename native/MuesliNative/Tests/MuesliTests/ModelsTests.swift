@@ -227,7 +227,24 @@ struct AppConfigTests {
 @Suite("HotkeyMonitor")
 struct HotkeyMonitorTests {
 
+    @MainActor
+    private func waitUntil(
+        timeoutNanoseconds: UInt64 = 500_000_000,
+        pollNanoseconds: UInt64 = 10_000_000,
+        _ condition: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: pollNanoseconds)
+        }
+        return condition()
+    }
+
     @Test("escape long press triggers discard callback")
+    @MainActor
     func escapeLongPressTriggersDiscard() async throws {
         let monitor = HotkeyMonitor(
             prepareDelay: 0.01,
@@ -241,12 +258,14 @@ struct HotkeyMonitorTests {
         }
 
         monitor.handleKeyDown(keyCode: 53)
-        try await Task.sleep(nanoseconds: 120_000_000)
+        let didDiscard = await waitUntil { discardCount == 1 }
 
+        #expect(didDiscard)
         #expect(discardCount == 1)
     }
 
     @Test("short escape press does not trigger discard callback")
+    @MainActor
     func shortEscapeDoesNotDiscard() async throws {
         let monitor = HotkeyMonitor(
             prepareDelay: 0.01,

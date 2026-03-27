@@ -773,12 +773,7 @@ final class MuesliController: NSObject {
     }
 
     func clearMeetingHistory() {
-        let meetingsToDelete = (try? dictationStore.recentMeetings(limit: 10_000)) ?? []
-        for meeting in meetingsToDelete {
-            if let savedRecordingPath = meeting.savedRecordingPath {
-                try? deleteSavedMeetingRecording(at: savedRecordingPath)
-            }
-        }
+        try? clearSavedMeetingRecordingsDirectory()
         try? dictationStore.clearMeetings()
         appState.selectedMeetingID = nil
         appState.selectedMeetingRecord = nil
@@ -878,7 +873,7 @@ final class MuesliController: NSObject {
                 let result = try await activeMeetingSession.stop()
                 meetingResult = result
                 meetingTitle = result.title
-                let savedRecordingPath = try self.persistMeetingRecordingIfNeeded(for: result)
+                let savedRecordingPath = try await self.persistMeetingRecordingIfNeeded(for: result)
                 try self.dictationStore.insertMeeting(
                     title: result.title,
                     calendarEventID: result.calendarEventID,
@@ -935,7 +930,7 @@ final class MuesliController: NSObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) throws -> String? {
+    private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) async throws -> String? {
         let shouldSave: Bool
         switch config.meetingRecordingSavePolicy {
         case .never:
@@ -949,13 +944,20 @@ final class MuesliController: NSObject {
         guard shouldSave else { return nil }
 
         do {
-            let outputURL = try MeetingRecordingExporter.exportMergedRecording(
-                micURL: result.micRecordingURL,
-                systemURL: result.systemRecordingURL,
-                meetingTitle: result.title,
-                startedAt: result.startTime,
-                supportDirectory: AppIdentity.supportDirectoryURL
-            )
+            let micURL = result.micRecordingURL
+            let systemURL = result.systemRecordingURL
+            let meetingTitle = result.title
+            let startedAt = result.startTime
+            let supportDirectory = AppIdentity.supportDirectoryURL
+            let outputURL = try await Task.detached(priority: .utility) {
+                try MeetingRecordingExporter.exportMergedRecording(
+                    micURL: micURL,
+                    systemURL: systemURL,
+                    meetingTitle: meetingTitle,
+                    startedAt: startedAt,
+                    supportDirectory: supportDirectory
+                )
+            }.value
             return outputURL?.path
         } catch {
             throw MeetingLifecycleError.failedToSaveRecording(underlying: error)
@@ -963,12 +965,21 @@ final class MuesliController: NSObject {
     }
 
     private func cleanupTemporaryMeetingAudioFiles(for result: MeetingSessionResult) {
+        // These removals intentionally no-op when the exporter already consumed
+        // and removed the temp source files during a saved merge.
         if let micRecordingURL = result.micRecordingURL {
             try? FileManager.default.removeItem(at: micRecordingURL)
         }
         if let systemRecordingURL = result.systemRecordingURL {
             try? FileManager.default.removeItem(at: systemRecordingURL)
         }
+    }
+
+    private func clearSavedMeetingRecordingsDirectory() throws {
+        let recordingsDirectory = AppIdentity.supportDirectoryURL
+            .appendingPathComponent("meeting-recordings", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: recordingsDirectory.path) else { return }
+        try FileManager.default.removeItem(at: recordingsDirectory)
     }
 
     private func deleteSavedMeetingRecording(at path: String) throws {

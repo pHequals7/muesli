@@ -40,8 +40,12 @@ enum MeetingRecordingExporter {
             return destinationURL
         }
 
-        let micTrack = try loadPCMTrack(from: micURL!)
-        let systemTrack = try loadPCMTrack(from: systemURL!)
+        guard let micURL, let systemURL else {
+            return nil
+        }
+
+        let micTrack = try loadPCMTrack(from: micURL)
+        let systemTrack = try loadPCMTrack(from: systemURL)
 
         guard micTrack.sampleRate == systemTrack.sampleRate,
               micTrack.channels == systemTrack.channels,
@@ -64,8 +68,8 @@ enum MeetingRecordingExporter {
         }
         try data.write(to: destinationURL, options: .atomic)
 
-        try? FileManager.default.removeItem(at: micURL!)
-        try? FileManager.default.removeItem(at: systemURL!)
+        try? FileManager.default.removeItem(at: micURL)
+        try? FileManager.default.removeItem(at: systemURL)
         return destinationURL
     }
 
@@ -98,6 +102,7 @@ enum MeetingRecordingExporter {
             let micValue = hasMic ? Int(mic[index]) : 0
             let systemValue = hasSystem ? Int(system[index]) : 0
             let contributors = (hasMic ? 1 : 0) + (hasSystem ? 1 : 0)
+            // Average the active inputs to avoid clipping when both tracks peak.
             let averaged = contributors == 0 ? 0 : (micValue + systemValue) / contributors
             output.append(Int16(clamping: averaged))
         }
