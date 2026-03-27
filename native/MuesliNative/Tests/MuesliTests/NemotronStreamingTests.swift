@@ -251,9 +251,9 @@ struct NemotronHoldToTalkPolicyTests {
             #expect(backend.backend != "nemotron",
                     "\(backend.label) should not be blocked from hold-to-talk")
         }
-        // 6 non-nemotron backends: parakeetMultilingual, parakeetEnglish,
-        // whisperSmall, whisperMedium, whisperLargeTurbo, qwen3Asr
-        #expect(allowed.count == 6)
+        // 7 non-nemotron backends: parakeetMultilingual, parakeetEnglish,
+        // whisperSmall, whisperMedium, whisperLargeTurbo, qwen3Asr, canaryQwen
+        #expect(allowed.count == 7)
     }
 
     @MainActor

@@ -50,7 +50,7 @@ struct TranscriptionCoordinatorTests {
     @Test("backend routing covers all known backends")
     func allBackendsCovered() {
         let backends = Set(BackendOption.all.map(\.backend))
-        let expected: Set<String> = ["fluidaudio", "whisper", "qwen", "nemotron"]
+        let expected: Set<String> = ["fluidaudio", "whisper", "qwen", "nemotron", "canary"]
         #expect(backends == expected, "BackendOption.all backends should match expected set")
     }
 }
@@ -87,5 +87,33 @@ struct TranscriptionEngineArtifactsFilterTests {
     func midSentenceNotStripped() {
         let text = "Hello [blank_audio] world"
         #expect(TranscriptionEngineArtifactsFilter.apply(text) == text)
+    }
+
+    @Test("strips leaked canary prompt suffix from transcript")
+    func stripsCanaryPromptSuffix() {
+        let text = """
+        I'm actually now using the canary qwen model for dictation. If a word is unclear, use the most likely word that fits well within the context of the overall sentence transcription.
+        """
+        #expect(
+            TranscriptionEngineArtifactsFilter.apply(text) ==
+                "I'm actually now using the canary qwen model for dictation."
+        )
+    }
+
+    @Test("strips leaked canary prompt prefix from transcript")
+    func stripsCanaryPromptPrefix() {
+        let text = "Transcribe the spoken audio accurately. Testing whether this works or not."
+        #expect(
+            TranscriptionEngineArtifactsFilter.apply(text) ==
+                "Testing whether this works or not."
+        )
+    }
+
+    @Test("removes pure prompt leakage entirely")
+    func removesPurePromptLeakage() {
+        let text = """
+        Transcribe the spoken audio accurately. If a word is unclear, use the most likely word that fits well within the context of the overall sentence transcription.
+        """
+        #expect(TranscriptionEngineArtifactsFilter.apply(text) == "")
     }
 }
