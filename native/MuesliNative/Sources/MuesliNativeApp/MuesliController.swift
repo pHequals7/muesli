@@ -130,16 +130,15 @@ final class MuesliController: NSObject {
             fputs("[muesli-native] startup error: \(error)\n", stderr)
         }
 
-        // Clean up leftover audio temp files from previous sessions
-        let tempAudioDir = FileManager.default.temporaryDirectory.appendingPathComponent("muesli-system-audio")
-        if let files = try? FileManager.default.contentsOfDirectory(at: tempAudioDir, includingPropertiesForKeys: nil) {
-            for file in files {
-                try? FileManager.default.removeItem(at: file)
-            }
-            if !files.isEmpty {
-                fputs("[muesli-native] cleaned up \(files.count) leftover temp audio files\n", stderr)
-            }
-        }
+        // Clean up leftover audio temp files from previous sessions.
+        cleanupTemporaryDirectory(
+            named: "muesli-system-audio",
+            logDescription: "leftover temp audio files"
+        )
+        cleanupTemporaryDirectory(
+            named: "muesli-meeting-recordings",
+            logDescription: "leftover temp meeting recording files"
+        )
 
         hotkeyMonitor.targetKeyCode = config.dictationHotkey.keyCode
         hotkeyMonitor.onPrepare = { [weak self] in self?.handlePrepare() }
@@ -788,7 +787,16 @@ final class MuesliController: NSObject {
             return
         }
 
-        try? clearSavedMeetingRecordingsDirectory()
+        do {
+            try clearSavedMeetingRecordingsDirectory()
+        } catch {
+            presentErrorAlert(
+                title: "Couldn't Clear Meeting History",
+                message: "Saved meeting recordings could not be deleted, so meeting history was left in place. \(error.localizedDescription)"
+            )
+            return
+        }
+
         try? dictationStore.clearMeetings()
         appState.selectedMeetingID = nil
         appState.selectedMeetingRecord = nil
@@ -1010,6 +1018,24 @@ final class MuesliController: NSObject {
         }
         if let systemRecordingURL = result.systemRecordingURL {
             try? FileManager.default.removeItem(at: systemRecordingURL)
+        }
+    }
+
+    private func cleanupTemporaryDirectory(named directoryName: String, logDescription: String) {
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(directoryName)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
+        }
+
+        for file in files {
+            try? FileManager.default.removeItem(at: file)
+        }
+
+        if !files.isEmpty {
+            fputs("[muesli-native] cleaned up \(files.count) \(logDescription)\n", stderr)
         }
     }
 
