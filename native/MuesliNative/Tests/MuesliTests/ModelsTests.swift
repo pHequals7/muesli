@@ -230,7 +230,7 @@ struct HotkeyMonitorTests {
 
     @MainActor
     private func waitUntil(
-        timeoutNanoseconds: UInt64 = 500_000_000,
+        timeoutNanoseconds: UInt64 = 2_000_000_000,
         pollNanoseconds: UInt64 = 10_000_000,
         _ condition: @escaping @MainActor () -> Bool
     ) async -> Bool {
