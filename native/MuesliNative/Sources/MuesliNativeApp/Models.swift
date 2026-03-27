@@ -75,12 +75,21 @@ struct BackendOption: Equatable {
     // Default alias
     static let whisper = parakeetMultilingual
 
-    /// Models available for download and use.
-    static let all: [BackendOption] = [
+    static let parakeetFamily: [BackendOption] = [
         .parakeetMultilingual, .parakeetEnglish,
+    ]
+
+    static let whisperFamily: [BackendOption] = [
         .whisperSmall, .whisperMedium, .whisperLargeTurbo,
+    ]
+
+    static let experimental: [BackendOption] = [
         .qwen3Asr, .canaryQwen, .nemotronStreaming,
     ]
+
+    /// Models available for download and use.
+    static let all: [BackendOption] = parakeetFamily + whisperFamily + experimental
+    
 
     static let qwen3Asr = BackendOption(
         backend: "qwen",

@@ -122,7 +122,7 @@ actor TranscriptionCoordinator {
         case "canary":
             if #available(macOS 15, *) {
                 do {
-                    try await canaryQwenTranscriber.loadModels(progress: progress)
+                    try await canaryQwenTranscriber.prepare(progress: progress)
                 } catch {
                     fputs("[muesli-native] Canary Qwen preload failed: \(error)\n", stderr)
                 }
@@ -287,6 +287,7 @@ actor TranscriptionCoordinator {
             fputs("[muesli-native] transcribing with Canary Qwen: \(url.lastPathComponent)\n", stderr)
             let result = try await canaryQwenTranscriber.transcribe(wavURL: url)
             fputs("[muesli-native] Canary Qwen result: \(result.text.prefix(80)) (took \(String(format: "%.3f", result.processingTime))s)\n", stderr)
+            CanaryProfilingLog.write("[muesli-native] Canary Qwen profile: \(result.profile.logDescription(prefix: "profile"))")
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return SpeechTranscriptionResult(
                 text: text,

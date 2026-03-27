@@ -9,7 +9,8 @@ private enum CanaryQwenConfig {
 
     static let encoderPackage = "encoder_int8.mlpackage"
     static let projectionPackage = "projection.mlpackage"
-    static let decoderPackage = "canary_decoder_stateful_int8.mlpackage"
+    static let prefillPackage = "canary_prefill_static.mlpackage"
+    static let decodePackage = "canary_decode_static.mlpackage"
     static let lmHeadPackage = "canary_lm_head_int8.mlpackage"
     static let embeddingsFile = "canary_embeddings.bin"
     static let vocabFile = "vocab.json"
@@ -23,6 +24,7 @@ private enum CanaryQwenConfig {
     static let encoderFrames = 500
     static let chunkOverlapFrames = 80
     static let maxNewTokens = 50
+    static let staticPrefillLen = 164
 
     static let promptText =
         "Transcribe the spoken audio accurately. If a word is unclear, use the most likely word that fits well within the context of the overall sentence transcription."
@@ -33,20 +35,17 @@ private enum CanaryQwenConfig {
     ]
     static let afterPromptIds: [Int32] = [151645, 198, 151644, 77091, 198]
     static let stopTokenIds: Set<Int> = [151645]
+    static let staticAudioFrames = staticPrefillLen - beforePromptIds.count - afterPromptIds.count
+
+    static let requiredModelPackages: [String] = [
+        encoderPackage,
+        projectionPackage,
+        prefillPackage,
+        decodePackage,
+        lmHeadPackage,
+    ]
 
     static let requiredRelativeFiles: [String] = [
-        "\(encoderPackage)/Manifest.json",
-        "\(encoderPackage)/Data/com.apple.CoreML/model.mlmodel",
-        "\(encoderPackage)/Data/com.apple.CoreML/weights/weight.bin",
-        "\(projectionPackage)/Manifest.json",
-        "\(projectionPackage)/Data/com.apple.CoreML/model.mlmodel",
-        "\(projectionPackage)/Data/com.apple.CoreML/weights/weight.bin",
-        "\(decoderPackage)/Manifest.json",
-        "\(decoderPackage)/Data/com.apple.CoreML/model.mlmodel",
-        "\(decoderPackage)/Data/com.apple.CoreML/weights/weight.bin",
-        "\(lmHeadPackage)/Manifest.json",
-        "\(lmHeadPackage)/Data/com.apple.CoreML/model.mlmodel",
-        "\(lmHeadPackage)/Data/com.apple.CoreML/weights/weight.bin",
         embeddingsFile,
         vocabFile,
         melFilterFile,
@@ -58,6 +57,37 @@ private enum CanaryQwenConfig {
             .appendingPathComponent(".cache/muesli/models", isDirectory: true)
             .appendingPathComponent("canary-qwen-2.5b-coreml-int8", isDirectory: true)
     }
+
+    static var profilingLogURL: URL {
+        AppIdentity.supportDirectoryURL.appendingPathComponent("canary-profiling.log")
+    }
+}
+
+enum CanaryProfilingLog {
+    private static let fileURL = CanaryQwenConfig.profilingLogURL
+
+    static func write(_ message: String) {
+        fputs("\(message)\n", stderr)
+        appendToFile(message + "\n")
+    }
+
+    private static func appendToFile(_ line: String) {
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                try Data().write(to: fileURL)
+            }
+            let handle = try FileHandle(forWritingTo: fileURL)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            if let data = line.data(using: .utf8) {
+                try handle.write(contentsOf: data)
+            }
+        } catch {
+            fputs("[canary-qwen][profile-log-error] \(error)\n", stderr)
+        }
+    }
 }
 
 private struct CanaryChunkSpan {
@@ -65,6 +95,56 @@ private struct CanaryChunkSpan {
     let startFrame: Int
     let endFrame: Int
     let durationS: Double
+}
+
+struct CanaryProfilingSummary: Sendable {
+    var audioDurationS: Double
+    var resampleMs: Double = 0
+    var melMs: Double = 0
+    var chunkScheduleMs: Double = 0
+    var mergeMs: Double = 0
+    var encoderMs: Double = 0
+    var projectionMs: Double = 0
+    var decoderPrefillMs: Double = 0
+    var lmHeadPrefillMs: Double = 0
+    var decoderDecodeMs: Double = 0
+    var lmHeadDecodeMs: Double = 0
+    var chunkCount: Int = 0
+    var generatedTokenCount: Int = 0
+    var transcriptCharacterCount: Int = 0
+    var totalProcessingMs: Double = 0
+
+    var prefillMs: Double {
+        decoderPrefillMs + lmHeadPrefillMs
+    }
+
+    var decodeMs: Double {
+        decoderDecodeMs + lmHeadDecodeMs
+    }
+
+    var inferenceMs: Double {
+        melMs + chunkScheduleMs + mergeMs + encoderMs + projectionMs + prefillMs + decodeMs
+    }
+
+    var speedX: Double {
+        guard totalProcessingMs > 0 else { return 0 }
+        return audioDurationS / (totalProcessingMs / 1000.0)
+    }
+
+    func logDescription(prefix: String = "[canary-qwen]") -> String {
+        "\(prefix) total=\(String(format: "%.3f", totalProcessingMs / 1000.0))s " +
+            "audio=\(String(format: "%.3f", audioDurationS))s " +
+            "speed=\(String(format: "%.2f", speedX))x " +
+            "chunks=\(chunkCount) tokens=\(generatedTokenCount) chars=\(transcriptCharacterCount) " +
+            "resample=\(String(format: "%.0f", resampleMs))ms " +
+            "mel=\(String(format: "%.0f", melMs))ms " +
+            "schedule=\(String(format: "%.0f", chunkScheduleMs))ms " +
+            "encoder=\(String(format: "%.0f", encoderMs))ms " +
+            "projection=\(String(format: "%.0f", projectionMs))ms " +
+            "prefill=\(String(format: "%.0f", prefillMs))ms " +
+            "decode=\(String(format: "%.0f", decodeMs))ms " +
+            "merge=\(String(format: "%.0f", mergeMs))ms"
+    }
 }
 
 private struct CanaryTimingBreakdown {
@@ -105,18 +185,26 @@ private final class CanaryEmbeddingWeights: @unchecked Sendable {
     }
 
     func embedding(for tokenId: Int) -> [Float] {
-        guard tokenId >= 0, tokenId < vocabSize else {
-            return [Float](repeating: 0, count: hiddenSize)
-        }
-        let offset = 8 + tokenId * hiddenSize * 2
         var result = [Float](repeating: 0, count: hiddenSize)
+        result.withUnsafeMutableBufferPointer { destination in
+            copyEmbedding(for: tokenId, to: destination.baseAddress!)
+        }
+        return result
+    }
+
+    func copyEmbedding(for tokenId: Int, to destination: UnsafeMutablePointer<Float>) {
+        guard tokenId >= 0, tokenId < vocabSize else {
+            destination.initialize(repeating: 0, count: hiddenSize)
+            return
+        }
+
+        let offset = 8 + tokenId * hiddenSize * 2
         data.withUnsafeBytes { raw in
             let ptr = raw.baseAddress!.advanced(by: offset).assumingMemoryBound(to: Float16.self)
             for i in 0..<hiddenSize {
-                result[i] = Float(ptr[i])
+                destination[i] = Float(ptr[i])
             }
         }
-        return result
     }
 
     func flatEmbeddings(for tokenIds: [Int32]) -> [Float] {
@@ -229,7 +317,8 @@ private struct CanaryQwenRoPE: Sendable {
 private struct CanaryQwenModels {
     let encoder: MLModel
     let projection: MLModel
-    let decoder: MLModel
+    let prefillDecoder: MLModel
+    let decodeDecoder: MLModel
     let lmHead: MLModel
     let embeddings: CanaryEmbeddingWeights
     let vocabulary: [Int: String]
@@ -240,7 +329,8 @@ private struct CanaryQwenModels {
         config.computeUnits = computeUnits
         let encoder = try await loadModel(packageName: CanaryQwenConfig.encoderPackage, from: directory, configuration: config)
         let projection = try await loadModel(packageName: CanaryQwenConfig.projectionPackage, from: directory, configuration: config)
-        let decoder = try await loadModel(packageName: CanaryQwenConfig.decoderPackage, from: directory, configuration: config)
+        let prefillDecoder = try await loadModel(packageName: CanaryQwenConfig.prefillPackage, from: directory, configuration: config)
+        let decodeDecoder = try await loadModel(packageName: CanaryQwenConfig.decodePackage, from: directory, configuration: config)
         let lmHead = try await loadModel(packageName: CanaryQwenConfig.lmHeadPackage, from: directory, configuration: config)
 
         let embeddings = try CanaryEmbeddingWeights(contentsOf: directory.appendingPathComponent(CanaryQwenConfig.embeddingsFile))
@@ -253,7 +343,8 @@ private struct CanaryQwenModels {
         return CanaryQwenModels(
             encoder: encoder,
             projection: projection,
-            decoder: decoder,
+            prefillDecoder: prefillDecoder,
+            decodeDecoder: decodeDecoder,
             lmHead: lmHead,
             embeddings: embeddings,
             vocabulary: vocabulary,
@@ -321,6 +412,16 @@ enum CanaryQwenModelStore {
 
     static func modelsExist(at directory: URL) -> Bool {
         let fm = FileManager.default
+        let modelsPresent = CanaryQwenConfig.requiredModelPackages.allSatisfy { packageName in
+            let packageURL = directory.appendingPathComponent(packageName, isDirectory: true)
+            let compiledURL = directory.appendingPathComponent(
+                packageName.replacingOccurrences(of: ".mlpackage", with: ".mlmodelc"),
+                isDirectory: true
+            )
+            let compiledData = compiledURL.appendingPathComponent("coremldata.bin")
+            return fm.fileExists(atPath: packageURL.path) || fm.fileExists(atPath: compiledData.path)
+        }
+        guard modelsPresent else { return false }
         return CanaryQwenConfig.requiredRelativeFiles.allSatisfy { relativePath in
             fm.fileExists(atPath: directory.appendingPathComponent(relativePath).path)
         }
@@ -349,8 +450,27 @@ enum CanaryQwenModelStore {
 
     private static func downloadMissingFiles(to directory: URL, progress: ((Double, String?) -> Void)?) async throws {
         let fm = FileManager.default
-        let required = CanaryQwenConfig.requiredRelativeFiles
-        let missing = required.filter { !fm.fileExists(atPath: directory.appendingPathComponent($0).path) }
+        let modelPackageFiles = CanaryQwenConfig.requiredModelPackages.flatMap { packageName in
+            [
+                "\(packageName)/Manifest.json",
+                "\(packageName)/Data/com.apple.CoreML/model.mlmodel",
+                "\(packageName)/Data/com.apple.CoreML/weights/weight.bin",
+            ]
+        }
+        let required = modelPackageFiles + CanaryQwenConfig.requiredRelativeFiles
+        let missing = required.filter { relativePath in
+            if let packageName = CanaryQwenConfig.requiredModelPackages.first(where: { relativePath.hasPrefix("\($0)/") }) {
+                let compiledURL = directory.appendingPathComponent(
+                    packageName.replacingOccurrences(of: ".mlpackage", with: ".mlmodelc"),
+                    isDirectory: true
+                )
+                let compiledData = compiledURL.appendingPathComponent("coremldata.bin")
+                if fm.fileExists(atPath: compiledData.path) {
+                    return false
+                }
+            }
+            return !fm.fileExists(atPath: directory.appendingPathComponent(relativePath).path)
+        }
         let total = max(missing.count, 1)
         for (index, relativePath) in missing.enumerated() {
             progress?(Double(index) / Double(total), "Downloading Canary Qwen...")
@@ -373,56 +493,78 @@ enum CanaryQwenModelStore {
 @available(macOS 15, *)
 private final class CanaryQwenManager {
     private let models: CanaryQwenModels
-    private let rope = CanaryQwenRoPE()
     private let beforePromptEmbeds: [Float]
     private let afterPromptEmbeds: [Float]
-    private let prefillCausalMask: MLMultiArray
-    private let decodeMasks: [Int: MLMultiArray]
+    private let decodeUpdateMasks: [Int: MLMultiArray]
+    private let decodeValidMasks: [Int: MLMultiArray]
 
     init(models: CanaryQwenModels) throws {
         self.models = models
         self.beforePromptEmbeds = models.embeddings.flatEmbeddings(for: CanaryQwenConfig.beforePromptIds)
         self.afterPromptEmbeds = models.embeddings.flatEmbeddings(for: CanaryQwenConfig.afterPromptIds)
-        self.prefillCausalMask = try Self.createPrefillMask(seqLen: CanaryQwenConfig.maxCacheLen)
-        var masks: [Int: MLMultiArray] = [:]
-        for endStep in 1...CanaryQwenConfig.maxCacheLen {
-            masks[endStep] = try Self.createDecodeMask(endStep: endStep)
+        var updateMasks: [Int: MLMultiArray] = [:]
+        var validMasks: [Int: MLMultiArray] = [:]
+        for position in 0..<CanaryQwenConfig.maxCacheLen {
+            updateMasks[position] = try Self.createDecodeUpdateMask(position: position)
+            validMasks[position] = try Self.createDecodeValidMask(lastValidPosition: position)
         }
-        self.decodeMasks = masks
+        self.decodeUpdateMasks = updateMasks
+        self.decodeValidMasks = validMasks
     }
 
-    func transcribe(audioSamples: [Float]) async throws -> String {
+    func transcribe(audioSamples: [Float]) async throws -> (text: String, profile: CanaryProfilingSummary) {
         let start = CFAbsoluteTimeGetCurrent()
+        let duration = Double(audioSamples.count) / 16_000.0
+        var profile = CanaryProfilingSummary(audioDurationS: duration)
+
+        let melStart = CFAbsoluteTimeGetCurrent()
         let mel = models.melExtractor.compute(audio: audioSamples)
+        profile.melMs = (CFAbsoluteTimeGetCurrent() - melStart) * 1000
+
+        let scheduleStart = CFAbsoluteTimeGetCurrent()
         let chunks = scheduleChunks(mel: mel)
+        profile.chunkScheduleMs = (CFAbsoluteTimeGetCurrent() - scheduleStart) * 1000
+        profile.chunkCount = chunks.count
+
         var transcripts: [String] = []
         var aggregate = CanaryTimingBreakdown()
+        var generatedTokenCount = 0
 
         for chunk in chunks {
             let result = try transcribeChunk(span: chunk.0, melChunk: chunk.1)
             if !result.transcript.isEmpty {
                 transcripts.append(result.transcript)
             }
+            generatedTokenCount += result.generatedTokenCount
             aggregate.encoderMs += result.timing.encoderMs
             aggregate.projectionMs += result.timing.projectionMs
             aggregate.decoderPrefillMs += result.timing.decoderPrefillMs
             aggregate.lmHeadPrefillMs += result.timing.lmHeadPrefillMs
             aggregate.decoderDecodeMs += result.timing.decoderDecodeMs
             aggregate.lmHeadDecodeMs += result.timing.lmHeadDecodeMs
+            CanaryProfilingLog.write(
+                "[canary-qwen][chunk \(chunk.0.index)] frames=\(chunk.0.startFrame)-\(chunk.0.endFrame) duration=\(String(format: "%.2f", chunk.0.durationS))s tokens=\(result.generatedTokenCount) encoder=\(String(format: "%.0f", result.timing.encoderMs))ms projection=\(String(format: "%.0f", result.timing.projectionMs))ms prefill=\(String(format: "%.0f", result.timing.decoderPrefillMs + result.timing.lmHeadPrefillMs))ms decode=\(String(format: "%.0f", result.timing.decoderDecodeMs + result.timing.lmHeadDecodeMs))ms"
+            )
         }
 
+        let mergeStart = CFAbsoluteTimeGetCurrent()
         let merged = mergeChunkTranscripts(transcripts)
+        profile.mergeMs = (CFAbsoluteTimeGetCurrent() - mergeStart) * 1000
         let elapsed = CFAbsoluteTimeGetCurrent() - start
-        let duration = Double(audioSamples.count) / 16_000.0
-        let speed = duration > 0 ? (duration / elapsed) : 0
-        fputs(
-            "[canary-qwen] total=\(String(format: "%.3f", elapsed))s speed=\(String(format: "%.2f", speed))x encoder=\(String(format: "%.0f", aggregate.encoderMs))ms projection=\(String(format: "%.0f", aggregate.projectionMs))ms prefill=\(String(format: "%.0f", aggregate.decoderPrefillMs + aggregate.lmHeadPrefillMs))ms decode=\(String(format: "%.0f", aggregate.decoderDecodeMs + aggregate.lmHeadDecodeMs))ms\n",
-            stderr
-        )
-        return merged
+        profile.encoderMs = aggregate.encoderMs
+        profile.projectionMs = aggregate.projectionMs
+        profile.decoderPrefillMs = aggregate.decoderPrefillMs
+        profile.lmHeadPrefillMs = aggregate.lmHeadPrefillMs
+        profile.decoderDecodeMs = aggregate.decoderDecodeMs
+        profile.lmHeadDecodeMs = aggregate.lmHeadDecodeMs
+        profile.generatedTokenCount = generatedTokenCount
+        profile.transcriptCharacterCount = merged.count
+        profile.totalProcessingMs = elapsed * 1000
+        CanaryProfilingLog.write(profile.logDescription())
+        return (merged, profile)
     }
 
-    private func transcribeChunk(span: CanaryChunkSpan, melChunk: [[Float]]) throws -> (transcript: String, timing: CanaryTimingBreakdown) {
+    private func transcribeChunk(span: CanaryChunkSpan, melChunk: [[Float]]) throws -> (transcript: String, timing: CanaryTimingBreakdown, generatedTokenCount: Int) {
         var timing = CanaryTimingBreakdown()
         let melInput = try createEncoderInput(melChunk)
 
@@ -452,24 +594,36 @@ private final class CanaryQwenManager {
 
         let audioFrames = projected.shape[1].intValue
         let maxNewTokens = tokenBudget(for: span.durationS)
-        let (text, genTiming) = try generate(projectedAudioEmbeds: projected, audioFrames: audioFrames, maxNewTokens: maxNewTokens)
+        let (text, genTiming, generatedTokenCount) = try generate(projectedAudioEmbeds: projected, audioFrames: audioFrames, maxNewTokens: maxNewTokens)
         timing.decoderPrefillMs = genTiming.decoderPrefillMs
         timing.lmHeadPrefillMs = genTiming.lmHeadPrefillMs
         timing.decoderDecodeMs = genTiming.decoderDecodeMs
         timing.lmHeadDecodeMs = genTiming.lmHeadDecodeMs
-        return (text, timing)
+        return (text, timing, generatedTokenCount)
     }
 
-    private func generate(projectedAudioEmbeds: MLMultiArray, audioFrames: Int, maxNewTokens: Int) throws -> (String, CanaryTimingBreakdown) {
+    private func generate(projectedAudioEmbeds: MLMultiArray, audioFrames: Int, maxNewTokens: Int) throws -> (String, CanaryTimingBreakdown, Int) {
         var timing = CanaryTimingBreakdown()
 
         let beforeCount = CanaryQwenConfig.beforePromptIds.count
         let afterCount = CanaryQwenConfig.afterPromptIds.count
-        let totalSeq = beforeCount + audioFrames + afterCount
+        let staticAudioFrames = CanaryQwenConfig.staticAudioFrames
+        let totalSeq = CanaryQwenConfig.staticPrefillLen
+        guard audioFrames <= staticAudioFrames else {
+            throw NSError(domain: "CanaryQwen", code: 20, userInfo: [
+                NSLocalizedDescriptionKey: "Projected audio frames \(audioFrames) exceed static prefill budget \(staticAudioFrames)",
+            ])
+        }
+        guard totalSeq <= CanaryQwenConfig.maxCacheLen else {
+            throw NSError(domain: "CanaryQwen", code: 21, userInfo: [
+                NSLocalizedDescriptionKey: "Static prefill length \(totalSeq) exceeds cache limit \(CanaryQwenConfig.maxCacheLen)",
+            ])
+        }
         let hiddenSize = CanaryQwenConfig.hiddenSize
 
         let hiddenArray = try MLMultiArray(shape: [1, NSNumber(value: totalSeq), NSNumber(value: hiddenSize)], dataType: .float32)
         let hiddenPtr = hiddenArray.dataPointer.bindMemory(to: Float.self, capacity: totalSeq * hiddenSize)
+        hiddenPtr.initialize(repeating: 0, count: totalSeq * hiddenSize)
 
         beforePromptEmbeds.withUnsafeBufferPointer { src in
             _ = memcpy(hiddenPtr, src.baseAddress!, beforePromptEmbeds.count * MemoryLayout<Float>.stride)
@@ -477,30 +631,22 @@ private final class CanaryQwenManager {
         copyProjectedAudioEmbeds(projectedAudioEmbeds, to: hiddenPtr.advanced(by: beforePromptEmbeds.count))
         afterPromptEmbeds.withUnsafeBufferPointer { src in
             _ = memcpy(
-                hiddenPtr.advanced(by: beforePromptEmbeds.count + (audioFrames * hiddenSize)),
+                hiddenPtr.advanced(by: beforePromptEmbeds.count + (staticAudioFrames * hiddenSize)),
                 src.baseAddress!,
                 afterPromptEmbeds.count * MemoryLayout<Float>.stride
             )
         }
 
-        let (prefillCosVals, prefillSinVals) = rope.computeRange(startPosition: 0, count: totalSeq)
-        let prefillCos = try createPositionArray(values: prefillCosVals, seqLen: totalSeq)
-        let prefillSin = try createPositionArray(values: prefillSinVals, seqLen: totalSeq)
-        let prefillMask = try slicePrefillMask(seqLen: totalSeq)
-
-        let state = models.decoder.makeState()
-        let decoderInput = try MLDictionaryFeatureProvider(dictionary: [
+        let state = models.prefillDecoder.makeState()
+        let prefillInput = try MLDictionaryFeatureProvider(dictionary: [
             "hidden_states": MLFeatureValue(multiArray: hiddenArray),
-            "position_cos": MLFeatureValue(multiArray: prefillCos),
-            "position_sin": MLFeatureValue(multiArray: prefillSin),
-            "attention_mask": MLFeatureValue(multiArray: prefillMask),
         ])
 
         let prefillStart = CFAbsoluteTimeGetCurrent()
-        let decoderOutput = try models.decoder.prediction(from: decoderInput, using: state)
+        let decoderOutput = try models.prefillDecoder.prediction(from: prefillInput, using: state)
         guard let prefillHidden = decoderOutput.featureValue(for: "output_hidden")?.multiArrayValue else {
             throw NSError(domain: "CanaryQwen", code: 16, userInfo: [
-                NSLocalizedDescriptionKey: "Missing output_hidden from Canary decoder",
+                NSLocalizedDescriptionKey: "Missing output_hidden from Canary prefill decoder",
             ])
         }
         timing.decoderPrefillMs = (CFAbsoluteTimeGetCurrent() - prefillStart) * 1000
@@ -524,36 +670,31 @@ private final class CanaryQwenManager {
 
         let decodeHidden = try MLMultiArray(shape: [1, 1, NSNumber(value: hiddenSize)], dataType: .float32)
         let decodeHiddenPtr = decodeHidden.dataPointer.bindMemory(to: Float.self, capacity: hiddenSize)
-        let decodeCos = try MLMultiArray(shape: [1, 1, NSNumber(value: CanaryQwenConfig.headDim)], dataType: .float32)
-        let decodeSin = try MLMultiArray(shape: [1, 1, NSNumber(value: CanaryQwenConfig.headDim)], dataType: .float32)
-        let decodeCosPtr = decodeCos.dataPointer.bindMemory(to: Float.self, capacity: CanaryQwenConfig.headDim)
-        let decodeSinPtr = decodeSin.dataPointer.bindMemory(to: Float.self, capacity: CanaryQwenConfig.headDim)
 
         for _ in 0..<maxNewTokens {
             if CanaryQwenConfig.stopTokenIds.contains(nextToken) { break }
             generatedIds.append(nextToken)
 
-            let nextEmbedding = models.embeddings.embedding(for: nextToken)
-            nextEmbedding.withUnsafeBufferPointer { src in
-                _ = memcpy(decodeHiddenPtr, src.baseAddress!, hiddenSize * MemoryLayout<Float>.stride)
-            }
-            rope.fill(position: currentPosition, cosPtr: decodeCosPtr, sinPtr: decodeSinPtr)
-            guard let decodeMask = decodeMasks[currentPosition + 1] else {
+            guard currentPosition < CanaryQwenConfig.maxCacheLen else { break }
+            models.embeddings.copyEmbedding(for: nextToken, to: decodeHiddenPtr)
+            guard
+                let decodeUpdateMask = decodeUpdateMasks[currentPosition],
+                let decodeValidMask = decodeValidMasks[currentPosition]
+            else {
                 break
             }
 
             let decodeInput = try MLDictionaryFeatureProvider(dictionary: [
                 "hidden_states": MLFeatureValue(multiArray: decodeHidden),
-                "position_cos": MLFeatureValue(multiArray: decodeCos),
-                "position_sin": MLFeatureValue(multiArray: decodeSin),
-                "attention_mask": MLFeatureValue(multiArray: decodeMask),
+                "cache_update_mask": MLFeatureValue(multiArray: decodeUpdateMask),
+                "cache_valid_mask": MLFeatureValue(multiArray: decodeValidMask),
             ])
 
             let decodeStart = CFAbsoluteTimeGetCurrent()
-            let decodeOutput = try models.decoder.prediction(from: decodeInput, using: state)
+            let decodeOutput = try models.decodeDecoder.prediction(from: decodeInput, using: state)
             guard let decodeHiddenOut = decodeOutput.featureValue(for: "output_hidden")?.multiArrayValue else {
                 throw NSError(domain: "CanaryQwen", code: 18, userInfo: [
-                    NSLocalizedDescriptionKey: "Missing decode output_hidden from Canary decoder",
+                    NSLocalizedDescriptionKey: "Missing decode output_hidden from Canary decode model",
                 ])
             }
             timing.decoderDecodeMs += (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000
@@ -574,7 +715,7 @@ private final class CanaryQwenManager {
             currentPosition += 1
         }
 
-        return (decodeTokens(generatedIds), timing)
+        return (decodeTokens(generatedIds), timing, generatedIds.count)
     }
 
     private func tokenBudget(for chunkSeconds: Double) -> Int {
@@ -687,6 +828,13 @@ private final class CanaryQwenManager {
     }()
 
     private func argmax(logits: MLMultiArray) -> Int {
+        if let ptr = contiguousFloatPointer(for: logits) {
+            var maxValue: Float = -.infinity
+            var maxIndex: vDSP_Length = 0
+            vDSP_maxvi(ptr, 1, &maxValue, &maxIndex, vDSP_Length(logits.count))
+            return Int(maxIndex)
+        }
+
         let count = logits.count
         var maxValue = -Float.infinity
         var maxIndex = 0
@@ -701,6 +849,11 @@ private final class CanaryQwenManager {
     }
 
     private func copyProjectedAudioEmbeds(_ source: MLMultiArray, to destination: UnsafeMutablePointer<Float>) {
+        if let src = contiguousFloatPointer(for: source) {
+            _ = memcpy(destination, src, source.count * MemoryLayout<Float>.stride)
+            return
+        }
+
         let count = source.count
         for idx in 0..<count {
             destination[idx] = source[idx].floatValue
@@ -714,48 +867,32 @@ private final class CanaryQwenManager {
         ptr.initialize(repeating: 0, count: 128 * paddedFrames)
         for melBin in 0..<128 {
             let row = melChunk[melBin]
-            for t in 0..<min(row.count, paddedFrames) {
-                ptr[(melBin * paddedFrames) + t] = row[t]
+            let count = min(row.count, paddedFrames)
+            row.withUnsafeBufferPointer { src in
+                _ = memcpy(
+                    ptr.advanced(by: melBin * paddedFrames),
+                    src.baseAddress!,
+                    count * MemoryLayout<Float>.stride
+                )
             }
         }
         return array
     }
 
-    private func createPositionArray(values: [Float], seqLen: Int) throws -> MLMultiArray {
-        let array = try MLMultiArray(shape: [1, NSNumber(value: seqLen), NSNumber(value: CanaryQwenConfig.headDim)], dataType: .float32)
-        let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: values.count)
-        values.withUnsafeBufferPointer { src in
-            _ = memcpy(ptr, src.baseAddress!, values.count * MemoryLayout<Float>.stride)
-        }
+    private static func createDecodeUpdateMask(position: Int) throws -> MLMultiArray {
+        let array = try MLMultiArray(shape: [1, NSNumber(value: CanaryQwenConfig.maxCacheLen)], dataType: .float32)
+        let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: CanaryQwenConfig.maxCacheLen)
+        ptr.initialize(repeating: 0, count: CanaryQwenConfig.maxCacheLen)
+        ptr[position] = 1
         return array
     }
 
-    private static func createPrefillMask(seqLen: Int) throws -> MLMultiArray {
-        let array = try MLMultiArray(shape: [1, 1, NSNumber(value: seqLen), NSNumber(value: seqLen)], dataType: .float32)
-        let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: seqLen * seqLen)
-        for i in 0..<seqLen {
-            for j in 0..<seqLen {
-                ptr[(i * seqLen) + j] = j > i ? Float(-1e9) : 0.0
-            }
-        }
-        return array
-    }
-
-    private static func createDecodeMask(endStep: Int) throws -> MLMultiArray {
-        let array = try MLMultiArray(shape: [1, 1, 1, NSNumber(value: endStep)], dataType: .float32)
-        let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: endStep)
-        ptr.initialize(repeating: 0, count: endStep)
-        return array
-    }
-
-    private func slicePrefillMask(seqLen: Int) throws -> MLMultiArray {
-        let array = try MLMultiArray(shape: [1, 1, NSNumber(value: seqLen), NSNumber(value: seqLen)], dataType: .float32)
-        let src = prefillCausalMask.dataPointer.bindMemory(to: Float.self, capacity: CanaryQwenConfig.maxCacheLen * CanaryQwenConfig.maxCacheLen)
-        let dst = array.dataPointer.bindMemory(to: Float.self, capacity: seqLen * seqLen)
-        for i in 0..<seqLen {
-            for j in 0..<seqLen {
-                dst[(i * seqLen) + j] = src[(i * CanaryQwenConfig.maxCacheLen) + j]
-            }
+    private static func createDecodeValidMask(lastValidPosition: Int) throws -> MLMultiArray {
+        let array = try MLMultiArray(shape: [1, NSNumber(value: CanaryQwenConfig.maxCacheLen)], dataType: .float32)
+        let ptr = array.dataPointer.bindMemory(to: Float.self, capacity: CanaryQwenConfig.maxCacheLen)
+        ptr.initialize(repeating: 0, count: CanaryQwenConfig.maxCacheLen)
+        for index in 0...lastValidPosition {
+            ptr[index] = 1
         }
         return array
     }
@@ -764,10 +901,43 @@ private final class CanaryQwenManager {
         let array = try MLMultiArray(shape: [1, 1, NSNumber(value: CanaryQwenConfig.hiddenSize)], dataType: .float32)
         let dst = array.dataPointer.bindMemory(to: Float.self, capacity: CanaryQwenConfig.hiddenSize)
         let offset = (seqLen - 1) * CanaryQwenConfig.hiddenSize
+        if let src = contiguousFloatPointer(for: hidden) {
+            _ = memcpy(
+                dst,
+                src.advanced(by: offset),
+                CanaryQwenConfig.hiddenSize * MemoryLayout<Float>.stride
+            )
+            return array
+        }
+
         for i in 0..<CanaryQwenConfig.hiddenSize {
             dst[i] = hidden[offset + i].floatValue
         }
         return array
+    }
+
+    private func contiguousFloatPointer(for array: MLMultiArray) -> UnsafePointer<Float>? {
+        guard array.dataType == .float32, Self.isCContiguous(array) else {
+            return nil
+        }
+        return UnsafePointer(array.dataPointer.bindMemory(to: Float.self, capacity: array.count))
+    }
+
+    private static func isCContiguous(_ array: MLMultiArray) -> Bool {
+        let shape = array.shape.map(\.intValue)
+        let strides = array.strides.map(\.intValue)
+        guard shape.count == strides.count else { return false }
+
+        var expectedStride = 1
+        for index in shape.indices.reversed() {
+            let dimension = shape[index]
+            let stride = strides[index]
+            if dimension > 1 && stride != expectedStride {
+                return false
+            }
+            expectedStride *= max(dimension, 1)
+        }
+        return true
     }
 }
 
@@ -776,6 +946,9 @@ private final class CanaryQwenManager {
 @available(macOS 15, *)
 actor CanaryQwenTranscriber {
     private var manager: CanaryQwenManager?
+    private var loadTask: Task<CanaryQwenManager, Error>?
+    private var warmupTask: Task<Void, Never>?
+    private var hasCompletedWarmup = false
 
     enum TranscriberError: Error, LocalizedError {
         case notLoaded
@@ -790,28 +963,87 @@ actor CanaryQwenTranscriber {
 
     func loadModels(progress: ((Double, String?) -> Void)? = nil) async throws {
         if manager != nil { return }
-        fputs("[canary-qwen] downloading/loading models...\n", stderr)
-        let modelDir = try await CanaryQwenModelStore.resolvedDirectory(progress: progress)
-        let models = try await CanaryQwenModels.load(from: modelDir)
-        let manager = try CanaryQwenManager(models: models)
-        self.manager = manager
-        fputs("[canary-qwen] models loaded, running warmup inference...\n", stderr)
-        let warmupSamples = [Float](repeating: 0, count: 16_000)
-        _ = try? await manager.transcribe(audioSamples: warmupSamples)
-        fputs("[canary-qwen] warmup complete, ready\n", stderr)
+        if let loadTask {
+            self.manager = try await loadTask.value
+            return
+        }
+
+        let task = Task<CanaryQwenManager, Error> {
+            CanaryProfilingLog.write("[canary-qwen] downloading/loading models...")
+            let modelDir = try await CanaryQwenModelStore.resolvedDirectory(progress: progress)
+            let models = try await CanaryQwenModels.load(from: modelDir)
+            let loadedManager = try CanaryQwenManager(models: models)
+            CanaryProfilingLog.write("[canary-qwen] models loaded, ready")
+            return loadedManager
+        }
+
+        self.loadTask = task
+        do {
+            let loadedManager = try await task.value
+            self.manager = loadedManager
+            self.loadTask = nil
+        } catch {
+            self.loadTask = nil
+            throw error
+        }
     }
 
-    func transcribe(wavURL: URL) async throws -> (text: String, processingTime: Double) {
+    func prepare(progress: ((Double, String?) -> Void)? = nil) async throws {
+        try await loadModels(progress: progress)
+        scheduleWarmupIfNeeded()
+    }
+
+    func transcribe(wavURL: URL) async throws -> (text: String, processingTime: Double, profile: CanaryProfilingSummary) {
+        try await loadModels()
+        if let warmupTask {
+            CanaryProfilingLog.write("[canary-qwen] waiting for background warmup to finish before dictation...")
+            await warmupTask.value
+        }
         guard let manager else { throw TranscriberError.notLoaded }
         let start = CFAbsoluteTimeGetCurrent()
         let converter = AudioConverter()
+        let resampleStart = CFAbsoluteTimeGetCurrent()
         let samples = try converter.resampleAudioFile(wavURL)
-        let text = try await manager.transcribe(audioSamples: samples)
+        let resampleMs = (CFAbsoluteTimeGetCurrent() - resampleStart) * 1000
+        let inference = try await manager.transcribe(audioSamples: samples)
         let processingTime = CFAbsoluteTimeGetCurrent() - start
-        return (text, processingTime)
+        var profile = inference.profile
+        profile.resampleMs = resampleMs
+        profile.totalProcessingMs = processingTime * 1000
+        CanaryProfilingLog.write(profile.logDescription(prefix: "[canary-qwen][dictation]"))
+        return (inference.text, processingTime, profile)
     }
 
     func shutdown() {
         manager = nil
+        warmupTask?.cancel()
+        warmupTask = nil
+        hasCompletedWarmup = false
+    }
+
+    private func scheduleWarmupIfNeeded() {
+        guard !hasCompletedWarmup, warmupTask == nil, manager != nil else { return }
+        warmupTask = Task { await self.runWarmup() }
+    }
+
+    private func runWarmup() async {
+        guard let manager else {
+            warmupTask = nil
+            return
+        }
+
+        CanaryProfilingLog.write("[canary-qwen] background warmup started")
+        let warmupSamples = [Float](repeating: 0, count: 16_000)
+        do {
+            let result = try await manager.transcribe(audioSamples: warmupSamples)
+            hasCompletedWarmup = true
+            CanaryProfilingLog.write(
+                result.profile.logDescription(prefix: "[canary-qwen][warmup]")
+            )
+            CanaryProfilingLog.write("[canary-qwen] background warmup complete")
+        } catch {
+            CanaryProfilingLog.write("[canary-qwen] background warmup failed: \(error)")
+        }
+        warmupTask = nil
     }
 }

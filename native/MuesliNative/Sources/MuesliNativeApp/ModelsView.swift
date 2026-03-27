@@ -9,6 +9,19 @@ struct ModelsView: View {
     @State private var downloadProgress: [String: Double] = [:]
     @State private var downloadedModels: Set<String> = []
     @State private var modelToDelete: BackendOption?
+    @State private var selectedParakeetModel: String
+    @State private var selectedWhisperModel: String
+    @State private var showExperimental: Bool
+
+    init(appState: AppState, controller: MuesliController) {
+        self.appState = appState
+        self.controller = controller
+
+        let active = appState.selectedBackend
+        _selectedParakeetModel = State(initialValue: BackendOption.parakeetFamily.contains(active) ? active.model : BackendOption.parakeetMultilingual.model)
+        _selectedWhisperModel = State(initialValue: BackendOption.whisperFamily.contains(active) ? active.model : BackendOption.whisperSmall.model)
+        _showExperimental = State(initialValue: false)
+    }
 
     var body: some View {
         ScrollView {
@@ -21,11 +34,23 @@ struct ModelsView: View {
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
 
-                VStack(spacing: MuesliTheme.spacing12) {
-                    ForEach(BackendOption.all, id: \.model) { option in
-                        modelCard(option: option)
-                    }
-                }
+                familyCard(
+                    title: "Parakeet Family",
+                    subtitle: "NVIDIA speech models for fast everyday dictation.",
+                    defaultBadge: "Default: v3",
+                    selection: $selectedParakeetModel,
+                    options: BackendOption.parakeetFamily
+                )
+
+                familyCard(
+                    title: "Whisper",
+                    subtitle: "OpenAI Whisper variants for users who prefer the classic CPU/GPU path.",
+                    defaultBadge: "Default: Small",
+                    selection: $selectedWhisperModel,
+                    options: BackendOption.whisperFamily
+                )
+
+                experimentalSection
 
                 if !BackendOption.comingSoon.isEmpty {
                     VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
@@ -48,7 +73,13 @@ struct ModelsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(MuesliTheme.backgroundBase)
-        .onAppear { checkDownloadedModels() }
+        .onAppear {
+            checkDownloadedModels()
+            syncSelectionsFromActiveBackend()
+        }
+        .onChange(of: appState.selectedBackend.model) { _, _ in
+            syncSelectionsFromActiveBackend()
+        }
         .alert(
             "Delete \"\(modelToDelete?.label ?? "")\"?",
             isPresented: Binding(
@@ -66,6 +97,209 @@ struct ModelsView: View {
             }
         } message: {
             Text("The downloaded model files will be removed from this Mac. You can download the model again later.")
+        }
+    }
+
+    private var experimentalSection: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            Button {
+                showExperimental.toggle()
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: MuesliTheme.spacing12) {
+                    VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: showExperimental ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(MuesliTheme.textTertiary)
+
+                            Text("Experimental")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(MuesliTheme.textSecondary)
+                        }
+
+                        Text("Qwen and streaming backends. Hidden by default because these are still slower and less polished.")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(MuesliTheme.textPrimary)
+                            .opacity(0.8)
+                    }
+
+                    Spacer()
+
+                    Text("IYKYK")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(MuesliTheme.surfacePrimary)
+                        .clipShape(Capsule())
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showExperimental {
+                VStack(spacing: MuesliTheme.spacing12) {
+                    ForEach(BackendOption.experimental, id: \.model) { option in
+                        modelCard(option: option)
+                    }
+                }
+            }
+        }
+        .padding(MuesliTheme.spacing16)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private func familyCard(
+        title: String,
+        subtitle: String,
+        defaultBadge: String,
+        selection: Binding<String>,
+        options: [BackendOption]
+    ) -> some View {
+        let selectedOption = options.first(where: { $0.model == selection.wrappedValue }) ?? options[0]
+        let isActive = appState.selectedBackend == selectedOption
+        let isDownloaded = downloadedModels.contains(selectedOption.model)
+        let isDownloading = downloadingModels.contains(selectedOption.model)
+        let progress = downloadProgress[selectedOption.model] ?? 0
+
+        return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
+                VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+                    HStack(spacing: MuesliTheme.spacing8) {
+                        Text(title)
+                            .font(MuesliTheme.headline())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+
+                        Text(defaultBadge)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(MuesliTheme.accent)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(MuesliTheme.accentSubtle)
+                            .clipShape(Capsule())
+                    }
+
+                    Text(subtitle)
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                }
+
+                Spacer()
+
+                familyStatusBadge(isActive: isActive, isDownloaded: isDownloaded)
+            }
+
+            HStack(alignment: .center, spacing: MuesliTheme.spacing12) {
+                Text("Variant")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(width: 52, alignment: .leading)
+
+                Picker("", selection: selection) {
+                    ForEach(options, id: \.model) { option in
+                        Text(option.label).tag(option.model)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 220, alignment: .leading)
+
+                Text(selectedOption.sizeLabel)
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            }
+
+            Text(selectedOption.description)
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            if isDownloading {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: progress)
+                        .tint(MuesliTheme.accent)
+                    Text("\(Int(progress * 100))% downloading...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+            }
+
+            actionButtons(for: selectedOption, isActive: isActive, isDownloaded: isDownloaded, isDownloading: isDownloading)
+        }
+        .padding(MuesliTheme.spacing16)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(isActive ? MuesliTheme.accent.opacity(0.5) : MuesliTheme.surfaceBorder, lineWidth: isActive ? 1.5 : 1)
+        )
+    }
+
+    @ViewBuilder
+    private func familyStatusBadge(isActive: Bool, isDownloaded: Bool) -> some View {
+        if isActive {
+            Text("Active")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MuesliTheme.success)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(MuesliTheme.success.opacity(0.15))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else if isDownloaded {
+            Text("Downloaded")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(MuesliTheme.surfacePrimary)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+    }
+
+    @ViewBuilder
+    private func actionButtons(for option: BackendOption, isActive: Bool, isDownloaded: Bool, isDownloading: Bool) -> some View {
+        HStack(spacing: MuesliTheme.spacing8) {
+            if isDownloading {
+                EmptyView()
+            } else if isDownloaded {
+                if !isActive {
+                    Button("Set Active") {
+                        controller.selectBackend(option)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.accent)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.accentSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                }
+
+                Button {
+                    modelToDelete = option
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.red.opacity(0.6))
+                        .frame(width: 20, height: 20)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button("Download") {
+                    startDownload(option)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(MuesliTheme.accent)
+                .padding(.horizontal, MuesliTheme.spacing12)
+                .padding(.vertical, 4)
+                .background(MuesliTheme.accentSubtle)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            }
         }
     }
 
@@ -136,6 +370,7 @@ struct ModelsView: View {
                 }
             }
 
+<<<<<<< HEAD
             // Action buttons
             HStack(spacing: MuesliTheme.spacing8) {
                 if isDownloading {
@@ -177,6 +412,9 @@ struct ModelsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                 }
             }
+=======
+            actionButtons(for: option, isActive: isActive, isDownloaded: isDownloaded, isDownloading: isDownloading)
+>>>>>>> 7572800 (Wire static Canary runtime and simplify models UI)
         }
         .padding(MuesliTheme.spacing16)
         .background(MuesliTheme.backgroundRaised)
@@ -255,6 +493,12 @@ struct ModelsView: View {
     }
 
     private func deleteModel(_ option: BackendOption) {
+        if appState.selectedBackend == option {
+            let fallback = downloadedModels
+                .compactMap { model in BackendOption.all.first(where: { $0.model == model && $0 != option }) }
+                .first ?? .parakeetMultilingual
+            controller.selectBackend(fallback)
+        }
         // Remove cached model files
         Task {
             await deleteModelFiles(option)
@@ -303,6 +547,19 @@ struct ModelsView: View {
             if isModelDownloaded(option, fm: fm) {
                 downloadedModels.insert(option.model)
             }
+        }
+    }
+
+    private func syncSelectionsFromActiveBackend() {
+        let active = appState.selectedBackend
+        if BackendOption.parakeetFamily.contains(active) {
+            selectedParakeetModel = active.model
+        }
+        if BackendOption.whisperFamily.contains(active) {
+            selectedWhisperModel = active.model
+        }
+        if BackendOption.experimental.contains(active) {
+            return
         }
     }
 

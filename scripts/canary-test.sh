@@ -80,10 +80,19 @@ seed_local_models() {
 
   mkdir -p "$CANARY_MODEL_CACHE"
 
-  ln -sfn "$model_root/encoder_int8.mlpackage" "$CANARY_MODEL_CACHE/encoder_int8.mlpackage"
-  ln -sfn "$model_root/projection.mlpackage" "$CANARY_MODEL_CACHE/projection.mlpackage"
-  ln -sfn "$model_root/canary_decoder_stateful_int8.mlpackage" "$CANARY_MODEL_CACHE/canary_decoder_stateful_int8.mlpackage"
-  ln -sfn "$model_root/canary_lm_head_int8.mlpackage" "$CANARY_MODEL_CACHE/canary_lm_head_int8.mlpackage"
+  link_if_exists() {
+    local source="$1"
+    local destination="$2"
+    if [[ -e "$source" ]]; then
+      ln -sfn "$source" "$destination"
+    fi
+  }
+
+  link_if_exists "$model_root/encoder_int8.mlpackage" "$CANARY_MODEL_CACHE/encoder_int8.mlpackage"
+  link_if_exists "$model_root/projection.mlpackage" "$CANARY_MODEL_CACHE/projection.mlpackage"
+  link_if_exists "$model_root/canary_prefill_static.mlpackage" "$CANARY_MODEL_CACHE/canary_prefill_static.mlpackage"
+  link_if_exists "$model_root/canary_decode_static.mlpackage" "$CANARY_MODEL_CACHE/canary_decode_static.mlpackage"
+  link_if_exists "$model_root/canary_lm_head_int8.mlpackage" "$CANARY_MODEL_CACHE/canary_lm_head_int8.mlpackage"
   ln -sfn "$asset_root/canary_embeddings.bin" "$CANARY_MODEL_CACHE/canary_embeddings.bin"
   ln -sfn "$asset_root/vocab.json" "$CANARY_MODEL_CACHE/vocab.json"
   ln -sfn "$asset_root/canary_mel_filter_bank.bin" "$CANARY_MODEL_CACHE/canary_mel_filter_bank.bin"
