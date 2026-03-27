@@ -86,8 +86,12 @@ struct PasteControllerTests {
 
         PasteController.paste(text: "dictated text")
 
-        // Wait for the restore delay (50ms paste delay + 500ms restore delay + margin)
-        try await Task.sleep(for: .milliseconds(800))
+        // Spin the main run loop so DispatchQueue.main.asyncAfter blocks fire.
+        // Total delay: 50ms (paste) + 500ms (restore) — we spin for 800ms with margin.
+        let deadline = Date().addingTimeInterval(0.8)
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
 
         // Clipboard should be restored to the original content
         #expect(pasteboard.string(forType: .string) == "user-copied-text")
@@ -100,8 +104,10 @@ struct PasteControllerTests {
 
         PasteController.paste(text: "dictated text")
 
-        // Wait for restore
-        try await Task.sleep(for: .milliseconds(800))
+        let deadline = Date().addingTimeInterval(0.8)
+        while Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
 
         // Clipboard should be cleared (no lingering dictation text)
         #expect(pasteboard.string(forType: .string) == nil)
