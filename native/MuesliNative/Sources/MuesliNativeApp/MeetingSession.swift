@@ -122,12 +122,21 @@ final class MeetingSession {
     }
 
     func start() async throws {
+        streamingMicRecorder.onPCMSamples = { [weak self] samples in
+            self?.retainedRecordingWriter?.appendMic(samples)
+        }
+        systemAudioRecorder.onPCMSamples = { [weak self] samples in
+            self?.retainedRecordingWriter?.appendSystem(samples)
+        }
+
         do {
             try streamingMicRecorder.prepare()
             setupRetainedRecordingWriterIfNeeded()
             try streamingMicRecorder.start()
             try await systemAudioRecorder.start()
         } catch {
+            streamingMicRecorder.onPCMSamples = nil
+            systemAudioRecorder.onPCMSamples = nil
             retainedRecordingWriter?.cancel()
             retainedRecordingWriter = nil
             streamingMicRecorder.cancel()
@@ -140,12 +149,6 @@ final class MeetingSession {
         startTime = now
         currentChunkStartTime = now
         isRecording = true
-        streamingMicRecorder.onPCMSamples = { [weak self] samples in
-            self?.retainedRecordingWriter?.appendMic(samples)
-        }
-        systemAudioRecorder.onPCMSamples = { [weak self] samples in
-            self?.retainedRecordingWriter?.appendSystem(samples)
-        }
 
         // Set up VAD-driven chunk rotation
         Task { [weak self] in
@@ -178,6 +181,7 @@ final class MeetingSession {
         retainedRecordingWriter = nil
         retainedRecordingWriterError = nil
         streamingMicRecorder.onAudioBuffer = nil
+        streamingMicRecorder.onPCMSamples = nil
         streamingMicRecorder.cancel()
         systemAudioRecorder.onPCMSamples = nil
         if let url = systemAudioRecorder.stop() {
