@@ -224,7 +224,9 @@ final class MuesliController: NSObject {
 
         Task { [weak self] in
             guard let self else { return }
-            await self.transcriptionCoordinator.preload(backend: self.selectedBackend)
+            await Profiler.shared.measureAsync("model.preload", category: "startup") {
+                await self.transcriptionCoordinator.preload(backend: self.selectedBackend)
+            }
             await MainActor.run {
                 self.refreshUI()
             }
@@ -829,7 +831,9 @@ final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await meetingSession.start()
+                try await Profiler.shared.measureAsync("meeting.start", category: "meeting") {
+                    try await meetingSession.start()
+                }
                 self.activeMeetingSession = meetingSession
                 self.micActivityMonitor.suppressWhileActive()
                 self.statusBarController?.setStatus("Meeting: \(title)")
@@ -887,14 +891,19 @@ final class MuesliController: NSObject {
                 }
             }
             do {
-                let result = try await activeMeetingSession.stop()
+                let result = try await Profiler.shared.measureAsync("meeting.stop", category: "meeting") {
+                    try await activeMeetingSession.stop()
+                }
                 meetingResult = result
                 meetingTitle = result.title
+                Profiler.shared.begin("meeting.db-write", category: "meeting")
                 let persistenceResult = try self.persistCompletedMeetingResult(result)
+                Profiler.shared.end("meeting.db-write", category: "meeting")
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
                 }
             } catch {
+                Profiler.shared.end("meeting.db-write", category: "meeting")
                 fputs("[muesli-native] meeting transcription failed: \(error)\n", stderr)
                 if let lifecycleError = error as? MeetingLifecycleError {
                     self.presentErrorAlert(title: "Meeting Recording", message: lifecycleError.localizedDescription)
@@ -1288,11 +1297,13 @@ final class MuesliController: NSObject {
             }
 
             do {
-                let result = try await self.transcriptionCoordinator.transcribeDictation(
-                    at: wavURL,
-                    backend: self.selectedBackend,
-                    customWords: self.serializedCustomWords()
-                )
+                let result = try await Profiler.shared.measureAsync("dictation.asr", category: "dictation") {
+                    try await self.transcriptionCoordinator.transcribeDictation(
+                        at: wavURL,
+                        backend: self.selectedBackend,
+                        customWords: self.serializedCustomWords()
+                    )
+                }
                 let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !text.isEmpty else {
                     await MainActor.run {
@@ -1300,17 +1311,21 @@ final class MuesliController: NSObject {
                     }
                     return
                 }
+                Profiler.shared.begin("dictation.db-write", category: "dictation")
                 try? self.dictationStore.insertDictation(
                     text: text,
                     durationSeconds: duration,
                     startedAt: startedAt,
                     endedAt: Date()
                 )
+                Profiler.shared.end("dictation.db-write", category: "dictation")
                 await MainActor.run {
                     self.statusBarController?.refresh()
                     self.historyWindowController?.reload()
                     self.syncAppState()
+                    Profiler.shared.begin("dictation.paste", category: "dictation")
                     PasteController.paste(text: text)
+                    Profiler.shared.end("dictation.paste", category: "dictation")
                     self.setState(.idle)
                     self.micActivityMonitor.resumeAfterCooldown()
                     TelemetryDeck.signal("dictation.completed", parameters: [

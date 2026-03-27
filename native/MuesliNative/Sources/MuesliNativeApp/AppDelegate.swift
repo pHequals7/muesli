@@ -41,5 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         controller?.shutdown()
+        if Profiler.shared.isEnabled {
+            Profiler.shared.end("app.lifetime", category: "startup")
+            if let url = SpeedscopeExporter.writeToSupportDirectory(name: "Muesli") {
+                fputs("[profiler] profile written: \(url.path)\n", stderr)
+            }
+        }
     }
 }
