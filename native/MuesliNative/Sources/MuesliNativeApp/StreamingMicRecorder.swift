@@ -7,6 +7,8 @@ import os
 final class StreamingMicRecorder {
     /// Called with 4096-sample Float chunks (256ms at 16kHz) for VAD processing.
     var onAudioBuffer: (([Float]) -> Void)?
+    /// Called with 16-bit PCM mono samples for retained meeting recording.
+    var onPCMSamples: (([Int16]) -> Void)?
 
     private let engine = AVAudioEngine()
     private let lock = OSAllocatedUnfairLock(initialState: FileState())
@@ -108,6 +110,8 @@ final class StreamingMicRecorder {
                 state.latestPowerDB = powerDB
             }
 
+            self.onPCMSamples?(int16Samples)
+
             // Forward Float samples for VAD (in 4096-sample chunks)
             let floats = Array(UnsafeBufferPointer(start: floatData, count: frameCount))
             self.onAudioBuffer?(floats)
@@ -159,6 +163,8 @@ final class StreamingMicRecorder {
         isRunning = false
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        onAudioBuffer = nil
+        onPCMSamples = nil
 
         let state = lock.withLock { state -> FileState in
             let old = state

@@ -172,7 +172,8 @@ struct MeetingsNavigationTests {
             durationSeconds: 90,
             rawTranscript: "Discussed roadmap and blockers.",
             formattedNotes: "## Summary\nRoadmap reviewed.",
-            micRecordingURL: invalidRecordingURL,
+            retainedRecordingURL: invalidRecordingURL,
+            retainedRecordingError: nil,
             systemRecordingURL: nil,
             templateSnapshot: MeetingTemplates.auto.snapshot
         )

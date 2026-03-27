@@ -966,34 +966,37 @@ final class MuesliController: NSObject {
             shouldSave = promptToSaveMeetingRecording(for: result.title)
         }
 
-        guard shouldSave else { return nil }
+        guard shouldSave else {
+            if let retainedRecordingURL = result.retainedRecordingURL {
+                try? FileManager.default.removeItem(at: retainedRecordingURL)
+            }
+            return nil
+        }
+
+        if let retainedRecordingError = result.retainedRecordingError {
+            throw MeetingLifecycleError.failedToSaveRecording(underlying: retainedRecordingError)
+        }
+
+        guard let retainedRecordingURL = result.retainedRecordingURL else {
+            return nil
+        }
 
         do {
-            let micURL = result.micRecordingURL
-            let systemURL = result.systemRecordingURL
-            let meetingTitle = result.title
-            let startedAt = result.startTime
-            let supportDirectory = AppIdentity.supportDirectoryURL
-            let outputURL = try await Task.detached(priority: .utility) {
-                try MeetingRecordingExporter.exportMergedRecording(
-                    micURL: micURL,
-                    systemURL: systemURL,
-                    meetingTitle: meetingTitle,
-                    startedAt: startedAt,
-                    supportDirectory: supportDirectory
-                )
-            }.value
-            return outputURL?.path
+            let outputURL = try MeetingRecordingWriter.persistTemporaryRecording(
+                from: retainedRecordingURL,
+                meetingTitle: result.title,
+                startedAt: result.startTime,
+                supportDirectory: AppIdentity.supportDirectoryURL
+            )
+            return outputURL.path
         } catch {
             throw MeetingLifecycleError.failedToSaveRecording(underlying: error)
         }
     }
 
     private func cleanupTemporaryMeetingAudioFiles(for result: MeetingSessionResult) {
-        // These removals intentionally no-op when the exporter already consumed
-        // and removed the temp source files during a saved merge.
-        if let micRecordingURL = result.micRecordingURL {
-            try? FileManager.default.removeItem(at: micRecordingURL)
+        if let retainedRecordingURL = result.retainedRecordingURL {
+            try? FileManager.default.removeItem(at: retainedRecordingURL)
         }
         if let systemRecordingURL = result.systemRecordingURL {
             try? FileManager.default.removeItem(at: systemRecordingURL)

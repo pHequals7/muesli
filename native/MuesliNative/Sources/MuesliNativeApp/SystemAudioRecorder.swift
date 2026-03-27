@@ -4,6 +4,8 @@ import ScreenCaptureKit
 import MuesliCore
 
 final class SystemAudioRecorder: NSObject, SCStreamOutput {
+    var onPCMSamples: (([Int16]) -> Void)?
+
     private var stream: SCStream?
     private var outputFile: FileHandle?
     private var outputURL: URL?
@@ -68,6 +70,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
     func stop() -> URL? {
         guard isRecording || outputFile != nil || outputURL != nil else { return nil }
         isRecording = false
+        onPCMSamples = nil
 
         if let stream {
             let semaphore = DispatchSemaphore(value: 0)
@@ -186,11 +189,17 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
 
             outputFile?.write(int16Data)
             totalBytesWritten += int16Data.count
+            onPCMSamples?(int16Data.withUnsafeBytes { rawBuffer in
+                Array(rawBuffer.bindMemory(to: Int16.self))
+            })
         } else {
             // Already PCM int16, write directly
             let rawData = Data(bytes: dataPointer, count: length)
             outputFile?.write(rawData)
             totalBytesWritten += length
+            onPCMSamples?(rawData.withUnsafeBytes { rawBuffer in
+                Array(rawBuffer.bindMemory(to: Int16.self))
+            })
         }
     }
 
@@ -220,6 +229,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
     private func cleanupFailedStart() {
         isRecording = false
         stream = nil
+        onPCMSamples = nil
 
         if let outputFile {
             outputFile.closeFile()
@@ -231,5 +241,6 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput {
         }
         outputURL = nil
         totalBytesWritten = 0
+        onPCMSamples = nil
     }
 }

@@ -62,7 +62,8 @@ struct MeetingSessionResult {
     let durationSeconds: Double
     let rawTranscript: String
     let formattedNotes: String
-    let micRecordingURL: URL?
+    let retainedRecordingURL: URL?
+    let retainedRecordingError: Error?
     let systemRecordingURL: URL?
     let templateSnapshot: MeetingTemplateSnapshot
 }
@@ -75,10 +76,11 @@ final class MeetingSession {
     private let config: AppConfig
     private let transcriptionCoordinator: TranscriptionCoordinator
     private let systemAudioRecorder = SystemAudioRecorder()
-    private let fullSessionMicRecorder = MicrophoneRecorder()
 
     /// Streaming mic recorder with real-time buffer access (AVAudioEngine)
     private var streamingMicRecorder = StreamingMicRecorder()
+    private var retainedRecordingWriter: MeetingRecordingWriter?
+    private var retainedRecordingWriterError: Error?
     /// VAD controller for speech-boundary chunk rotation
     private var vadController: StreamingVadController?
     private let micChunkCollector = MeetingChunkCollector()
@@ -121,13 +123,13 @@ final class MeetingSession {
 
     func start() async throws {
         do {
-            try fullSessionMicRecorder.prepare()
             try streamingMicRecorder.prepare()
-            try fullSessionMicRecorder.start()
+            setupRetainedRecordingWriterIfNeeded()
             try streamingMicRecorder.start()
             try await systemAudioRecorder.start()
         } catch {
-            fullSessionMicRecorder.cancel()
+            retainedRecordingWriter?.cancel()
+            retainedRecordingWriter = nil
             streamingMicRecorder.cancel()
             if let url = systemAudioRecorder.stop() {
                 try? FileManager.default.removeItem(at: url)
@@ -138,6 +140,12 @@ final class MeetingSession {
         startTime = now
         currentChunkStartTime = now
         isRecording = true
+        streamingMicRecorder.onPCMSamples = { [weak self] samples in
+            self?.retainedRecordingWriter?.appendMic(samples)
+        }
+        systemAudioRecorder.onPCMSamples = { [weak self] samples in
+            self?.retainedRecordingWriter?.appendSystem(samples)
+        }
 
         // Set up VAD-driven chunk rotation
         Task { [weak self] in
@@ -166,8 +174,12 @@ final class MeetingSession {
         isRecording = false
         vadController?.stop()
         vadController = nil
-        fullSessionMicRecorder.cancel()
+        retainedRecordingWriter?.cancel()
+        retainedRecordingWriter = nil
+        retainedRecordingWriterError = nil
+        streamingMicRecorder.onAudioBuffer = nil
         streamingMicRecorder.cancel()
+        systemAudioRecorder.onPCMSamples = nil
         if let url = systemAudioRecorder.stop() {
             try? FileManager.default.removeItem(at: url)
         }
@@ -184,14 +196,17 @@ final class MeetingSession {
         // Stop VAD controller
         vadController?.stop()
         vadController = nil
+        streamingMicRecorder.onAudioBuffer = nil
 
         // Stop mic and get last chunk
         let lastMicURL = streamingMicRecorder.stop()
         let lastChunkStart = currentChunkStartTime ?? meetingStart
-        let fullSessionMicURL = fullSessionMicRecorder.stop()
+        let retainedRecordingURL = retainedRecordingWriter?.stop()
+        retainedRecordingWriter = nil
 
         // Stop system audio
         let systemAudioURL = systemAudioRecorder.stop()
+        systemAudioRecorder.onPCMSamples = nil
         do {
             // Transcribe last mic chunk
             if let lastMicURL {
@@ -268,7 +283,8 @@ final class MeetingSession {
                 durationSeconds: max(endTime.timeIntervalSince(meetingStart), 0),
                 rawTranscript: rawTranscript,
                 formattedNotes: formattedNotes,
-                micRecordingURL: fullSessionMicURL,
+                retainedRecordingURL: retainedRecordingURL,
+                retainedRecordingError: retainedRecordingWriterError,
                 systemRecordingURL: systemAudioURL,
                 templateSnapshot: templateSnapshot
             )
@@ -276,8 +292,8 @@ final class MeetingSession {
             if let lastMicURL {
                 try? FileManager.default.removeItem(at: lastMicURL)
             }
-            if let fullSessionMicURL {
-                try? FileManager.default.removeItem(at: fullSessionMicURL)
+            if let retainedRecordingURL {
+                try? FileManager.default.removeItem(at: retainedRecordingURL)
             }
             if let systemAudioURL {
                 try? FileManager.default.removeItem(at: systemAudioURL)
@@ -325,6 +341,20 @@ final class MeetingSession {
         }
         if !micChunkCollector.add(task) {
             task.cancel()
+        }
+    }
+
+    private func setupRetainedRecordingWriterIfNeeded() {
+        retainedRecordingWriter = nil
+        retainedRecordingWriterError = nil
+
+        guard config.meetingRecordingSavePolicy != .never else { return }
+
+        do {
+            retainedRecordingWriter = try MeetingRecordingWriter()
+        } catch {
+            retainedRecordingWriterError = error
+            fputs("[meeting] failed to prepare retained recording writer: \(error)\n", stderr)
         }
     }
 }
