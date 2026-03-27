@@ -181,6 +181,12 @@ private final class CanaryEmbeddingWeights: @unchecked Sendable {
                 NSLocalizedDescriptionKey: "Unexpected embedding hidden size \(hiddenSize)",
             ])
         }
+        let expectedBytes = 8 + vocabSize * hiddenSize * MemoryLayout<Float16>.stride
+        guard fileData.count >= expectedBytes else {
+            throw NSError(domain: "CanaryQwen", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "Embedding file is truncated: expected at least \(expectedBytes) bytes, found \(fileData.count)",
+            ])
+        }
         self.data = fileData
     }
 
