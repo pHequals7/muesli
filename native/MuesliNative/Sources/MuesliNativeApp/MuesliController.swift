@@ -780,6 +780,14 @@ final class MuesliController: NSObject {
     }
 
     func clearMeetingHistory() {
+        guard !isMeetingRecording() else {
+            presentErrorAlert(
+                title: "Couldn't Clear Meeting History",
+                message: "Stop the current meeting recording before clearing saved meetings."
+            )
+            return
+        }
+
         try? clearSavedMeetingRecordingsDirectory()
         try? dictationStore.clearMeetings()
         appState.selectedMeetingID = nil

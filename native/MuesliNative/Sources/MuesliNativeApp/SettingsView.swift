@@ -20,7 +20,7 @@ struct SettingsView: View {
             case .dictations:
                 return "This will permanently remove all saved dictations. This cannot be undone."
             case .meetings:
-                return "This will permanently remove all saved meetings, notes, and transcripts. This cannot be undone."
+                return "This will permanently remove all saved meetings, notes, transcripts, and retained audio recordings. This cannot be undone."
             }
         }
 
@@ -256,6 +256,8 @@ struct SettingsView: View {
                         actionButton("Clear meeting history", role: .destructive) {
                             pendingDataDestruction = .meetings
                         }
+                        .disabled(controller.isMeetingRecording())
+                        .help("Stop the current meeting recording before clearing meeting history.")
                     }
                 }
             }
