@@ -279,6 +279,7 @@ public final class DictationStore {
         return makeMeetingRecord(statement)
     }
 
+    @discardableResult
     public func insertMeeting(
         title: String,
         calendarEventID: String?,
@@ -293,7 +294,7 @@ public final class DictationStore {
         selectedTemplateName: String? = nil,
         selectedTemplateKind: MeetingTemplateKind? = nil,
         selectedTemplatePrompt: String? = nil
-    ) throws {
+    ) throws -> Int64 {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
 
@@ -333,6 +334,7 @@ public final class DictationStore {
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
+        return sqlite3_last_insert_rowid(db)
     }
 
     public func dictationStats() throws -> DictationStats {
@@ -515,6 +517,22 @@ public final class DictationStore {
         }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_text(statement, 1, (title as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(statement, 2, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+    }
+
+    public func updateMeetingSavedRecordingPath(id: Int64, path: String?) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = "UPDATE meetings SET saved_recording_path = ? WHERE id = ?"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        bindOptionalText(path, at: 1, statement: statement)
         sqlite3_bind_int64(statement, 2, id)
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)

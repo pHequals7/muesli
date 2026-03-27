@@ -64,6 +64,11 @@ enum MeetingLifecycleError: Error, LocalizedError {
     }
 }
 
+struct CompletedMeetingPersistenceResult {
+    let meetingID: Int64
+    let recordingSaveError: MeetingLifecycleError?
+}
+
 @MainActor
 final class MuesliController: NSObject {
     private let runtime: RuntimePaths
@@ -873,22 +878,10 @@ final class MuesliController: NSObject {
                 let result = try await activeMeetingSession.stop()
                 meetingResult = result
                 meetingTitle = result.title
-                let savedRecordingPath = try await self.persistMeetingRecordingIfNeeded(for: result)
-                try self.dictationStore.insertMeeting(
-                    title: result.title,
-                    calendarEventID: result.calendarEventID,
-                    startTime: result.startTime,
-                    endTime: result.endTime,
-                    rawTranscript: result.rawTranscript,
-                    formattedNotes: result.formattedNotes,
-                    micAudioPath: nil,
-                    systemAudioPath: nil,
-                    savedRecordingPath: savedRecordingPath,
-                    selectedTemplateID: result.templateSnapshot.id,
-                    selectedTemplateName: result.templateSnapshot.name,
-                    selectedTemplateKind: result.templateSnapshot.kind,
-                    selectedTemplatePrompt: result.templateSnapshot.prompt
-                )
+                let persistenceResult = try await self.persistCompletedMeetingResult(result)
+                if let recordingSaveError = persistenceResult.recordingSaveError {
+                    self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
+                }
             } catch {
                 fputs("[muesli-native] meeting transcription failed: \(error)\n", stderr)
                 if let lifecycleError = error as? MeetingLifecycleError {
@@ -928,6 +921,38 @@ final class MuesliController: NSObject {
             return
         }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func persistCompletedMeetingResult(_ result: MeetingSessionResult) async throws -> CompletedMeetingPersistenceResult {
+        let meetingID = try dictationStore.insertMeeting(
+            title: result.title,
+            calendarEventID: result.calendarEventID,
+            startTime: result.startTime,
+            endTime: result.endTime,
+            rawTranscript: result.rawTranscript,
+            formattedNotes: result.formattedNotes,
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            savedRecordingPath: nil,
+            selectedTemplateID: result.templateSnapshot.id,
+            selectedTemplateName: result.templateSnapshot.name,
+            selectedTemplateKind: result.templateSnapshot.kind,
+            selectedTemplatePrompt: result.templateSnapshot.prompt
+        )
+
+        do {
+            if let savedRecordingPath = try await persistMeetingRecordingIfNeeded(for: result) {
+                try dictationStore.updateMeetingSavedRecordingPath(id: meetingID, path: savedRecordingPath)
+            }
+            return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: nil)
+        } catch let error as MeetingLifecycleError {
+            return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: error)
+        } catch {
+            return CompletedMeetingPersistenceResult(
+                meetingID: meetingID,
+                recordingSaveError: .failedToSaveRecording(underlying: error)
+            )
+        }
     }
 
     private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) async throws -> String? {

@@ -147,6 +147,45 @@ struct MeetingsNavigationTests {
         #expect(FileManager.default.fileExists(atPath: savedRecordingURL.path) == false)
     }
 
+    @Test("persistCompletedMeetingResult keeps transcript when recording save fails")
+    func persistCompletedMeetingResultPreservesMeetingOnRecordingFailure() async throws {
+        let store = try makeStore()
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+        controller.updateConfig { $0.meetingRecordingSavePolicy = .always }
+
+        let invalidRecordingURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString)")
+            .appendingPathExtension("wav")
+        let result = MeetingSessionResult(
+            title: "Customer Review",
+            calendarEventID: nil,
+            startTime: Date(),
+            endTime: Date().addingTimeInterval(90),
+            durationSeconds: 90,
+            rawTranscript: "Discussed roadmap and blockers.",
+            formattedNotes: "## Summary\nRoadmap reviewed.",
+            micRecordingURL: invalidRecordingURL,
+            systemRecordingURL: nil,
+            templateSnapshot: MeetingTemplates.auto.snapshot
+        )
+
+        let persistenceResult = try await controller.persistCompletedMeetingResult(result)
+
+        #expect(persistenceResult.recordingSaveError != nil)
+        let storedMeeting = try store.meeting(id: persistenceResult.meetingID)
+        #expect(storedMeeting?.title == "Customer Review")
+        #expect(storedMeeting?.rawTranscript == "Discussed roadmap and blockers.")
+        #expect(storedMeeting?.savedRecordingPath == nil)
+    }
+
     @Test("showMeetingTemplatesManager preserves current meetings context and presents manager")
     func showMeetingTemplatesManagerPresentsManager() {
         let controller = makeController()

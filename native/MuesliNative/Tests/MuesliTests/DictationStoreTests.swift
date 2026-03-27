@@ -509,6 +509,28 @@ struct DictationStoreTests {
         #expect(updated.first!.formattedNotes == "## Notes\nKeep these") // notes unchanged
     }
 
+    @Test("update meeting saved recording path stores the retained file location")
+    func updateMeetingSavedRecordingPath() throws {
+        let store = try makeStore()
+
+        let now = Date()
+        let meetingID = try store.insertMeeting(
+            title: "Auto Title",
+            calendarEventID: nil,
+            startTime: now,
+            endTime: now.addingTimeInterval(60),
+            rawTranscript: "Some words",
+            formattedNotes: "## Notes\nKeep these",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        try store.updateMeetingSavedRecordingPath(id: meetingID, path: "/tmp/retained.wav")
+
+        let updated = try store.meeting(id: meetingID)
+        #expect(updated?.savedRecordingPath == "/tmp/retained.wav")
+    }
+
     // MARK: - Folder CRUD
 
     @Test("create and list folders")
