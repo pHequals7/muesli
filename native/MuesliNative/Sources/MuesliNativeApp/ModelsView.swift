@@ -370,51 +370,7 @@ struct ModelsView: View {
                 }
             }
 
-<<<<<<< HEAD
-            // Action buttons
-            HStack(spacing: MuesliTheme.spacing8) {
-                if isDownloading {
-                    // No actions while downloading
-                } else if isDownloaded {
-                    if !isActive {
-                        Button("Set Active") {
-                            controller.selectBackend(option)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(MuesliTheme.accent)
-                        .padding(.horizontal, MuesliTheme.spacing12)
-                        .padding(.vertical, 4)
-                        .background(MuesliTheme.accentSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-
-                        Button("Delete") {
-                            modelToDelete = option
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(MuesliTheme.recording)
-                        .padding(.horizontal, MuesliTheme.spacing12)
-                        .padding(.vertical, 4)
-                        .background(MuesliTheme.recording.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                    }
-                } else {
-                    Button("Download") {
-                        startDownload(option)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MuesliTheme.accent)
-                    .padding(.horizontal, MuesliTheme.spacing12)
-                    .padding(.vertical, 4)
-                    .background(MuesliTheme.accentSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                }
-            }
-=======
             actionButtons(for: option, isActive: isActive, isDownloaded: isDownloaded, isDownloading: isDownloading)
->>>>>>> 7572800 (Wire static Canary runtime and simplify models UI)
         }
         .padding(MuesliTheme.spacing16)
         .background(MuesliTheme.backgroundRaised)
