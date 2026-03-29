@@ -92,6 +92,7 @@ final class FloatingIndicatorController {
     var onCancelToggleDictation: (() -> Void)?
     var isToggleDictation = false
     private var stopLayer: CALayer?
+    private var transcribingTitle = "Transcribing"
     var hotkeyLabel: String = "Left Cmd"
 
     init(configStore: ConfigStore) {
@@ -182,10 +183,19 @@ final class FloatingIndicatorController {
         }
     }
 
+    func setTranscribingTitle(_ title: String, config: AppConfig) {
+        transcribingTitle = title
+        guard state == .transcribing else { return }
+        setState(.transcribing, config: config)
+    }
+
     func setState(_ state: DictationState, config: AppConfig) {
         let previousState = self.state
         let previousHover = isHovered
         self.state = state
+        if state != .transcribing {
+            transcribingTitle = "Transcribing"
+        }
         if state != .idle {
             isHovered = false
         }
@@ -573,7 +583,7 @@ final class FloatingIndicatorController {
                 .colorWith(hex: 0xD99A11, alpha: 0.72),
                 .colorWith(hex: 0xFFFFFF, alpha: 0.24),
                 "✍️",
-                "Transcribing",
+                transcribingTitle,
                 .colorWith(hex: 0x1A140D, alpha: 0.95),
                 .black,
                 1.0

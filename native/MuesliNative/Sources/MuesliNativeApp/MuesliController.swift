@@ -876,7 +876,13 @@ final class MuesliController: NSObject {
     func stopMeetingRecording() {
         guard let activeMeetingSession else { return }
         indicator.setMeetingRecording(false, config: config)
+        indicator.setTranscribingTitle("Transcribing", config: config)
         setState(.transcribing)
+        activeMeetingSession.onProgress = { [weak self] stage in
+            Task { @MainActor [weak self] in
+                self?.setMeetingProcessingStage(stage)
+            }
+        }
         Task { [weak self] in
             guard let self else { return }
             var meetingTitle = "Meeting"
@@ -890,6 +896,9 @@ final class MuesliController: NSObject {
                 let result = try await activeMeetingSession.stop()
                 meetingResult = result
                 meetingTitle = result.title
+                await MainActor.run {
+                    self.setMeetingProcessingStatus("Finalizing")
+                }
                 let persistenceResult = try self.persistCompletedMeetingResult(result)
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
@@ -1101,6 +1110,25 @@ final class MuesliController: NSObject {
         }
         statusBarController?.setStatus(status)
         indicator.setState(state, config: config)
+    }
+
+    @MainActor
+    private func setMeetingProcessingStage(_ stage: MeetingProcessingStage) {
+        switch stage {
+        case .transcribingAudio:
+            setMeetingProcessingStatus("Transcribing")
+        case .generatingTitle:
+            setMeetingProcessingStatus("Generating Title")
+        case .summarizingNotes:
+            setMeetingProcessingStatus("Summarizing")
+        }
+    }
+
+    @MainActor
+    private func setMeetingProcessingStatus(_ status: String) {
+        statusBarController?.setStatus(status)
+        statusBarController?.refresh()
+        indicator.setTranscribingTitle(status, config: config)
     }
 
     private func handlePrepare() {
