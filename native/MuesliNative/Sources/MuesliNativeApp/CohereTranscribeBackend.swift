@@ -180,6 +180,7 @@ private final class CohereMelSpectrogram {
     private let nFFT: Int
     private let hop: Int
     private let winLength: Int
+    private let fftSetup: FFTSetup
     private static let preemph: Float = 0.97
     private static let logZeroGuard: Float = 5.960464477539063e-08 // 2^-24
     private static let ditherConstant: Float = 1e-05
@@ -222,6 +223,18 @@ private final class CohereMelSpectrogram {
         self.window = winData.withUnsafeBytes { raw in
             Array(raw.bindMemory(to: Float.self).prefix(winLength))
         }
+
+        let log2n = vDSP_Length(log2(Double(nFFT)))
+        guard let setup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else {
+            throw NSError(domain: "CohereTranscribe", code: 23, userInfo: [
+                NSLocalizedDescriptionKey: "Failed to create FFT setup for nFFT=\(nFFT)",
+            ])
+        }
+        self.fftSetup = setup
+    }
+
+    deinit {
+        vDSP_destroy_fftsetup(fftSetup)
     }
 
     /// Compute log-mel spectrogram from raw 16kHz audio.
@@ -310,12 +323,6 @@ private final class CohereMelSpectrogram {
     private func performRealFFT(_ input: [Float]) -> ([Float], [Float]) {
         let n = input.count
         let log2n = vDSP_Length(log2(Double(n)))
-        guard let fftSetup = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2)) else {
-            // Fallback to naive DFT
-            return naiveDFT(input)
-        }
-        defer { vDSP_destroy_fftsetup(fftSetup) }
-
         let halfN = n / 2
         var realPart = [Float](repeating: 0, count: halfN)
         var imagPart = [Float](repeating: 0, count: halfN)
@@ -865,15 +872,22 @@ private final class CohereTranscribeManager {
                 ])
             }
 
-            let logitsPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: CohereTranscribeConfig.vocabSize)
+            // Copy logits to a local buffer — CoreML output MLMultiArray may be read-only
+            let vocabSize = CohereTranscribeConfig.vocabSize
+            let srcPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: vocabSize)
+            var localLogits = [Float](unsafeUninitializedCapacity: vocabSize) { buf, count in
+                buf.baseAddress!.initialize(from: srcPtr, count: vocabSize)
+                count = vocabSize
+            }
+
             if !models.encoderUsesDynamicLength {
                 // EOS promotion: if EOS is in the top-3 logits, the model is "trying to stop"
                 // but the contaminated encoder isn't giving a strong enough signal. Treat as EOS.
                 // This uses the model's own confidence rather than external heuristics.
-                let eosLogit = logitsPtr[CohereTranscribeConfig.eosTokenId]
+                let eosLogit = localLogits[CohereTranscribeConfig.eosTokenId]
                 var countAboveEos = 0
-                for i in 0..<CohereTranscribeConfig.vocabSize {
-                    if logitsPtr[i] > eosLogit { countAboveEos += 1 }
+                for i in 0..<vocabSize {
+                    if localLogits[i] > eosLogit { countAboveEos += 1 }
                     if countAboveEos >= 3 { break }
                 }
                 if countAboveEos < 3 { break } // EOS in top-3 → stop
@@ -884,13 +898,13 @@ private final class CohereTranscribeManager {
                     let prefix = Array(generatedIds.suffix(noRepeatNgram - 1))
                     for i in 0...(generatedIds.count - noRepeatNgram) {
                         if Array(generatedIds[i..<(i + noRepeatNgram - 1)]) == prefix {
-                            logitsPtr[generatedIds[i + noRepeatNgram - 1]] = -.greatestFiniteMagnitude
+                            localLogits[generatedIds[i + noRepeatNgram - 1]] = -.greatestFiniteMagnitude
                         }
                     }
                 }
             }
 
-            nextToken = argmax(logits: logits)
+            nextToken = argmaxLocal(logits: localLogits)
             currentPosition += 1
         }
         timing.decodeMs = (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000
@@ -976,6 +990,19 @@ private final class CohereTranscribeManager {
         for i in 1..<count {
             if ptr[i] > maxVal {
                 maxVal = ptr[i]
+                maxIdx = i
+            }
+        }
+        return maxIdx
+    }
+
+    private func argmaxLocal(logits: [Float]) -> Int {
+        guard !logits.isEmpty else { return 0 }
+        var maxVal = logits[0]
+        var maxIdx = 0
+        for i in 1..<logits.count {
+            if logits[i] > maxVal {
+                maxVal = logits[i]
                 maxIdx = i
             }
         }
