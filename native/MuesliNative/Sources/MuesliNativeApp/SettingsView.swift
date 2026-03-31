@@ -40,6 +40,7 @@ struct SettingsView: View {
     @State private var chatGPTSignInError: String?
     @State private var isSigningInChatGPT = false
     @State private var pendingDataDestruction: PendingDataDestruction?
+    @State private var recordingColorInput: String = ""
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
@@ -240,6 +241,76 @@ struct SettingsView: View {
                             controller.updateConfig { $0.meetingRecordingSavePolicy = policy }
                         }
                     }
+                }
+
+                settingsSection("Appearance") {
+                    settingsRow("Play sound effects") {
+                        settingsSwitch(isOn: appState.config.soundEnabled) { newValue in
+                            controller.updateConfig { $0.soundEnabled = newValue }
+                        }
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                        Text("Recording color")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+                        HStack(spacing: MuesliTheme.spacing8) {
+                            ForEach(AppearancePreset.all, id: \.hex) { preset in
+                                let isSelected = appState.config.recordingColorHex.lowercased() == preset.hex
+                                Button {
+                                    controller.updateConfig { $0.recordingColorHex = preset.hex }
+                                    recordingColorInput = preset.hex
+                                } label: {
+                                    Circle()
+                                        .fill(preset.swatchColor)
+                                        .frame(width: 22, height: 22)
+                                        .overlay(
+                                            Circle().strokeBorder(Color.white.opacity(isSelected ? 0.85 : 0), lineWidth: 2)
+                                        )
+                                        .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
+                                }
+                                .buttonStyle(.plain)
+                                .help(preset.name)
+                            }
+                            TextField("#1e1e2e", text: Binding(
+                                get: { recordingColorInput.isEmpty ? appState.config.recordingColorHex : recordingColorInput },
+                                set: { recordingColorInput = $0 }
+                            ))
+                            .font(.system(size: 12, design: .monospaced))
+                            .frame(width: 80)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit {
+                                let cleaned = recordingColorInput
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                    .replacingOccurrences(of: "#", with: "")
+                                    .lowercased()
+                                guard cleaned.count == 6, UInt64(cleaned, radix: 16) != nil else { return }
+                                controller.updateConfig { $0.recordingColorHex = cleaned }
+                                recordingColorInput = cleaned
+                            }
+                            ColorPicker("", selection: Binding(
+                                get: { Color(hex: appState.config.recordingColorHex) },
+                                set: { newColor in
+                                    if let hex = NSColor(newColor).toHexString() {
+                                        controller.updateConfig { $0.recordingColorHex = hex }
+                                        recordingColorInput = hex
+                                    }
+                                }
+                            ))
+                            .labelsHidden()
+                            .frame(width: 28, height: 28)
+                        }
+                        HStack(spacing: MuesliTheme.spacing8) {
+                            Text("Preview")
+                                .font(.system(size: 11))
+                                .foregroundStyle(MuesliTheme.textTertiary)
+                            Capsule()
+                                .fill(Color(hex: appState.config.recordingColorHex))
+                                .frame(width: 80, height: 22)
+                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
+                        }
+                    }
+                    .frame(minHeight: 32)
                 }
 
                 settingsSection("Data") {
@@ -504,5 +575,44 @@ struct PastableSecureField: NSViewRepresentable {
             guard let field = obj.object as? NSTextField else { return }
             onChange(field.stringValue)
         }
+    }
+}
+
+// MARK: - Appearance Helpers
+
+private struct AppearancePreset {
+    let name: String
+    let hex: String
+    var swatchColor: Color { Color(hex: hex) }
+
+    static let all: [AppearancePreset] = [
+        AppearancePreset(name: "Mocha", hex: "1e1e2e"),
+        AppearancePreset(name: "Frappe", hex: "303446"),
+        AppearancePreset(name: "Latte", hex: "eff1f5"),
+    ]
+}
+
+private extension Color {
+    init(hex: String) {
+        var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        h = h.hasPrefix("#") ? String(h.dropFirst()) : h
+        guard h.count == 6, let value = UInt64(h, radix: 16) else {
+            self = .black; return
+        }
+        self = Color(
+            red:   Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8)  & 0xFF) / 255,
+            blue:  Double( value        & 0xFF) / 255
+        )
+    }
+}
+
+private extension NSColor {
+    func toHexString() -> String? {
+        guard let rgb = usingColorSpace(.sRGB) else { return nil }
+        let r = Int((rgb.redComponent   * 255).rounded())
+        let g = Int((rgb.greenComponent * 255).rounded())
+        let b = Int((rgb.blueComponent  * 255).rounded())
+        return String(format: "%02x%02x%02x", r, g, b)
     }
 }

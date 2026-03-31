@@ -1241,6 +1241,7 @@ final class MuesliController: NSObject {
                 self?.recorder.currentPower() ?? -160
             }
             setState(.recording)
+            SoundController.playDictationStart(enabled: config.soundEnabled)
         } catch {
             fputs("[muesli-native] recorder start failed: \(error)\n", stderr)
             setState(.idle)
@@ -1416,6 +1417,7 @@ final class MuesliController: NSObject {
                     self.historyWindowController?.reload()
                     self.syncAppState()
                     PasteController.paste(text: text)
+                    SoundController.playDictationInsert(enabled: self.config.soundEnabled)
                     self.setState(.idle)
                     self.micActivityMonitor.resumeAfterCooldown()
                     TelemetryDeck.signal("dictation.completed", parameters: [
