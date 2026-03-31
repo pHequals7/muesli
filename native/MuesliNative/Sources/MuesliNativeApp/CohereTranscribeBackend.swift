@@ -8,11 +8,7 @@ import Foundation
 private enum CohereTranscribeConfig {
     static let repoId = "phequals/cohere-transcribe-coreml-int8"
     static let envOverride = "MUESLI_COHERE_MODEL_DIR"
-    static let int8EncoderComputeUnitsOverrideEnv = "MUESLI_COHERE_INT8_ENCODER_COMPUTE_UNITS"
-    static let int8EncoderUseCompiledOverrideEnv = "MUESLI_COHERE_INT8_ENCODER_USE_COMPILED"
 
-    static let encoderPackage = "cohere_encoder_int8.mlpackage"
-    static let palettizedEncoderPackage = "cohere_encoder_dynamic_palettize6.mlpackage"
     static let dynamicEncoderPackage = "cohere_encoder_dynamic.mlpackage"
     static let prefillPackage = "cohere_decoder_prefill_int8.mlpackage"
     static let decodePackage = "cohere_decoder_decode_int8.mlpackage"
@@ -39,7 +35,7 @@ private enum CohereTranscribeConfig {
     static let maxAudioSamples = 35 * 16_000
     static let chunkOverlapSamples = 5 * 16_000
 
-    static let requiredModelPackages = [encoderPackage, prefillPackage, decodePackage]
+    static let requiredModelPackages = [dynamicEncoderPackage, prefillPackage, decodePackage]
     static let requiredRelativeFiles = [tokenizerFile, melFilterFile, melWindowFile]
 
     static var defaultCacheDirectory: URL {
@@ -73,31 +69,7 @@ private func cohereComputeUnitsDescription(_ units: MLComputeUnits) -> String {
     }
 }
 
-private func cohereComputeUnits(from rawValue: String) -> MLComputeUnits? {
-    switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-    case "cpuonly", "cpu":
-        return .cpuOnly
-    case "cpuandgpu", "gpu":
-        return .cpuAndGPU
-    case "cpuandneuralengine", "neuralengine", "ane":
-        return .cpuAndNeuralEngine
-    case "all":
-        return .all
-    default:
-        return nil
-    }
-}
 
-private func cohereBool(from rawValue: String) -> Bool? {
-    switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-    case "1", "true", "yes", "y", "on":
-        return true
-    case "0", "false", "no", "n", "off":
-        return false
-    default:
-        return nil
-    }
-}
 
 struct CohereProfilingSummary: Sendable {
     var audioDurationS: Double
@@ -265,6 +237,9 @@ private final class CohereMelSpectrogram {
 
         // powerSpec is [nRealFrames, nBins] row-major
         var powerSpec = [Float](repeating: 0, count: nRealFrames * nBins)
+        // Pre-allocate scratch buffers for power spectrum computation (avoid per-frame allocs)
+        var reSq = [Float](repeating: 0, count: halfN - 1)
+        var imSq = [Float](repeating: 0, count: halfN - 1)
 
         padded.withUnsafeBufferPointer { paddedBuf in
             for f in 0..<nRealFrames {
@@ -299,9 +274,6 @@ private final class CohereMelSpectrogram {
                             // Bin N/2: real = imagPart[0], imag = 0
                             dst[halfN] = iBuf[0] * iBuf[0]
                             // Bins 1..<halfN: power = re² + im²
-                            // Use vDSP: square real, square imag, add
-                            var reSq = [Float](repeating: 0, count: halfN - 1)
-                            var imSq = [Float](repeating: 0, count: halfN - 1)
                             vDSP_vsq(rBuf.baseAddress! + 1, 1, &reSq, 1, vDSP_Length(halfN - 1))
                             vDSP_vsq(iBuf.baseAddress! + 1, 1, &imSq, 1, vDSP_Length(halfN - 1))
                             vDSP_vadd(reSq, 1, imSq, 1, dst + 1, 1, vDSP_Length(halfN - 1))
@@ -607,13 +579,13 @@ private struct CohereTranscribeModels {
         config.computeUnits = computeUnits
 
         CohereProfilingLog.write("[cohere][load] start computeUnits=\(cohereComputeUnitsDescription(computeUnits)) dir=\(directory.path)")
-        let encoder = try await loadModel(packageName: CohereTranscribeConfig.encoderPackage, from: directory, configuration: config)
+        let encoder = try await loadModel(packageName: CohereTranscribeConfig.dynamicEncoderPackage, from: directory, configuration: config)
         let prefill = try await loadModel(packageName: CohereTranscribeConfig.prefillPackage, from: directory, configuration: config)
         let decode = try await loadModel(packageName: CohereTranscribeConfig.decodePackage, from: directory, configuration: config)
         let tokenizer = try CohereSentencePieceDecoder(modelURL: directory.appendingPathComponent(CohereTranscribeConfig.tokenizerFile))
         let melExtractor = try CohereMelSpectrogram(directory: directory)
         let encoderUsesDynamicLength = encoder.modelDescription.inputDescriptionsByName.keys.contains("length")
-        CohereProfilingLog.write("[cohere] encoderPackage=\(preferredEncoderPackageName(in: directory)) lengthAware=\(encoderUsesDynamicLength)")
+        CohereProfilingLog.write("[cohere] encoder lengthAware=\(encoderUsesDynamicLength)")
 
         return CohereTranscribeModels(
             encoder: encoder,
@@ -626,78 +598,35 @@ private struct CohereTranscribeModels {
     }
 
     private static func loadModel(packageName: String, from directory: URL, configuration: MLModelConfiguration) async throws -> MLModel {
-        let resolvedPackageName = packageName == CohereTranscribeConfig.encoderPackage
-            ? preferredEncoderPackageName(in: directory)
-            : packageName
-        let packageURL = directory.appendingPathComponent(resolvedPackageName, isDirectory: true)
-        let compiledURL = directory.appendingPathComponent(resolvedPackageName.replacingOccurrences(of: ".mlpackage", with: ".mlmodelc"), isDirectory: true)
-        let isInt8Encoder = packageName == CohereTranscribeConfig.encoderPackage
-            && resolvedPackageName == CohereTranscribeConfig.encoderPackage
-        let isPalettizedEncoder = resolvedPackageName == CohereTranscribeConfig.palettizedEncoderPackage
-
-        let effectiveConfiguration: MLModelConfiguration
-        let shouldPreferCompiled: Bool
-        if isPalettizedEncoder {
-            // Palettized encoder must run on GPU — ANE hangs with constexpr_lut_to_dense ops
-            let encoderConfig = MLModelConfiguration()
-            encoderConfig.computeUnits = .cpuAndGPU
-            effectiveConfiguration = encoderConfig
-            shouldPreferCompiled = true
-            CohereProfilingLog.write(
-                "[cohere][loadModel] palettized encoder: computeUnits=cpuAndGPU"
-            )
-        } else if isInt8Encoder {
-            let overrideComputeUnits = ProcessInfo.processInfo.environment[CohereTranscribeConfig.int8EncoderComputeUnitsOverrideEnv]
-                .flatMap(cohereComputeUnits(from:))
-            let overrideUseCompiled = ProcessInfo.processInfo.environment[CohereTranscribeConfig.int8EncoderUseCompiledOverrideEnv]
-                .flatMap(cohereBool(from:))
-            let encoderConfig = MLModelConfiguration()
-            encoderConfig.computeUnits = overrideComputeUnits ?? .cpuAndGPU
-            effectiveConfiguration = encoderConfig
-            shouldPreferCompiled = overrideUseCompiled ?? false
-            CohereProfilingLog.write(
-                "[cohere][loadModel] int8 encoder override computeUnits=\(cohereComputeUnitsDescription(effectiveConfiguration.computeUnits)) useCompiled=\(shouldPreferCompiled)"
-            )
-        } else {
-            effectiveConfiguration = configuration
-            shouldPreferCompiled = true
-        }
+        let packageURL = directory.appendingPathComponent(packageName, isDirectory: true)
+        let compiledURL = directory.appendingPathComponent(packageName.replacingOccurrences(of: ".mlpackage", with: ".mlmodelc"), isDirectory: true)
 
         CohereProfilingLog.write(
-            "[cohere][loadModel] package=\(packageName) resolved=\(resolvedPackageName) computeUnits=\(cohereComputeUnitsDescription(effectiveConfiguration.computeUnits)) packageExists=\(FileManager.default.fileExists(atPath: packageURL.path)) compiledExists=\(FileManager.default.fileExists(atPath: compiledURL.path))"
+            "[cohere][loadModel] package=\(packageName) computeUnits=\(cohereComputeUnitsDescription(configuration.computeUnits)) packageExists=\(FileManager.default.fileExists(atPath: packageURL.path)) compiledExists=\(FileManager.default.fileExists(atPath: compiledURL.path))"
         )
 
         let modelURL: URL
-        if shouldPreferCompiled && FileManager.default.fileExists(atPath: compiledURL.path) {
+        if FileManager.default.fileExists(atPath: compiledURL.path) {
             CohereProfilingLog.write("[cohere][loadModel] using compiled model \(compiledURL.lastPathComponent)")
             modelURL = compiledURL
         } else {
-            if shouldPreferCompiled {
-                let compileStart = CFAbsoluteTimeGetCurrent()
-                CohereProfilingLog.write("[cohere][loadModel] compiling \(resolvedPackageName)")
-                let compiledTemp = try await MLModel.compileModel(at: packageURL)
-                try? FileManager.default.removeItem(at: compiledURL)
-                try FileManager.default.copyItem(at: compiledTemp, to: compiledURL)
-                try? FileManager.default.removeItem(at: compiledTemp)
-                let compileMs = (CFAbsoluteTimeGetCurrent() - compileStart) * 1000
-                CohereProfilingLog.write("[cohere][loadModel] compiled \(resolvedPackageName) in \(String(format: "%.0f", compileMs))ms")
-                modelURL = compiledURL
-            } else {
-                CohereProfilingLog.write("[cohere][loadModel] using package model \(packageURL.lastPathComponent)")
-                modelURL = packageURL
-            }
+            let compileStart = CFAbsoluteTimeGetCurrent()
+            CohereProfilingLog.write("[cohere][loadModel] compiling \(packageName)")
+            let compiledTemp = try await MLModel.compileModel(at: packageURL)
+            try? FileManager.default.removeItem(at: compiledURL)
+            try FileManager.default.copyItem(at: compiledTemp, to: compiledURL)
+            try? FileManager.default.removeItem(at: compiledTemp)
+            let compileMs = (CFAbsoluteTimeGetCurrent() - compileStart) * 1000
+            CohereProfilingLog.write("[cohere][loadModel] compiled \(packageName) in \(String(format: "%.0f", compileMs))ms")
+            modelURL = compiledURL
         }
 
         let loadStart = CFAbsoluteTimeGetCurrent()
         CohereProfilingLog.write("[cohere][loadModel] loading \(modelURL.lastPathComponent)")
-        let model = try await MLModel.load(contentsOf: modelURL, configuration: effectiveConfiguration)
+        let model = try await MLModel.load(contentsOf: modelURL, configuration: configuration)
         let loadMs = (CFAbsoluteTimeGetCurrent() - loadStart) * 1000
         CohereProfilingLog.write("[cohere][loadModel] loaded \(modelURL.lastPathComponent) in \(String(format: "%.0f", loadMs))ms")
         return model
-    }
-
-    private static func preferredEncoderPackageName(in directory: URL) -> String {
-        return CohereTranscribeConfig.dynamicEncoderPackage
     }
 }
 
@@ -1070,7 +999,7 @@ actor CohereTranscribeTranscriber {
             let modelsMs = (CFAbsoluteTimeGetCurrent() - modelsStart) * 1000
             CohereProfilingLog.write("[cohere][load] CohereTranscribeModels.load finished in \(String(format: "%.0f", modelsMs))ms")
             let managerStart = CFAbsoluteTimeGetCurrent()
-            let loadedManager = try CohereTranscribeManager(models: models)
+            let loadedManager = CohereTranscribeManager(models: models)
             let managerMs = (CFAbsoluteTimeGetCurrent() - managerStart) * 1000
             CohereProfilingLog.write("[cohere][load] manager init finished in \(String(format: "%.0f", managerMs))ms")
             CohereProfilingLog.write("[cohere] models loaded, ready")

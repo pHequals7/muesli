@@ -76,8 +76,8 @@ struct BackendOption: Equatable {
         backend: "cohere",
         model: "phequals/cohere-transcribe-coreml-int8",
         label: "Cohere Transcribe",
-        sizeLabel: "~2.0 GB",
-        description: "INT8 CoreML, autoregressive, experimental. English. Fast 8-layer decoder (#1 Open ASR Leaderboard). Final transcript after stop.",
+        sizeLabel: "~3.8 GB",
+        description: "Mixed precision (FP16 encoder + INT8 decoder). English. High accuracy (#1 Open ASR Leaderboard). Final transcript after stop. May decode hallucinated text during silence — use in quiet environments or with VAD.",
         recommended: false
     )
 
@@ -93,11 +93,11 @@ struct BackendOption: Equatable {
     ]
 
     static let experimental: [BackendOption] = [
-        .qwen3Asr, .canaryQwen, .cohereTranscribe, .nemotronStreaming,
+        .qwen3Asr, .canaryQwen, .nemotronStreaming,
     ]
 
     /// Models available for download and use.
-    static let all: [BackendOption] = parakeetFamily + whisperFamily + experimental
+    static let all: [BackendOption] = parakeetFamily + [.cohereTranscribe] + whisperFamily + experimental
     
 
     static let qwen3Asr = BackendOption(
