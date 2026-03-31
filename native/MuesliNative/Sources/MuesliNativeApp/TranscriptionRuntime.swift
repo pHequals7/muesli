@@ -154,6 +154,19 @@ actor TranscriptionCoordinator {
     }
 
     func transcribeDictation(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+        // Cohere decodes hallucinated text from silence — skip if VAD detects no speech
+        if backend.backend == "cohere", let vadManager {
+            do {
+                let vadResults = try await vadManager.process(url)
+                let hasSpeech = vadResults.contains { $0.probability > 0.5 }
+                if !hasSpeech {
+                    fputs("[muesli-native] VAD: dictation is silent, skipping Cohere transcription\n", stderr)
+                    return SpeechTranscriptionResult(text: "", segments: [])
+                }
+            } catch {
+                fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
+            }
+        }
         var result = try await route(url: url, backend: backend)
         result = removeArtifacts(result)
         result = removeFillers(result)
