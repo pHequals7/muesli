@@ -6,6 +6,9 @@ import AppKit
 @Suite("PasteController — clipboard-preserving paste and keystroke simulation", .serialized)
 struct PasteControllerTests {
 
+    private let clipboardPollInterval: TimeInterval = 0.05
+    private let clipboardRestoreTimeout: TimeInterval = 2.0
+
     // MARK: - typeText tests
 
     @Test("typeText with empty string does not crash")
@@ -86,14 +89,7 @@ struct PasteControllerTests {
 
         PasteController.paste(text: "dictated text")
 
-        // Wait for restore on the main queue. DispatchQueue.main.asyncAfter blocks
-        // require the main thread to service them, so we use a continuation that
-        // dispatches verification onto main after the restore window has elapsed.
-        let restored: String? = await withCheckedContinuation { continuation in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                continuation.resume(returning: pasteboard.string(forType: .string))
-            }
-        }
+        let restored = await waitForClipboardString(expected: "user-copied-text")
 
         #expect(restored == "user-copied-text")
     }
@@ -105,11 +101,7 @@ struct PasteControllerTests {
 
         PasteController.paste(text: "dictated text")
 
-        let restored: String? = await withCheckedContinuation { continuation in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                continuation.resume(returning: pasteboard.string(forType: .string))
-            }
-        }
+        let restored = await waitForClipboardString(expected: nil)
 
         #expect(restored == nil)
     }
@@ -131,15 +123,58 @@ struct PasteControllerTests {
 
         PasteController.paste(text: "dictated text")
 
-        let (countAfter, texts): (Int, [String]) = await withCheckedContinuation { continuation in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                let count = pasteboard.pasteboardItems?.count ?? 0
-                let strings = pasteboard.pasteboardItems?.compactMap { $0.string(forType: .string) } ?? []
-                continuation.resume(returning: (count, strings))
-            }
-        }
+        let (countAfter, texts) = await waitForClipboardItems(
+            expectedCount: 2,
+            expectedStrings: ["item-one", "item-two"]
+        )
 
         #expect(countAfter == 2)
         #expect(texts == ["item-one", "item-two"])
+    }
+
+    private func waitForClipboardString(expected: String?) async -> String? {
+        await withCheckedContinuation { continuation in
+            let deadline = Date().addingTimeInterval(clipboardRestoreTimeout)
+            var poll: (() -> Void)?
+            poll = {
+                let current = NSPasteboard.general.string(forType: .string)
+                if current == expected || Date() >= deadline {
+                    continuation.resume(returning: current)
+                    return
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + clipboardPollInterval) {
+                    poll?()
+                }
+            }
+
+            DispatchQueue.main.async {
+                poll?()
+            }
+        }
+    }
+
+    private func waitForClipboardItems(expectedCount: Int, expectedStrings: [String]) async -> (Int, [String]) {
+        await withCheckedContinuation { continuation in
+            let deadline = Date().addingTimeInterval(clipboardRestoreTimeout)
+            var poll: (() -> Void)?
+            poll = {
+                let items = NSPasteboard.general.pasteboardItems ?? []
+                let count = items.count
+                let strings = items.compactMap { $0.string(forType: .string) }
+                if (count == expectedCount && strings == expectedStrings) || Date() >= deadline {
+                    continuation.resume(returning: (count, strings))
+                    return
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + clipboardPollInterval) {
+                    poll?()
+                }
+            }
+
+            DispatchQueue.main.async {
+                poll?()
+            }
+        }
     }
 }
