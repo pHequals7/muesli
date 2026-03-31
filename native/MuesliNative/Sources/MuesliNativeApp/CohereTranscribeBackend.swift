@@ -893,9 +893,8 @@ private final class CohereTranscribeManager {
     }
 
     /// Merge transcripts from overlapping audio chunks by deduplicating shared content.
-    /// Uses fuzzy word matching to find where the next chunk's content diverges from
-    /// what was already transcribed, handling slight transcription differences in the
-    /// overlapping audio region.
+    /// Uses hash-based trigram matching: build a dictionary of word trigrams from the
+    /// tail of chunk N, then scan the head of chunk N+1 to find where the overlap ends.
     static func mergeOverlappingTranscripts(_ transcripts: [String]) -> String {
         guard transcripts.count > 1 else {
             return transcripts.first ?? ""
@@ -912,42 +911,50 @@ private final class CohereTranscribeManager {
                 continue
             }
 
-            // Search the tail of prev for the best anchor point in next.
-            // For each word near the end of prev, find if it appears near the start of next.
-            // The overlap region is ~5s ≈ 25-35 words, so check the last 40 words of prev
-            // against the first 40 words of next.
+            let normalize: (String) -> String = { $0.lowercased().filter(\.isLetter) }
+
+            // Build trigram index from the tail of prev (last 40 words)
+            // Key: "word1|word2|word3" → value: position in prev tail
             let tailSize = min(prevWords.count, 40)
+            let tailStart = prevWords.count - tailSize
+            let tail = prevWords.suffix(tailSize).map { normalize($0) }
+            var trigramIndex: [String: Int] = [:]
+            if tail.count >= 3 {
+                for j in 0...(tail.count - 3) {
+                    let key = "\(tail[j])|\(tail[j + 1])|\(tail[j + 2])"
+                    trigramIndex[key] = j  // last occurrence wins (prefer later matches)
+                }
+            }
+
+            // Scan head of next for a trigram that exists in prev's tail
             let headSize = min(nextWords.count, 40)
-            let tail = prevWords.suffix(tailSize).map { $0.lowercased().filter(\.isLetter) }
-            let head = nextWords.prefix(headSize).map { $0.lowercased().filter(\.isLetter) }
+            let head = nextWords.prefix(headSize).map { normalize($0) }
+            var bestSkip = 0
 
-            // Find the longest contiguous run of matching words (allowing fuzzy single-word gaps)
-            var bestNextStart = 0
-            var bestRunLength = 0
-
-            for tailStart in 0..<tail.count {
-                for headStart in 0..<head.count {
-                    var matches = 0
-                    var ti = tailStart
-                    var hi = headStart
-                    while ti < tail.count && hi < head.count {
-                        if tail[ti] == head[hi] {
-                            matches += 1
+            if head.count >= 3 {
+                for j in 0...(head.count - 3) {
+                    let key = "\(head[j])|\(head[j + 1])|\(head[j + 2])"
+                    if let tailPos = trigramIndex[key] {
+                        // Found anchor — verify it extends (count consecutive matches after the trigram)
+                        var run = 3
+                        var ti = tailPos + 3
+                        var hi = j + 3
+                        while ti < tail.count && hi < head.count && tail[ti] == head[hi] {
+                            run += 1
                             ti += 1
                             hi += 1
-                        } else {
-                            break
                         }
-                    }
-                    if matches > bestRunLength && matches >= 3 {
-                        bestRunLength = matches
-                        bestNextStart = headStart + matches
+                        // Take the match that covers the most of the head (skip the most words)
+                        let skip = j + run
+                        if skip > bestSkip {
+                            bestSkip = skip
+                        }
                     }
                 }
             }
 
-            if bestNextStart > 0 {
-                let deduplicated = nextWords.dropFirst(bestNextStart).joined(separator: " ")
+            if bestSkip > 0 {
+                let deduplicated = nextWords.dropFirst(bestSkip).joined(separator: " ")
                 if !deduplicated.isEmpty {
                     merged += " " + deduplicated
                 }
