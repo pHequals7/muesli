@@ -19,6 +19,7 @@ actor TranscriptionCoordinator {
     private var _nemotronTranscriber: Any?
     private var _qwen3Transcriber: Any?
     private var _canaryQwenTranscriber: Any?
+    private var _cohereTranscriber: Any?
     private var vadManager: VadManager?
     private var diarizerManager: DiarizerManager?
     private var activeBackend: String?
@@ -51,6 +52,14 @@ actor TranscriptionCoordinator {
             _canaryQwenTranscriber = CanaryQwenTranscriber()
         }
         return _canaryQwenTranscriber as! CanaryQwenTranscriber
+    }
+
+    @available(macOS 15, *)
+    private var cohereTranscriber: CohereTranscribeTranscriber {
+        if _cohereTranscriber == nil {
+            _cohereTranscriber = CohereTranscribeTranscriber()
+        }
+        return _cohereTranscriber as! CohereTranscribeTranscriber
     }
 
     func preload(backend: BackendOption, progress: ((Double, String?) -> Void)? = nil) async {
@@ -129,12 +138,35 @@ actor TranscriptionCoordinator {
             } else {
                 fputs("[muesli-native] Canary Qwen requires macOS 15+\n", stderr)
             }
+        case "cohere":
+            if #available(macOS 15, *) {
+                do {
+                    try await cohereTranscriber.prepare(progress: progress)
+                } catch {
+                    fputs("[muesli-native] Cohere Transcribe preload failed: \(error)\n", stderr)
+                }
+            } else {
+                fputs("[muesli-native] Cohere Transcribe requires macOS 15+\n", stderr)
+            }
         default:
             fputs("[muesli-native] unknown backend: \(backend.backend)\n", stderr)
         }
     }
 
     func transcribeDictation(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+        // Cohere decodes hallucinated text from silence — skip if VAD detects no speech
+        if backend.backend == "cohere", let vadManager {
+            do {
+                let vadResults = try await vadManager.process(url)
+                let hasSpeech = vadResults.contains { $0.probability > 0.5 }
+                if !hasSpeech {
+                    fputs("[muesli-native] VAD: dictation is silent, skipping Cohere transcription\n", stderr)
+                    return SpeechTranscriptionResult(text: "", segments: [])
+                }
+            } catch {
+                fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
+            }
+        }
         var result = try await route(url: url, backend: backend)
         result = removeArtifacts(result)
         result = removeFillers(result)
@@ -194,6 +226,7 @@ actor TranscriptionCoordinator {
                 await nemotronTranscriber.shutdown()
                 await qwen3Transcriber.shutdown()
                 await canaryQwenTranscriber.shutdown()
+                await cohereTranscriber.shutdown()
             }
         }
     }
@@ -229,6 +262,8 @@ actor TranscriptionCoordinator {
             return try await transcribeWithQwen3(url: url)
         case "canary":
             return try await transcribeWithCanaryQwen(url: url)
+        case "cohere":
+            return try await transcribeWithCohere(url: url)
         default:
             return try await transcribeWithFluidAudio(url: url)
         }
@@ -296,6 +331,25 @@ actor TranscriptionCoordinator {
         } else {
             throw NSError(domain: "Muesli", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Canary Qwen requires macOS 15 or later.",
+            ])
+        }
+    }
+
+    // MARK: - Cohere Transcribe (CoreML)
+
+    private func transcribeWithCohere(url: URL) async throws -> SpeechTranscriptionResult {
+        if #available(macOS 15, *) {
+            fputs("[muesli-native] transcribing with Cohere Transcribe: \(url.lastPathComponent)\n", stderr)
+            let result = try await cohereTranscriber.transcribe(wavURL: url)
+            fputs("[muesli-native] Cohere Transcribe result: \(result.text.prefix(80)) (took \(String(format: "%.3f", result.processingTime))s)\n", stderr)
+            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return SpeechTranscriptionResult(
+                text: text,
+                segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
+            )
+        } else {
+            throw NSError(domain: "Muesli", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Cohere Transcribe requires macOS 15 or later.",
             ])
         }
     }

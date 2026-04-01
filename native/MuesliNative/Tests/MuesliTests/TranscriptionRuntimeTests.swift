@@ -50,8 +50,77 @@ struct TranscriptionCoordinatorTests {
     @Test("backend routing covers all known backends")
     func allBackendsCovered() {
         let backends = Set(BackendOption.all.map(\.backend))
-        let expected: Set<String> = ["fluidaudio", "whisper", "qwen", "nemotron", "canary"]
+        let expected: Set<String> = ["fluidaudio", "whisper", "qwen", "nemotron", "canary", "cohere"]
         #expect(backends == expected, "BackendOption.all backends should match expected set")
+    }
+}
+
+@Suite("CohereTranscribeUtils")
+struct CohereTranscribeUtilsTests {
+
+    @Test("single transcript returns unchanged")
+    func singleTranscript() {
+        let result = CohereTranscribeUtils.mergeOverlappingTranscripts(["Hello world"])
+        #expect(result == "Hello world")
+    }
+
+    @Test("empty list returns empty string")
+    func emptyList() {
+        #expect(CohereTranscribeUtils.mergeOverlappingTranscripts([]) == "")
+    }
+
+    @Test("no overlap joins with space")
+    func noOverlap() {
+        let result = CohereTranscribeUtils.mergeOverlappingTranscripts([
+            "The quick brown fox",
+            "jumped over the lazy dog",
+        ])
+        #expect(result == "The quick brown fox jumped over the lazy dog")
+    }
+
+    @Test("exact trigram overlap deduplicates")
+    func exactOverlap() {
+        let result = CohereTranscribeUtils.mergeOverlappingTranscripts([
+            "I went to the store and bought some milk",
+            "and bought some milk then came home",
+        ])
+        #expect(result == "I went to the store and bought some milk then came home")
+    }
+
+    @Test("case-insensitive trigram matching")
+    func caseInsensitive() {
+        let result = CohereTranscribeUtils.mergeOverlappingTranscripts([
+            "The Model Works well",
+            "the model works well on device",
+        ])
+        #expect(result == "The Model Works well on device")
+    }
+
+    @Test("cleanTranscript strips endoftext token")
+    func stripsEndOfText() {
+        let result = CohereTranscribeUtils.cleanTranscript("Hello world<|endoftext|>garbage after")
+        #expect(result == "Hello world")
+    }
+
+    @Test("cleanTranscript strips special tokens")
+    func stripsSpecialTokens() {
+        let result = CohereTranscribeUtils.cleanTranscript("Hello<|nospeech|> world<|pnc|>")
+        #expect(result == "Hello world")
+    }
+
+    @Test("cleanTranscript trims repeated suffix")
+    func trimsRepeatedSuffix() {
+        // Split on ". " produces: ["First", "Second", "Third", "Fourth", "Second", "more"]
+        // Position 4 "Second" matches position 1 "Second", i-j=3 ≤ 3 → truncate at position 4
+        let result = CohereTranscribeUtils.cleanTranscript(
+            "First. Second. Third. Fourth. Second. more text"
+        )
+        #expect(result == "First. Second. Third. Fourth.")
+    }
+
+    @Test("cleanTranscript passes normal text unchanged")
+    func normalTextUnchanged() {
+        #expect(CohereTranscribeUtils.cleanTranscript("Normal transcription text.") == "Normal transcription text.")
     }
 }
 

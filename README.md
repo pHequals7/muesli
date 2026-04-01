@@ -20,7 +20,7 @@
 
 ## What is Muesli?
 
-Muesli is a **32MB native macOS app** that combines **WisprFlow-style dictation** and **Granola-style meeting transcription** in one lightweight tool. All transcription runs locally on Apple Silicon — your audio never leaves your device unless you want to (meeting summaries).
+Muesli is a **lightweight native macOS app** that combines **WisprFlow-style dictation** and **Granola-style meeting transcription** in one tool. All transcription runs locally on Apple Silicon — your audio never leaves your device unless you want to (meeting summaries).
 
 ### Dictation
 Hold your hotkey (or double-tap for hands-free mode) → speak → release → transcribed text is pasted at your cursor. **~0.13 second latency** via Parakeet TDT on the Apple Neural Engine.
@@ -32,8 +32,8 @@ Start a meeting recording → Muesli captures your mic (You) and system audio (O
 
 ## Features
 
-- **Native Swift, zero Python** — Pure Swift app with CoreML and Metal backends. No bundled runtimes, no subprocess IPC. 32MB total.
-- **Multiple ASR models** — Choose from Parakeet TDT (Neural Engine), Whisper Small/Medium/Large Turbo (Metal via whisper.cpp), and Qwen3 ASR (52 languages, CoreML). NVIDIA Nemotron streaming coming soon.
+- **Native Swift, zero Python** — Pure Swift app with CoreML and Metal backends. No bundled runtimes, no subprocess IPC.
+- **Multiple ASR models** — Parakeet TDT (Neural Engine), Cohere Transcribe 2B (mixed precision CoreML), Whisper Small/Medium/Large Turbo (Metal via whisper.cpp), and Qwen3 ASR (52 languages, CoreML).
 - **Hold-to-talk & hands-free** — Hold hotkey for quick dictation, or double-tap for sustained recording.
 - **Meeting recording** — Captures mic + system audio (including Bluetooth/AirPods) via ScreenCaptureKit.
 - **VAD-driven chunk rotation** — Silero VAD detects natural speech boundaries in real-time, splitting mic audio at pauses instead of fixed intervals. No mid-sentence cuts.
@@ -199,10 +199,13 @@ Important meeting fields:
 |-------|---------|---------|------|-----------|---------|
 | **Parakeet v3** (recommended) | FluidAudio | CoreML / Neural Engine | ~450 MB | 25 languages | ~0.13s |
 | Parakeet v2 | FluidAudio | CoreML / Neural Engine | ~450 MB | English only | ~0.13s |
+| **Cohere Transcribe 2B** | CoreML | FP16 encoder + INT8 decoder | ~3.8 GB | English | ~1s |
 | Qwen3 ASR | FluidAudio | CoreML / Neural Engine | ~1.3 GB | 52 languages | ~2-3s |
 | Whisper Small | whisper.cpp | Metal / CPU | ~190 MB | English only | ~1-2s |
 | Whisper Medium | whisper.cpp | Metal / CPU | ~1.5 GB | English only | ~2-3s |
 | Whisper Large Turbo | whisper.cpp | Metal / CPU | ~600 MB | Multilingual | ~2-4s |
+
+Cohere Transcribe is a 2B parameter model (#1 on Open ASR Leaderboard) running in mixed precision — FP16 FastConformer encoder on the Neural Engine with INT8 quantized decoders. Includes VAD-gated silence detection to prevent hallucination. Best for high-accuracy English dictation.
 
 Models download on demand from HuggingFace. Manage them from the **Models** tab in the dashboard.
 
@@ -226,8 +229,9 @@ Muesli needs these macOS permissions (guided during onboarding):
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  Native Swift / SwiftUI App (38MB)                   │
+│  Native Swift / SwiftUI App                          │
 │  ├── FluidAudio (Parakeet TDT + Qwen3 ASR on ANE)   │
+│  ├── Cohere Transcribe (FP16+INT8 CoreML on ANE)     │
 │  ├── SwiftWhisper (whisper.cpp on Metal/CPU)          │
 │  ├── Silero VAD (streaming voice activity detection)  │
 │  ├── Speaker Diarization (pyannote CoreML on ANE)     │
@@ -256,6 +260,7 @@ Everything runs in-process. No subprocesses, no IPC, no Python runtime.
 |---|---|
 | App | Swift, AppKit, SwiftUI |
 | Primary ASR | [FluidAudio](https://github.com/FluidInference/FluidAudio) (Parakeet TDT + Qwen3 ASR on CoreML/ANE) |
+| Cohere ASR | [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026) (FP16 encoder + INT8 decoder on CoreML) |
 | Whisper ASR | [SwiftWhisper](https://github.com/exPHAT/SwiftWhisper) (whisper.cpp on Metal) |
 | Voice activity | Silero VAD via FluidAudio (streaming, event-driven) |
 | Speaker diarization | pyannote via FluidAudio (CoreML on ANE) |
@@ -307,6 +312,7 @@ If Muesli saves you time, consider supporting development:
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) — C/C++ Whisper inference
 - [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit) by Apple — system audio capture
 - [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) — FastConformer TDT speech recognition model
+- [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026) — 2B parameter autoregressive ASR (#1 Open ASR Leaderboard)
 - [Qwen3-ASR](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) — Multilingual speech recognition (52 languages)
 - [pyannote](https://github.com/pyannote/pyannote-audio) — Speaker diarization (via FluidAudio CoreML conversion)
 

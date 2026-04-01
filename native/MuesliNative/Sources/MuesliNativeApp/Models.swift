@@ -72,6 +72,15 @@ struct BackendOption: Equatable {
         recommended: false
     )
 
+    static let cohereTranscribe = BackendOption(
+        backend: "cohere",
+        model: "phequals/cohere-transcribe-coreml-mixed-precision",
+        label: "Cohere Transcribe",
+        sizeLabel: "~3.8 GB",
+        description: "Mixed precision (FP16 encoder + INT8 decoder). English. High accuracy (#1 Open ASR Leaderboard). Final transcript after stop. May decode hallucinated text during silence — use in quiet environments or with VAD.",
+        recommended: false
+    )
+
     // Default alias
     static let whisper = parakeetMultilingual
 
@@ -88,7 +97,7 @@ struct BackendOption: Equatable {
     ]
 
     /// Models available for download and use.
-    static let all: [BackendOption] = parakeetFamily + whisperFamily + experimental
+    static let all: [BackendOption] = parakeetFamily + [.cohereTranscribe] + whisperFamily + experimental
     
 
     static let qwen3Asr = BackendOption(
@@ -138,6 +147,8 @@ struct BackendOption: Equatable {
             return fm.fileExists(atPath: path.path)
         case "canary":
             return CanaryQwenModelStore.isAvailableLocally()
+        case "cohere":
+            return CohereTranscribeModelStore.isAvailableLocally()
         default:
             return false
         }
