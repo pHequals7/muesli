@@ -29,6 +29,21 @@ struct MeetingDetectorTests {
         #expect(result?.appName == "Meeting")  // no app identified
     }
 
+    @Test("currentDetection returns active detection without consuming dedupe state")
+    func currentDetectionDoesNotConsumeDeduplication() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: CalendarEventContext(id: "evt1", title: "Sprint Planning"),
+            runningApps: []
+        )
+
+        #expect(d.currentDetection(signals)?.meetingTitle == "Sprint Planning")
+        #expect(d.evaluate(signals)?.meetingTitle == "Sprint Planning")
+        #expect(d.evaluate(signals) == nil)
+    }
+
     @Test("calendar + mic + Zoom running uses Zoom as app name")
     func calendarPlusMicWithZoom() {
         let d = makeDetector()
@@ -366,6 +381,20 @@ struct MeetingDetectorTests {
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: true)]
         )
         #expect(d.evaluate(signals) == nil)
+    }
+
+    @Test("suppressed detector hides currentDetection state too")
+    func suppressedCurrentDetection() {
+        let d = makeDetector()
+        d.suppress(for: 60)
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: CalendarEventContext(id: "evt1", title: "Meeting"),
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: true)]
+        )
+
+        #expect(d.currentDetection(signals) == nil)
     }
 
     @Test("suppression expires and detection resumes")

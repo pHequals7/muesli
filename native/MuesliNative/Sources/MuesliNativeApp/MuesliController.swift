@@ -105,6 +105,8 @@ final class MuesliController: NSObject {
     private var workspaceObserver: NSObjectProtocol?
     private var dataDidChangeObserver: NSObjectProtocol?
     private var isStartingMeetingRecording = false
+    private var currentMeetingDetection: MeetingDetection?
+    private var presentedMeetingDetection: MeetingDetection?
 
     init(runtime: RuntimePaths, dictationStore: DictationStore? = nil) {
         let loadedConfig = configStore.load()
@@ -203,23 +205,10 @@ final class MuesliController: NSObject {
         micActivityMonitor.calendarEventProvider = { [weak self] in
             self?.calendarMonitor.currentOrNearbyEvent()
         }
-        micActivityMonitor.onMeetingDetected = { [weak self] detection in
-            guard let self,
-                  !self.isMeetingRecording(),
-                  !self.isStartingMeetingRecording,
-                  self.config.showMeetingDetectionNotification else { return }
-            let title = detection.meetingTitle ?? detection.appName
-            self.meetingNotification.show(
-                title: "Meeting detected",
-                subtitle: title,
-                onStartRecording: { [weak self] in
-                    self?.micActivityMonitor.suppress()
-                    self?.startMeetingRecording(title: title)
-                },
-                onDismiss: { [weak self] in
-                    self?.micActivityMonitor.suppress()
-                }
-            )
+        micActivityMonitor.onMeetingDetectionStateChanged = { [weak self] detection in
+            guard let self else { return }
+            self.currentMeetingDetection = detection
+            self.updateMeetingNotificationVisibility()
         }
         micActivityMonitor.start()
 
@@ -250,6 +239,7 @@ final class MuesliController: NSObject {
         hotkeyMonitor.stop()
         calendarMonitor.stop()
         micActivityMonitor.stop()
+        dismissPresentedMeetingDetection()
         meetingNotification.close()
         recorder.cancel()
         Task {
@@ -358,6 +348,7 @@ final class MuesliController: NSObject {
         appState.selectedMeetingSummaryBackend = selectedMeetingSummaryBackend
         appState.config = config
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
+        updateMeetingNotificationVisibility()
     }
 
     func selectBackend(_ option: BackendOption) {
@@ -816,8 +807,9 @@ final class MuesliController: NSObject {
     func startMeetingRecording(title: String = "Meeting") {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         isStartingMeetingRecording = true
-        meetingNotification.close()
         micActivityMonitor.suppressWhileActive()
+        micActivityMonitor.refreshState()
+        updateMeetingNotificationVisibility()
         let meetingSession = MeetingSession(
             title: title,
             calendarEventID: nil,
@@ -835,6 +827,7 @@ final class MuesliController: NSObject {
                 try await meetingSession.start()
                 self.activeMeetingSession = meetingSession
                 self.micActivityMonitor.suppressWhileActive()
+                self.micActivityMonitor.refreshState()
                 self.statusBarController?.setStatus("Meeting: \(title)")
                 self.indicator.powerProvider = { [weak meetingSession] in
                     meetingSession?.currentPower() ?? -160
@@ -844,11 +837,13 @@ final class MuesliController: NSObject {
             } catch {
                 fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
                 self.micActivityMonitor.resumeAfterCooldown()
+                self.micActivityMonitor.refreshState()
                 self.statusBarController?.setStatus("Idle")
                 self.statusBarController?.refresh()
                 self.setState(.idle)
             }
             self.isStartingMeetingRecording = false
+            self.updateMeetingNotificationVisibility()
         }
     }
 
@@ -871,9 +866,11 @@ final class MuesliController: NSObject {
         self.activeMeetingSession = nil
         indicator.setMeetingRecording(false, config: config)
         micActivityMonitor.resumeAfterCooldown()
+        micActivityMonitor.refreshState()
         setState(.idle)
         statusBarController?.refresh()
         syncAppState()
+        updateMeetingNotificationVisibility()
         fputs("[muesli-native] meeting recording discarded\n", stderr)
     }
 
@@ -919,11 +916,13 @@ final class MuesliController: NSObject {
                 self.activeMeetingSession = nil
                 self.setState(.idle)
                 self.micActivityMonitor.resumeAfterCooldown()
+                self.micActivityMonitor.refreshState()
                 self.statusBarController?.refresh()
                 self.historyWindowController?.reload()
                 self.syncAppState()
                 TelemetryDeck.signal("meeting.completed")
 
+                self.presentedMeetingDetection = nil
                 self.meetingNotification.show(
                     title: "Transcription complete",
                     subtitle: meetingTitle,
@@ -932,6 +931,7 @@ final class MuesliController: NSObject {
                         self?.openHistoryWindow(tab: .meetings)
                     }
                 )
+                self.updateMeetingNotificationVisibility()
             }
         }
     }
@@ -1114,6 +1114,46 @@ final class MuesliController: NSObject {
         }
         statusBarController?.setStatus(status)
         indicator.setState(state, config: config)
+    }
+
+    private func dismissPresentedMeetingDetection() {
+        guard presentedMeetingDetection != nil else { return }
+        meetingNotification.close()
+        presentedMeetingDetection = nil
+    }
+
+    private func updateMeetingNotificationVisibility() {
+        guard config.showMeetingDetectionNotification else {
+            dismissPresentedMeetingDetection()
+            return
+        }
+
+        guard !isMeetingRecording(), !isStartingMeetingRecording, let detection = currentMeetingDetection else {
+            dismissPresentedMeetingDetection()
+            return
+        }
+
+        guard presentedMeetingDetection != detection else { return }
+
+        let title = detection.meetingTitle ?? detection.appName
+        presentedMeetingDetection = detection
+        meetingNotification.show(
+            title: "Meeting detected",
+            subtitle: title,
+            onStartRecording: { [weak self] in
+                guard let self else { return }
+                self.presentedMeetingDetection = nil
+                self.micActivityMonitor.suppress()
+                self.micActivityMonitor.refreshState()
+                self.startMeetingRecording(title: title)
+            },
+            onDismiss: { [weak self] in
+                guard let self else { return }
+                self.presentedMeetingDetection = nil
+                self.micActivityMonitor.suppress()
+                self.micActivityMonitor.refreshState()
+            }
+        )
     }
 
     @MainActor

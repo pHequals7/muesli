@@ -7,6 +7,8 @@ import MuesliCore
 final class MicActivityMonitor {
     /// Called when a meeting is detected. Passes the detection result.
     var onMeetingDetected: ((MeetingDetection) -> Void)?
+    /// Called whenever the current meeting-detection state changes.
+    var onMeetingDetectionStateChanged: ((MeetingDetection?) -> Void)?
     /// Injected by MuesliController — returns the current or nearby calendar event.
     var calendarEventProvider: (() -> CalendarEventContext?)?
 
@@ -17,6 +19,7 @@ final class MicActivityMonitor {
     private var micListenerBlock: AudioObjectPropertyListenerBlock?
     private var deviceChangeListenerBlock: AudioObjectPropertyListenerBlock?
     private var maintenanceTimer: Timer?
+    private var currentDetection: MeetingDetection?
 
     func start() {
         installMicListener()
@@ -53,6 +56,10 @@ final class MicActivityMonitor {
         detector.resumeAfterCooldown()
     }
 
+    func refreshState() {
+        evaluateNow()
+    }
+
     // MARK: - Evaluation
 
     /// Build current signals from system state and evaluate.
@@ -63,6 +70,11 @@ final class MicActivityMonitor {
             calendarEvent: calendarEventProvider?(),
             runningApps: currentRunningApps()
         )
+        let detectionState = detector.currentDetection(signals)
+        if detectionState != currentDetection {
+            currentDetection = detectionState
+            onMeetingDetectionStateChanged?(detectionState)
+        }
         if let detection = detector.evaluate(signals) {
             fputs("[mic-monitor] detected: \(detection.appName)" +
                   (detection.meetingTitle.map { " (\($0))" } ?? "") + "\n", stderr)

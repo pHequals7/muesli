@@ -60,4 +60,29 @@ struct MeetingMicRepairPlannerTests {
         #expect(segments[0].end == 7.0)
         #expect(segments[0].text == "hello world")
     }
+
+    @Test("shifts meaningful segment timings into meeting-relative offsets")
+    func shiftsMeaningfulSegmentTimings() {
+        let result = SpeechTranscriptionResult(
+            text: "hello world",
+            segments: [
+                SpeechSegment(start: 0.8, end: 1.4, text: "hello"),
+                SpeechSegment(start: 1.5, end: 2.1, text: "world")
+            ]
+        )
+
+        let segments = MeetingMicRepairPlanner.makeSpeechSegments(
+            from: result,
+            startTime: 10.0,
+            endTime: 13.0
+        )
+
+        #expect(segments.count == 2)
+        #expect(segments[0].start == 10.8)
+        #expect(segments[0].end == 11.4)
+        #expect(segments[0].text == "hello")
+        #expect(segments[1].start == 11.5)
+        #expect(segments[1].end == 12.1)
+        #expect(segments[1].text == "world")
+    }
 }

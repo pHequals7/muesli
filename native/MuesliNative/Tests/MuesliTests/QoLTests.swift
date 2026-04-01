@@ -134,19 +134,19 @@ struct MeetingChunkCollectorTests {
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(30))
-                return SpeechSegment(start: 30, end: 31, text: "later")
+                return [SpeechSegment(start: 30, end: 31, text: "later")]
             }
         )
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(5))
-                return nil
+                return []
             }
         )
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(10))
-                return SpeechSegment(start: 10, end: 11, text: "earlier")
+                return [SpeechSegment(start: 10, end: 11, text: "earlier")]
             }
         )
 
@@ -159,18 +159,62 @@ struct MeetingChunkCollectorTests {
     @Test("collector rejects tasks after closing")
     func collectorRejectsLateTasks() async {
         let collector = MeetingChunkCollector()
-        let initialTask = Task<SpeechSegment?, Never> {
-            SpeechSegment(start: 1, end: 2, text: "first")
+        let initialTask = Task<[SpeechSegment], Never> {
+            [SpeechSegment(start: 1, end: 2, text: "first")]
         }
         #expect(collector.add(initialTask))
 
         let initial = await collector.closeAndDrainSortedSegments()
         #expect(initial.map(\.text) == ["first"])
 
-        let lateTask = Task<SpeechSegment?, Never> {
-            SpeechSegment(start: 3, end: 4, text: "late")
+        let lateTask = Task<[SpeechSegment], Never> {
+            [SpeechSegment(start: 3, end: 4, text: "late")]
         }
         #expect(!collector.add(lateTask))
         lateTask.cancel()
+    }
+
+    @Test("collector flattens timed segments from a single chunk and sorts them")
+    func collectorFlattensChunkSegments() async {
+        let collector = MeetingChunkCollector()
+
+        _ = collector.add(
+            Task {
+                [
+                    SpeechSegment(start: 12, end: 12.5, text: "second"),
+                    SpeechSegment(start: 11, end: 11.5, text: "first")
+                ]
+            }
+        )
+
+        let segments = await collector.closeAndDrainSortedSegments()
+
+        #expect(segments.map(\.text) == ["first", "second"])
+        #expect(segments.map(\.start) == [11, 12])
+    }
+}
+
+@Suite("Meeting chunk timing")
+struct MeetingChunkTimingTrackerTests {
+
+    @Test("tracks chunk offsets from processed sample counts")
+    func tracksChunkOffsets() {
+        var tracker = MeetingChunkTimingTracker()
+        tracker.start()
+        tracker.append(sampleCount: 1600)
+
+        let first = tracker.rotate()
+        tracker.append(sampleCount: 800)
+        let second = tracker.finish()
+
+        #expect(first?.startSampleIndex == 0)
+        #expect(first?.sampleCount == 1600)
+        #expect(first?.startTimeSeconds == 0)
+        #expect(first?.durationSeconds == 0.1)
+
+        #expect(second?.startSampleIndex == 1600)
+        #expect(second?.sampleCount == 800)
+        #expect(second?.startTimeSeconds == 0.1)
+        #expect(second?.durationSeconds == 0.05)
     }
 }

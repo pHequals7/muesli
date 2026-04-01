@@ -5,13 +5,13 @@ import os
 
 final class MeetingChunkCollector {
     private struct State {
-        var tasks: [Task<SpeechSegment?, Never>] = []
+        var tasks: [Task<[SpeechSegment], Never>] = []
         var isClosed = false
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State())
 
-    func add(_ task: Task<SpeechSegment?, Never>) -> Bool {
+    func add(_ task: Task<[SpeechSegment], Never>) -> Bool {
         lock.withLock { state in
             guard !state.isClosed else { return false }
             state.tasks.append(task)
@@ -29,9 +29,7 @@ final class MeetingChunkCollector {
 
         var segments: [SpeechSegment] = []
         for task in tasksToAwait {
-            if let segment = await task.value {
-                segments.append(segment)
-            }
+            segments.append(contentsOf: await task.value)
         }
 
         return segments.sorted { lhs, rhs in
@@ -96,8 +94,7 @@ final class MeetingSession {
     private var vadController: StreamingVadController?
     private let micChunkCollector = MeetingChunkCollector()
     private let chunkRotationQueue = DispatchQueue(label: "MuesliNative.MeetingSession.chunkRotation")
-    /// Track chunk start times for timestamp offsets
-    private var currentChunkStartTime: Date?
+    private var chunkTimingTracker = MeetingChunkTimingTracker()
     var onProgress: ((MeetingProcessingStage) -> Void)?
 
     /// Current mic power level for waveform visualization.
@@ -168,7 +165,7 @@ final class MeetingSession {
         let now = Date()
         chunkRotationQueue.sync {
             startTime = now
-            currentChunkStartTime = now
+            chunkTimingTracker.start()
             isRecording = true
         }
         if vadController != nil {
@@ -182,7 +179,7 @@ final class MeetingSession {
     func discard() {
         let chunkRecorder = chunkRotationQueue.sync { () -> PCMChunkRecorder? in
             isRecording = false
-            currentChunkStartTime = nil
+            chunkTimingTracker.discard()
             let recorder = processedMicChunkRecorder
             processedMicChunkRecorder = nil
             return recorder
@@ -219,18 +216,18 @@ final class MeetingSession {
         streamingMicRecorder.onAudioBuffer = nil
         outputRouteMonitor.stop()
 
-        let finalProcessedTail = meetingAecProcessor?.flushCaptureRemainder() ?? []
-        let (meetingStart, lastChunkStart, lastMicURL) = chunkRotationQueue.sync { () -> (Date, Date, URL?) in
+        let finalProcessedTailBatch = meetingAecProcessor?.flushCaptureRemainderBatch() ?? .empty
+        let (meetingStart, lastChunkTiming, lastMicURL) = chunkRotationQueue.sync { () -> (Date, MeetingChunkTimingSnapshot?, URL?) in
             isRecording = false
             let meetingStart = self.startTime ?? Date()
-            if !finalProcessedTail.isEmpty {
-                processedMicChunkRecorder?.append(finalProcessedTail)
+            if !finalProcessedTailBatch.samples.isEmpty {
+                processedMicChunkRecorder?.append(finalProcessedTailBatch.samples)
+                chunkTimingTracker.append(sampleCount: finalProcessedTailBatch.samples.count)
             }
             let lastMicURL = processedMicChunkRecorder?.stop()
             processedMicChunkRecorder = nil
-            let lastChunkStart = currentChunkStartTime ?? meetingStart
-            currentChunkStartTime = nil
-            return (meetingStart, lastChunkStart, lastMicURL)
+            let lastChunkTiming = chunkTimingTracker.finish()
+            return (meetingStart, lastChunkTiming, lastMicURL)
         }
         let aecDiagnostics = meetingAecProcessor?.diagnosticsSnapshot()
         meetingAecProcessor?.reset()
@@ -255,18 +252,16 @@ final class MeetingSession {
         do {
             // Transcribe last mic chunk
             if let lastMicURL {
-                let chunkOffset = lastChunkStart.timeIntervalSince(meetingStart)
-                let chunkDuration = MeetingMicRepairPlanner.wavDurationSeconds(for: lastMicURL)
+                let chunkOffset = lastChunkTiming?.startTimeSeconds ?? 0
+                let chunkDuration = lastChunkTiming?.durationSeconds ?? 0
                 fputs("[meeting] transcribing final mic chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
                 do {
                     let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastMicURL, backend: backend, customWords: serializedCustomWords)
-                    if !result.text.isEmpty {
-                        micSegments.append(SpeechSegment(
-                            start: chunkOffset,
-                            end: chunkOffset + max(chunkDuration, 0.1),
-                            text: result.text
-                        ))
-                    }
+                    micSegments.append(contentsOf: MeetingMicRepairPlanner.makeSpeechSegments(
+                        from: result,
+                        startTime: chunkOffset,
+                        endTime: chunkOffset + max(chunkDuration, 0.1)
+                    ))
                 } catch {
                     fputs("[meeting] final mic chunk transcription failed: \(error)\n", stderr)
                 }
@@ -379,47 +374,46 @@ final class MeetingSession {
     /// Called by VAD on speech boundaries or max-duration fallback.
     /// Rotates the streaming mic file and sends the completed chunk for transcription.
     private func rotateChunk() {
-        let rotation = chunkRotationQueue.sync { () -> (meetingStart: Date, chunkStart: Date, chunkURL: URL)? in
+        let rotation = chunkRotationQueue.sync { () -> (chunkTiming: MeetingChunkTimingSnapshot, chunkURL: URL)? in
             guard isRecording else { return nil }
-            let meetingStart = self.startTime ?? Date()
-            let chunkStart = currentChunkStartTime ?? meetingStart
-            let chunkURL = processedMicChunkRecorder?.rotateFile()
-            currentChunkStartTime = Date()
-            guard let chunkURL else { return nil }
-            return (meetingStart, chunkStart, chunkURL)
+            guard let chunkURL = processedMicChunkRecorder?.rotateFile(),
+                  let chunkTiming = chunkTimingTracker.rotate() else {
+                return nil
+            }
+            return (chunkTiming, chunkURL)
         }
 
         // Transcribe the completed chunk async
         guard let rotation else { return }
         let chunkURL = rotation.chunkURL
-        let chunkOffset = rotation.chunkStart.timeIntervalSince(rotation.meetingStart)
-        let chunkDuration = MeetingMicRepairPlanner.wavDurationSeconds(for: chunkURL)
+        let chunkOffset = rotation.chunkTiming.startTimeSeconds
+        let chunkDuration = rotation.chunkTiming.durationSeconds
         let backend = self.backend
 
         fputs("[meeting] rotating chunk at offset=\(String(format: "%.0f", chunkOffset))s\n", stderr)
 
-        let task = Task { [weak self] () -> SpeechSegment? in
+        let task = Task { [weak self] () -> [SpeechSegment] in
             defer {
                 try? FileManager.default.removeItem(at: chunkURL)
             }
-            guard let self else { return nil }
+            guard let self else { return [] }
             do {
                 if Task.isCancelled {
-                    return nil
+                    return []
                 }
                 let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend, customWords: self.serializedCustomWords)
                 if !result.text.isEmpty {
                     fputs("[meeting] chunk transcribed: \"\(String(result.text.prefix(60)))...\"\n", stderr)
-                    return SpeechSegment(
-                        start: chunkOffset,
-                        end: chunkOffset + max(chunkDuration, 0.1),
-                        text: result.text
+                    return MeetingMicRepairPlanner.makeSpeechSegments(
+                        from: result,
+                        startTime: chunkOffset,
+                        endTime: chunkOffset + max(chunkDuration, 0.1)
                     )
                 }
             } catch {
                 fputs("[meeting] chunk transcription failed: \(error)\n", stderr)
             }
-            return nil
+            return []
         }
         if !micChunkCollector.add(task) {
             task.cancel()
@@ -502,16 +496,36 @@ final class MeetingSession {
             guard let self else { return }
             self.retainedRecordingWriter?.appendMic(samples)
 
-            let cleanedSamples = self.meetingAecProcessor?.processCapture(samples) ?? samples
-            self.processedMicChunkRecorder?.append(cleanedSamples)
-            if let vadController = self.vadController, !cleanedSamples.isEmpty {
-                let floatSamples = cleanedSamples.map { Float($0) / 32767.0 }
-                vadController.processAudio(floatSamples)
+            if let meetingAecProcessor = self.meetingAecProcessor {
+                let batch = meetingAecProcessor.processCaptureBatch(samples)
+                self.handleProcessedCaptureBatch(batch)
+            } else {
+                self.handleProcessedCaptureBatch(
+                    MeetingAecProcessedCaptureBatch(
+                        samples: samples,
+                        primaryHealth: .bypassed(reason: "bridge-unavailable"),
+                        allFramesTrustedForSegmentation: true
+                    )
+                )
             }
         }
         systemAudioRecorder.onPCMSamples = { [weak self] samples in
             self?.retainedRecordingWriter?.appendSystem(samples)
             self?.meetingAecProcessor?.appendRender(samples)
+        }
+    }
+
+    private func handleProcessedCaptureBatch(_ batch: MeetingAecProcessedCaptureBatch) {
+        guard !batch.samples.isEmpty else { return }
+
+        chunkRotationQueue.sync {
+            processedMicChunkRecorder?.append(batch.samples)
+            chunkTimingTracker.append(sampleCount: batch.samples.count)
+        }
+
+        if batch.allFramesTrustedForSegmentation, let vadController {
+            let floatSamples = batch.samples.map { Float($0) / 32767.0 }
+            vadController.processAudio(floatSamples)
         }
     }
 

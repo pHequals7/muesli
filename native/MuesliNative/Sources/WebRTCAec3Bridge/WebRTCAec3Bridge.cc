@@ -50,10 +50,12 @@ bool UpdateFrame(webrtc::AudioFrame &frame,
 
 struct WebRTCAec3Handle {
   int sample_rate_hz = 0;
-  int channels = 0;
+  int render_channels = 0;
+  int capture_channels = 0;
   int samples_per_frame = 0;
   int audio_buffer_delay_ms = 0;
-  webrtc::StreamConfig stream_config = webrtc::StreamConfig(16000, 1, false);
+  webrtc::StreamConfig render_stream_config = webrtc::StreamConfig(16000, 1, false);
+  webrtc::StreamConfig capture_stream_config = webrtc::StreamConfig(16000, 1, false);
   webrtc::AudioFrame render_frame;
   webrtc::AudioFrame capture_frame;
   std::unique_ptr<webrtc::AudioBuffer> render_audio;
@@ -71,9 +73,12 @@ WebRTCAec3Handle *WebRTCAec3Create(int sample_rate_hz,
 
   auto *handle = new WebRTCAec3Handle();
   handle->sample_rate_hz = sample_rate_hz;
-  handle->channels = capture_channels;
+  handle->render_channels = render_channels;
+  handle->capture_channels = capture_channels;
   handle->samples_per_frame = sample_rate_hz * kFrameDurationMs / 1000;
-  handle->stream_config =
+  handle->render_stream_config =
+      webrtc::StreamConfig(sample_rate_hz, render_channels, false);
+  handle->capture_stream_config =
       webrtc::StreamConfig(sample_rate_hz, capture_channels, false);
 
   webrtc::EchoCanceller3Config config;
@@ -114,7 +119,7 @@ bool WebRTCAec3AnalyzeRender(WebRTCAec3Handle *handle,
                    samples,
                    sample_count,
                    handle->sample_rate_hz,
-                   handle->stream_config.num_channels())) {
+                   handle->render_stream_config.num_channels())) {
     return false;
   }
 
@@ -147,7 +152,7 @@ bool WebRTCAec3ProcessCapture(WebRTCAec3Handle *handle,
                    input_samples,
                    sample_count,
                    handle->sample_rate_hz,
-                   handle->stream_config.num_channels())) {
+                   handle->capture_stream_config.num_channels())) {
     return false;
   }
 

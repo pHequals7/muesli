@@ -50,12 +50,14 @@ struct MeetingAecProcessorTests {
         processor.updateMode(.bypassed(reason: "headphones"))
 
         processor.appendRender(Array(repeating: 3, count: MeetingAecProcessor.frameSampleCount))
-        let output = processor.processCapture(Array(repeating: 4, count: MeetingAecProcessor.frameSampleCount))
+        let batch = processor.processCaptureBatch(Array(repeating: 4, count: MeetingAecProcessor.frameSampleCount))
         let diagnostics = processor.diagnosticsSnapshot()
 
         #expect(engine.renderFrames.isEmpty)
         #expect(engine.captureFrames.isEmpty)
-        #expect(output == Array(repeating: 4, count: MeetingAecProcessor.frameSampleCount))
+        #expect(batch.samples == Array(repeating: 4, count: MeetingAecProcessor.frameSampleCount))
+        #expect(batch.allFramesTrustedForSegmentation)
+        #expect(batch.primaryHealth == .bypassed(reason: "headphones"))
         #expect(diagnostics.modeDescription == "bypassed(headphones)")
         #expect(diagnostics.captureFramesProcessed == 1)
     }
@@ -77,6 +79,50 @@ struct MeetingAecProcessorTests {
         #expect(diagnostics.renderFramesSubmitted == 1)
         #expect(diagnostics.captureFramesProcessed == 1)
         #expect(diagnostics.captureFramesBeforeFirstRender == 1)
+        #expect(diagnostics.renderStarvationCount == 1)
+    }
+
+    @Test("warming up frames still use AEC but are not trusted for segmentation")
+    func warmingUpFramesAreNotTrustedForSegmentation() throws {
+        let engine = FakeMeetingAecEngine()
+        let processor = try MeetingAecProcessor(
+            engine: engine,
+            warmupCaptureFrames: 2
+        )
+        processor.updateMode(.enabled(delayMs: 24))
+        processor.appendRender(Array(repeating: 2, count: MeetingAecProcessor.frameSampleCount))
+
+        let batch = processor.processCaptureBatch(Array(repeating: 6, count: MeetingAecProcessor.frameSampleCount))
+        let diagnostics = processor.diagnosticsSnapshot()
+
+        #expect(engine.captureFrames.count == 1)
+        #expect(batch.samples == Array(repeating: 6, count: MeetingAecProcessor.frameSampleCount))
+        #expect(batch.primaryHealth == .warmingUp)
+        #expect(!batch.allFramesTrustedForSegmentation)
+        #expect(diagnostics.warmingUpCaptureFrames == 1)
+    }
+
+    @Test("stale render falls back to raw capture and marks segmentation untrusted")
+    func staleRenderFallsBackToRawCapture() throws {
+        let engine = FakeMeetingAecEngine()
+        let processor = try MeetingAecProcessor(
+            engine: engine,
+            staleRenderThresholdSeconds: 0.001,
+            warmupCaptureFrames: 0
+        )
+        processor.updateMode(.enabled(delayMs: 12))
+        processor.appendRender(Array(repeating: 3, count: MeetingAecProcessor.frameSampleCount))
+        Thread.sleep(forTimeInterval: 0.01)
+
+        let input = Array(repeating: Int16(9), count: MeetingAecProcessor.frameSampleCount)
+        let batch = processor.processCaptureBatch(input)
+        let diagnostics = processor.diagnosticsSnapshot()
+
+        #expect(engine.captureFrames.isEmpty)
+        #expect(batch.samples == input)
+        #expect(batch.primaryHealth == MeetingAecCaptureHealth.staleRenderReference)
+        #expect(!batch.allFramesTrustedForSegmentation)
+        #expect(diagnostics.staleRenderCaptureFrames == 1)
         #expect(diagnostics.renderStarvationCount == 1)
     }
 }
