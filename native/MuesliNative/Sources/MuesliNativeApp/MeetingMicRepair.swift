@@ -3,14 +3,15 @@ import FluidAudio
 import Foundation
 
 enum MeetingMicRepairPlanner {
-    private static let minimumCoveredSeconds = 0.35
     private static let minimumCoverageRatio = 0.55
+    private static let minimumRepairDuration: TimeInterval = 0.8
 
     static func repairSegments(
         existingMicSegments: [SpeechSegment],
         offlineSpeechSegments: [VadSegment]
     ) -> [VadSegment] {
         offlineSpeechSegments.filter { offlineSegment in
+            guard offlineSegment.duration >= minimumRepairDuration else { return false }
             let coveredSeconds = overlapDuration(
                 existingMicSegments: existingMicSegments,
                 targetStart: offlineSegment.startTime,
@@ -18,39 +19,8 @@ enum MeetingMicRepairPlanner {
             )
             let targetDuration = max(offlineSegment.duration, 0)
             guard targetDuration > 0 else { return false }
-
-            if coveredSeconds >= minimumCoveredSeconds {
-                return (coveredSeconds / targetDuration) < minimumCoverageRatio
-            }
-            return true
+            return (coveredSeconds / targetDuration) < minimumCoverageRatio
         }
-    }
-
-    static func makeSpeechSegments(
-        from result: SpeechTranscriptionResult,
-        startTime: TimeInterval,
-        endTime: TimeInterval
-    ) -> [SpeechSegment] {
-        let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else { return [] }
-
-        let hasMeaningfulTimings = result.segments.contains { segment in
-            segment.end > segment.start || segment.start > 0
-        }
-
-        guard hasMeaningfulTimings else {
-            return [SpeechSegment(start: startTime, end: endTime, text: trimmedText)]
-        }
-
-        return result.segments.map { segment in
-            let segmentStart = startTime + max(segment.start, 0)
-            let segmentEnd = min(endTime, startTime + max(segment.end, segment.start))
-            return SpeechSegment(
-                start: segmentStart,
-                end: max(segmentStart, segmentEnd),
-                text: segment.text
-            )
-        }.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 
     static func writeTemporaryWAV(samples: [Float]) throws -> URL {

@@ -93,6 +93,7 @@ final class MeetingSession {
     /// VAD controller for speech-boundary chunk rotation
     private var vadController: StreamingVadController?
     private let micChunkCollector = MeetingChunkCollector()
+    private let micChunkHealthTracker = MeetingTranscriptChunkHealthTracker()
     private let chunkRotationQueue = DispatchQueue(label: "MuesliNative.MeetingSession.chunkRotation")
     private var chunkTimingTracker = MeetingChunkTimingTracker()
     var onProgress: ((MeetingProcessingStage) -> Void)?
@@ -133,6 +134,13 @@ final class MeetingSession {
 
     func start() async throws {
         let vadManager = await transcriptionCoordinator.getVadManager()
+        let now = Date()
+
+        chunkRotationQueue.sync {
+            startTime = now
+            chunkTimingTracker.start()
+            isRecording = true
+        }
 
         do {
             try prepareRealtimeAudioPipeline(vadManager: vadManager)
@@ -153,6 +161,11 @@ final class MeetingSession {
             retainedRecordingWriter = nil
             processedMicChunkRecorder?.cancel()
             processedMicChunkRecorder = nil
+            chunkRotationQueue.sync {
+                isRecording = false
+                startTime = nil
+                chunkTimingTracker.discard()
+            }
             outputRouteMonitor.stop()
             meetingAecProcessor?.reset()
             meetingAecProcessor = nil
@@ -161,12 +174,6 @@ final class MeetingSession {
                 try? FileManager.default.removeItem(at: url)
             }
             throw error
-        }
-        let now = Date()
-        chunkRotationQueue.sync {
-            startTime = now
-            chunkTimingTracker.start()
-            isRecording = true
         }
         if vadController != nil {
             fputs("[meeting] started with VAD-driven chunk rotation\n", stderr)
@@ -257,12 +264,19 @@ final class MeetingSession {
                 fputs("[meeting] transcribing final mic chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
                 do {
                     let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastMicURL, backend: backend, customWords: serializedCustomWords)
-                    micSegments.append(contentsOf: MeetingMicRepairPlanner.makeSpeechSegments(
-                        from: result,
+                    let normalizedSegments = MicTurnNormalizer.normalize(
+                        result: result,
                         startTime: chunkOffset,
                         endTime: chunkOffset + max(chunkDuration, 0.1)
-                    ))
+                    )
+                    if normalizedSegments.isEmpty {
+                        micChunkHealthTracker.noteEmptyChunk()
+                    } else {
+                        micChunkHealthTracker.noteSuccessfulChunk()
+                    }
+                    micSegments.append(contentsOf: normalizedSegments)
                 } catch {
+                    micChunkHealthTracker.noteFailedChunk()
                     fputs("[meeting] final mic chunk transcription failed: \(error)\n", stderr)
                 }
                 try? FileManager.default.removeItem(at: lastMicURL)
@@ -311,10 +325,16 @@ final class MeetingSession {
 
             fputs("[meeting] \(micSegments.count) mic chunks transcribed during meeting\n", stderr)
 
-            let rawTranscript = TranscriptFormatter.merge(
-                micSegments: micSegments,
+            let reconciledTranscriptInputs = TranscriptReconciler.reconcile(
+                micTurns: micSegments,
                 systemSegments: systemResult.segments,
-                diarizationSegments: diarizationSegments,
+                diarizationSegments: diarizationSegments
+            )
+
+            let rawTranscript = TranscriptFormatter.merge(
+                micSegments: reconciledTranscriptInputs.micSegments,
+                systemSegments: reconciledTranscriptInputs.systemSegments,
+                diarizationSegments: reconciledTranscriptInputs.diarizationSegments,
                 meetingStart: meetingStart
             )
 
@@ -404,13 +424,21 @@ final class MeetingSession {
                 let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend, customWords: self.serializedCustomWords)
                 if !result.text.isEmpty {
                     fputs("[meeting] chunk transcribed: \"\(String(result.text.prefix(60)))...\"\n", stderr)
-                    return MeetingMicRepairPlanner.makeSpeechSegments(
-                        from: result,
+                    let normalizedSegments = MicTurnNormalizer.normalize(
+                        result: result,
                         startTime: chunkOffset,
                         endTime: chunkOffset + max(chunkDuration, 0.1)
                     )
+                    if normalizedSegments.isEmpty {
+                        self.micChunkHealthTracker.noteEmptyChunk()
+                    } else {
+                        self.micChunkHealthTracker.noteSuccessfulChunk()
+                    }
+                    return normalizedSegments
                 }
+                self.micChunkHealthTracker.noteEmptyChunk()
             } catch {
+                self.micChunkHealthTracker.noteFailedChunk()
                 fputs("[meeting] chunk transcription failed: \(error)\n", stderr)
             }
             return []
@@ -494,13 +522,14 @@ final class MeetingSession {
 
         streamingMicRecorder.onPCMSamples = { [weak self] samples in
             guard let self else { return }
-            self.retainedRecordingWriter?.appendMic(samples)
 
             if let meetingAecProcessor = self.meetingAecProcessor {
                 let batch = meetingAecProcessor.processCaptureBatch(samples)
-                self.handleProcessedCaptureBatch(batch)
+                self.enqueueRealtimeMicSamples(rawSamples: samples, processedBatch: batch)
             } else {
-                self.handleProcessedCaptureBatch(
+                self.enqueueRealtimeMicSamples(
+                    rawSamples: samples,
+                    processedBatch:
                     MeetingAecProcessedCaptureBatch(
                         samples: samples,
                         primaryHealth: .bypassed(reason: "bridge-unavailable"),
@@ -515,17 +544,28 @@ final class MeetingSession {
         }
     }
 
-    private func handleProcessedCaptureBatch(_ batch: MeetingAecProcessedCaptureBatch) {
-        guard !batch.samples.isEmpty else { return }
+    private func enqueueRealtimeMicSamples(
+        rawSamples: [Int16],
+        processedBatch: MeetingAecProcessedCaptureBatch
+    ) {
+        guard !rawSamples.isEmpty || !processedBatch.samples.isEmpty else { return }
 
-        chunkRotationQueue.sync {
-            processedMicChunkRecorder?.append(batch.samples)
-            chunkTimingTracker.append(sampleCount: batch.samples.count)
-        }
+        chunkRotationQueue.async { [weak self] in
+            guard let self, self.isRecording else { return }
 
-        if batch.allFramesTrustedForSegmentation, let vadController {
-            let floatSamples = batch.samples.map { Float($0) / 32767.0 }
-            vadController.processAudio(floatSamples)
+            if !rawSamples.isEmpty {
+                self.retainedRecordingWriter?.appendMic(rawSamples)
+            }
+
+            guard !processedBatch.samples.isEmpty else { return }
+
+            self.processedMicChunkRecorder?.append(processedBatch.samples)
+            self.chunkTimingTracker.append(sampleCount: processedBatch.samples.count)
+
+            if processedBatch.allFramesTrustedForSegmentation, let vadController = self.vadController {
+                let floatSamples = processedBatch.samples.map { Float($0) / 32767.0 }
+                vadController.processAudio(floatSamples)
+            }
         }
     }
 
@@ -557,40 +597,51 @@ final class MeetingSession {
                 samples,
                 config: VadSegmentationConfig(maxSpeechDuration: 10.0, speechPadding: 0.15)
             )
-            let repairSegments = MeetingMicRepairPlanner.repairSegments(
+            let health = MeetingTranscriptHealthMonitor.evaluate(
                 existingMicSegments: existingMicSegments,
-                offlineSpeechSegments: speechSegments
+                offlineSpeechSegments: speechSegments,
+                chunkHealth: micChunkHealthTracker.snapshot()
             )
+            fputs("\(health.summaryLine)\n", stderr)
 
-            guard !repairSegments.isEmpty else {
+            switch health.action {
+            case .accept:
                 return []
-            }
-
-            fputs("[meeting] repairing \(repairSegments.count) uncovered mic speech regions\n", stderr)
-
-            var repairedSegments: [SpeechSegment] = []
-            for speechSegment in repairSegments {
-                let startSample = max(0, speechSegment.startSample(sampleRate: VadManager.sampleRate))
-                let endSample = min(samples.count, speechSegment.endSample(sampleRate: VadManager.sampleRate))
-                guard endSample > startSample else { continue }
-
-                let segmentURL = try MeetingMicRepairPlanner.writeTemporaryWAV(
-                    samples: Array(samples[startSample..<endSample])
+            case .fullFallback(let reason):
+                fputs("[meeting] transcript health triggered full mic fallback: \(reason)\n", stderr)
+                return await fallbackToFullSessionMicTranscription(
+                    fullSessionMicURL: fullSessionMicURL,
+                    meetingDuration: totalDuration
                 )
-                defer { try? FileManager.default.removeItem(at: segmentURL) }
+            case .selectiveRepair(let repairSegments):
+                guard !repairSegments.isEmpty else { return [] }
 
-                let result = try await transcriptionCoordinator.transcribeMeeting(
-                    at: segmentURL,
-                    backend: backend,
-                    customWords: serializedCustomWords
-                )
-                repairedSegments.append(contentsOf: MeetingMicRepairPlanner.makeSpeechSegments(
-                    from: result,
-                    startTime: speechSegment.startTime,
-                    endTime: speechSegment.endTime
-                ))
+                fputs("[meeting] repairing \(repairSegments.count) uncovered mic speech regions\n", stderr)
+
+                var repairedSegments: [SpeechSegment] = []
+                for speechSegment in repairSegments {
+                    let startSample = max(0, speechSegment.startSample(sampleRate: VadManager.sampleRate))
+                    let endSample = min(samples.count, speechSegment.endSample(sampleRate: VadManager.sampleRate))
+                    guard endSample > startSample else { continue }
+
+                    let segmentURL = try MeetingMicRepairPlanner.writeTemporaryWAV(
+                        samples: Array(samples[startSample..<endSample])
+                    )
+                    defer { try? FileManager.default.removeItem(at: segmentURL) }
+
+                    let result = try await transcriptionCoordinator.transcribeMeeting(
+                        at: segmentURL,
+                        backend: backend,
+                        customWords: serializedCustomWords
+                    )
+                    repairedSegments.append(contentsOf: MicTurnNormalizer.normalize(
+                        result: result,
+                        startTime: speechSegment.startTime,
+                        endTime: speechSegment.endTime
+                    ))
+                }
+                return repairedSegments
             }
-            return repairedSegments
         } catch {
             fputs("[meeting] mic repair pass failed: \(error)\n", stderr)
             if existingMicSegments.isEmpty {
@@ -614,8 +665,8 @@ final class MeetingSession {
                 backend: backend,
                 customWords: serializedCustomWords
             )
-            return MeetingMicRepairPlanner.makeSpeechSegments(
-                from: result,
+            return MicTurnNormalizer.normalize(
+                result: result,
                 startTime: 0,
                 endTime: meetingDuration
             )

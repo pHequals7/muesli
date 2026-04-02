@@ -105,30 +105,8 @@ struct TranscriptFormatterTests {
         #expect(lines[1].contains("Others:"))
     }
 
-    @Test("drops mic fragments that are echo duplicates of overlapping system speech")
-    func dropsEchoLikeMicFragments() {
-        let meetingStart = Date(timeIntervalSince1970: 0)
-        let mic = [
-            SpeechSegment(start: 0.0, end: 0.3, text: "bar"),
-            SpeechSegment(start: 0.3, end: 0.7, text: "ing first"),
-            SpeechSegment(start: 0.7, end: 1.0, text: "but"),
-        ]
-        let system = [
-            SpeechSegment(start: 0.0, end: 1.0, text: "barking first, but"),
-        ]
-
-        let result = TranscriptFormatter.merge(
-            micSegments: mic,
-            systemSegments: system,
-            meetingStart: meetingStart
-        )
-
-        #expect(!result.contains("You:"))
-        #expect(result.contains("Others: barking first, but"))
-    }
-
-    @Test("preserves distinct mic speech even when it overlaps system audio")
-    func preservesDistinctMicSpeechDuringOverlap() {
+    @Test("formatter preserves overlapping sources after reconciliation has happened upstream")
+    func preservesOverlappingSources() {
         let meetingStart = Date(timeIntervalSince1970: 0)
         let mic = [
             SpeechSegment(start: 1.0, end: 2.0, text: "wait hold on"),

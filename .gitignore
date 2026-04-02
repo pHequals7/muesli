@@ -55,3 +55,4 @@ context.md
 *.swp
 *~
 .vercel
+docs/reports/meeting-transcription-pipeline.svg

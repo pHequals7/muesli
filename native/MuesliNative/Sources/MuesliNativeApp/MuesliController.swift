@@ -1162,7 +1162,7 @@ final class MuesliController: NSObject {
         case .transcribingAudio:
             setMeetingProcessingStatus("Transcribing")
         case .generatingTitle:
-            setMeetingProcessingStatus("Generating Title")
+            setMeetingProcessingStatus("Titling")
         case .summarizingNotes:
             setMeetingProcessingStatus("Summarizing")
         }

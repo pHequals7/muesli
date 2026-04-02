@@ -15,8 +15,7 @@ enum TranscriptFormatter {
         diarizationSegments: [TimedSpeakerSegment]?,
         meetingStart: Date
     ) -> String {
-        let filteredMicSegments = filterEchoLikeMicSegments(micSegments, against: systemSegments)
-        let taggedMic = filteredMicSegments.map { TaggedSegment(segment: $0, speaker: "You") }
+        let taggedMic = micSegments.map { TaggedSegment(segment: $0, speaker: "You") }
 
         let taggedSystem: [TaggedSegment]
         if let diarizationSegments, !diarizationSegments.isEmpty {
@@ -90,57 +89,6 @@ enum TranscriptFormatter {
         ))
 
         return result
-    }
-
-    private static func filterEchoLikeMicSegments(
-        _ micSegments: [SpeechSegment],
-        against systemSegments: [SpeechSegment]
-    ) -> [SpeechSegment] {
-        guard !micSegments.isEmpty, !systemSegments.isEmpty else { return micSegments }
-        return micSegments.filter { !isEchoLikeMicSegment($0, against: systemSegments) }
-    }
-
-    private static func isEchoLikeMicSegment(
-        _ micSegment: SpeechSegment,
-        against systemSegments: [SpeechSegment]
-    ) -> Bool {
-        let micDuration = max(micSegment.end - micSegment.start, 0.1)
-        let overlappingSystemSegments = systemSegments.filter {
-            overlapDuration(between: micSegment, and: $0) >= min(0.15, micDuration * 0.5)
-        }
-        guard !overlappingSystemSegments.isEmpty else { return false }
-
-        let normalizedMicText = normalizedText(micSegment.text)
-        guard !normalizedMicText.isEmpty else { return false }
-
-        let combinedSystemText = normalizedText(
-            overlappingSystemSegments.map(\.text).joined(separator: " ")
-        )
-        guard !combinedSystemText.isEmpty else { return false }
-
-        let overlapCoverage = overlappingSystemSegments.reduce(0.0) { partial, systemSegment in
-            partial + overlapDuration(between: micSegment, and: systemSegment)
-        } / micDuration
-
-        let micTokens = tokenSet(from: normalizedMicText)
-        let systemTokens = tokenSet(from: combinedSystemText)
-        let tokenContainment = tokenContainmentRatio(source: micTokens, target: systemTokens)
-        let isSubstringDuplicate =
-            combinedSystemText.contains(normalizedMicText) || normalizedMicText.contains(combinedSystemText)
-
-        if normalizedMicText.count <= 24 && isSubstringDuplicate && overlapCoverage >= 0.35 {
-            return true
-        }
-
-        if micTokens.count <= 3 && tokenContainment >= 0.67 && overlapCoverage >= 0.35 {
-            return true
-        }
-
-        if tokenContainment >= 0.8 && overlapCoverage >= 0.6 {
-            return true
-        }
-
-        return false
     }
 
     private static func filterLowSignalSegments(_ segments: [TaggedSegment]) -> [TaggedSegment] {
@@ -253,11 +201,6 @@ enum TranscriptFormatter {
 
     private static func tokenSet(from text: String) -> Set<String> {
         Set(text.split(separator: " ").map(String.init))
-    }
-
-    private static func tokenContainmentRatio(source: Set<String>, target: Set<String>) -> Double {
-        guard !source.isEmpty else { return 0 }
-        return Double(source.intersection(target).count) / Double(source.count)
     }
 }
 

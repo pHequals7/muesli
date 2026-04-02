@@ -68,6 +68,15 @@ struct IndicatorFrameSizeTests {
         // The frame sizes are hardcoded in FloatingIndicatorController.frameForState
         // We test that the config round-trips correctly (the visual test is manual)
     }
+
+    @Test("default indicator center is right-middle of the screen")
+    @MainActor
+    func defaultIndicatorCenterUsesScreenMidpoint() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1200, height: 800)
+        let center = FloatingIndicatorController.defaultIndicatorCenter(in: visibleFrame)
+        #expect(center.x == 1270)
+        #expect(center.y == 450)
+    }
 }
 
 // MARK: - OpenAI Logo Shape

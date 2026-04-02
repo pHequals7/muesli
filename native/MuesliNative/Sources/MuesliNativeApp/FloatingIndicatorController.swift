@@ -512,6 +512,13 @@ final class FloatingIndicatorController {
         self.textLabel = textLabel
     }
 
+    static func defaultIndicatorCenter(in visibleFrame: NSRect, idleSize: NSSize = NSSize(width: 44, height: 28)) -> CGPoint {
+        CGPoint(
+            x: visibleFrame.maxX - idleSize.width / 2 - 8,
+            y: visibleFrame.midY
+        )
+    }
+
     private func frameForState(_ state: DictationState, config: AppConfig) -> NSRect {
         guard let screen = NSScreen.main?.visibleFrame else {
             return NSRect(x: 0, y: 0, width: 64, height: 28)
@@ -534,11 +541,7 @@ final class FloatingIndicatorController {
         } else if let saved = config.indicatorOrigin {
             center = CGPoint(x: saved.x, y: saved.y)
         } else {
-            let defaultSize = NSSize(width: 44, height: 28)
-            center = CGPoint(
-                x: screen.maxX - defaultSize.width / 2 - 8,
-                y: screen.minY + (screen.height * 0.56)
-            )
+            center = Self.defaultIndicatorCenter(in: screen)
         }
 
         let x = min(max(center.x - size.width / 2, screen.minX), screen.maxX - size.width)
