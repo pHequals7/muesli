@@ -394,20 +394,21 @@ final class MeetingSession {
     /// Called by VAD on speech boundaries or max-duration fallback.
     /// Rotates the streaming mic file and sends the completed chunk for transcription.
     private func rotateChunk() {
-        let rotation = chunkRotationQueue.sync { () -> (chunkTiming: MeetingChunkTimingSnapshot, chunkURL: URL)? in
-            guard isRecording else { return nil }
-            guard let chunkURL = processedMicChunkRecorder?.rotateFile(),
-                  let chunkTiming = chunkTimingTracker.rotate() else {
-                return nil
-            }
-            return (chunkTiming, chunkURL)
+        chunkRotationQueue.async { [weak self] in
+            self?.rotateChunkOnQueue()
+        }
+    }
+
+    private func rotateChunkOnQueue() {
+        guard isRecording else { return }
+        guard let chunkURL = processedMicChunkRecorder?.rotateFile(),
+              let chunkTiming = chunkTimingTracker.rotate() else {
+            return
         }
 
         // Transcribe the completed chunk async
-        guard let rotation else { return }
-        let chunkURL = rotation.chunkURL
-        let chunkOffset = rotation.chunkTiming.startTimeSeconds
-        let chunkDuration = rotation.chunkTiming.durationSeconds
+        let chunkOffset = chunkTiming.startTimeSeconds
+        let chunkDuration = chunkTiming.durationSeconds
         let backend = self.backend
 
         fputs("[meeting] rotating chunk at offset=\(String(format: "%.0f", chunkOffset))s\n", stderr)
