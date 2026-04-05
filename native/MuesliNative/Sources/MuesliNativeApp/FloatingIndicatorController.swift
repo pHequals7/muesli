@@ -81,12 +81,6 @@ final class FloatingIndicatorController {
     private var isHovered = false
     private var hoverExitWorkItem: DispatchWorkItem?
     private let configStore: ConfigStore
-    private var barLayers: [CALayer] = []
-    private var barAmplitudes: [CGFloat] = []
-    private var animationTime: CGFloat = 0
-    private var amplitudeTimer: Timer?
-    private var smoothedAmplitude: CGFloat = 0
-    private var blobBaseSize: CGSize = .zero
     private var isMeetingRecording = false
     private var glassView: NSVisualEffectView?
     private var tintLayer: CALayer?
@@ -442,86 +436,10 @@ final class FloatingIndicatorController {
         stopLayer = nil
     }
 
-    // MARK: - EQ Waveform Animation
-
-    // 3-bar EQ geometry — all values in points.
-    // Bottom pad + max height must leave ≥4pt top margin inside the pill.
-    private static let eqBarCount = 3
-    private static let eqBarWidth: CGFloat = 4
-    private static let eqBarGap: CGFloat = 6
-    private static let eqBarBottomPad: CGFloat = 5
-    private static let eqBarMaxHeight: CGFloat = 22   // 5 + 22 = 27 → 7pt below 34pt pill top
-    private static let eqBarMinHeight: CGFloat = 5
-    // Middle bar slightly taller for classic EQ pyramid silhouette.
-    private static let eqBarMultipliers: [CGFloat] = [0.72, 1.0, 0.78]
-    // Staggered phase offsets give each bar an independent idle rhythm.
-    private static let eqIdlePhases: [CGFloat] = [0, .pi * 0.75, .pi * 1.45]
-
-    private func startWaveformAnimation(in size: NSSize, xOffset: CGFloat = 0, rightPadding: CGFloat = 0, barCount: Int? = nil) {
-        stopWaveformAnimation()
-        blobBaseSize = size
-        // SF Symbol animation handles the recording visual — just ensure pill cornerRadius.
-        contentView?.layer?.cornerRadius = size.height / 2
-    }
-
     private func stopWaveformAnimation() {
-        amplitudeTimer?.invalidate()
-        amplitudeTimer = nil
-        for bar in barLayers {
-            bar.removeAllAnimations()
-            bar.removeFromSuperlayer()
-        }
-        barLayers.removeAll()
-        barAmplitudes.removeAll()
-        smoothedAmplitude = 0
-        animationTime = 0
-        blobBaseSize = .zero
         powerProvider = nil
         contentView?.layer?.transform = CATransform3DIdentity
         removeStopLayer()
-    }
-
-    private func updateEQBars() {
-        guard !barLayers.isEmpty else { return }
-
-        animationTime += 1.0 / 30.0
-
-        let dB = CGFloat(powerProvider?() ?? -160)
-        let normalized = max(0, min(1, (dB + 50) / 42))
-        smoothedAmplitude = smoothedAmplitude * 0.15 + normalized * 0.85
-
-        let isReactive = smoothedAmplitude > 0.04
-        let maxH = FloatingIndicatorController.eqBarMaxHeight
-        let minH = FloatingIndicatorController.eqBarMinHeight
-        let maxH = FloatingIndicatorController.eqBarMaxHeight
-        let minH = FloatingIndicatorController.eqBarMinHeight
-
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(0.07)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-
-        for i in 0..<barLayers.count {
-            let targetH: CGFloat
-            if isReactive {
-                let jitter = CGFloat.random(in: -0.06...0.06)
-                let h = minH + (maxH - minH) * (smoothedAmplitude * FloatingIndicatorController.eqBarMultipliers[i] + jitter)
-                targetH = max(minH, min(maxH, h))
-            } else {
-                // Idle pulse: slow sine wave with staggered phase per bar.
-                let phase = animationTime * 2 * .pi * 0.6 + FloatingIndicatorController.eqIdlePhases[i]
-                targetH = 8 + 4 * sin(phase)
-            }
-
-            // Smooth each bar independently.
-            barAmplitudes[i] = barAmplitudes[i] * 0.2 + targetH * 0.8
-
-            var f = barLayers[i].frame
-            f.size.height = barAmplitudes[i]
-            f.origin.y = (blobBaseSize.height - barAmplitudes[i]) / 2
-            barLayers[i].frame = f
-        }
-
-        CATransaction.commit()
     }
 
     private func applyGlassState(_ state: DictationState, frameSize: NSSize) {
