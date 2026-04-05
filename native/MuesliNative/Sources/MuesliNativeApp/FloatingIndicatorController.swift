@@ -493,7 +493,8 @@ final class FloatingIndicatorController {
         let isReactive = smoothedAmplitude > 0.04
         let maxH = FloatingIndicatorController.eqBarMaxHeight
         let minH = FloatingIndicatorController.eqBarMinHeight
-        let bottomPad = FloatingIndicatorController.eqBarBottomPad
+        let maxH = FloatingIndicatorController.eqBarMaxHeight
+        let minH = FloatingIndicatorController.eqBarMinHeight
 
         CATransaction.begin()
         CATransaction.setAnimationDuration(0.07)
