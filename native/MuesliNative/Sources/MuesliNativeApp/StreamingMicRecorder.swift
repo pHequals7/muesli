@@ -1,3 +1,4 @@
+import AudioToolbox
 import AVFoundation
 import Foundation
 import os
@@ -41,6 +42,16 @@ final class StreamingMicRecorder {
         lock.withLock { $0 = fileState }
 
         let inputNode = engine.inputNode
+
+        // Enable Apple voice processing for echo cancellation
+        do {
+            try inputNode.setVoiceProcessingEnabled(true)
+            fputs("[streaming-mic] voice processing enabled (AEC active)\n", stderr)
+            configureMinimumDucking(inputNode: inputNode)
+        } catch {
+            fputs("[streaming-mic] voice processing unavailable: \(error)\n", stderr)
+        }
+
         let hwFormat = inputNode.outputFormat(forBus: 0)
 
         // Target format: 16kHz mono Float32
@@ -149,6 +160,7 @@ final class StreamingMicRecorder {
 
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        try? engine.inputNode.setVoiceProcessingEnabled(false)
 
         let finalState = lock.withLock { state -> FileState in
             let old = state
@@ -179,6 +191,33 @@ final class StreamingMicRecorder {
     /// Approximate current power level (dB) from recent samples.
     func currentPower() -> Float {
         lock.withLock { $0.latestPowerDB }
+    }
+
+    // MARK: - Voice Processing
+
+    private func configureMinimumDucking(inputNode: AVAudioInputNode) {
+        guard let audioUnit = inputNode.audioUnit else {
+            fputs("[streaming-mic] no audio unit for ducking config\n", stderr)
+            return
+        }
+
+        var duckingConfig = AUVoiceIOOtherAudioDuckingConfiguration(
+            mEnableAdvancedDucking: true,
+            mDuckingLevel: .min
+        )
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAUVoiceIOProperty_OtherAudioDuckingConfiguration,
+            kAudioUnitScope_Global,
+            0,
+            &duckingConfig,
+            UInt32(MemoryLayout<AUVoiceIOOtherAudioDuckingConfiguration>.size)
+        )
+        if status == noErr {
+            fputs("[streaming-mic] ducking set to minimum\n", stderr)
+        } else {
+            fputs("[streaming-mic] ducking config failed: \(status)\n", stderr)
+        }
     }
 
     // MARK: - File Management

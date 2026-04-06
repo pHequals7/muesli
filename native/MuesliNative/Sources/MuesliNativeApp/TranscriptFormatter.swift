@@ -60,6 +60,10 @@ enum TranscriptFormatter {
 
     /// Merge consecutive segments from the same speaker into single entries.
     /// Prevents token-level fragmentation (e.g., each token as a separate line).
+    /// Caps merged duration to avoid monolithic blocks when mic fallback produces
+    /// many sentence-level segments with no interleaved system turns.
+    private static let maxConsolidatedDurationSeconds: TimeInterval = 30.0
+
     private static func consolidate(_ segments: [TaggedSegment]) -> [TaggedSegment] {
         guard !segments.isEmpty else { return [] }
 
@@ -70,13 +74,14 @@ enum TranscriptFormatter {
         var currentText = segments[0].segment.text
 
         for seg in segments.dropFirst() {
-            if seg.speaker == currentSpeaker {
-                // Same speaker — accumulate text
+            let mergedDuration = seg.segment.end - currentStart
+            if seg.speaker == currentSpeaker, mergedDuration <= maxConsolidatedDurationSeconds {
+                // Same speaker within duration cap — accumulate text
                 let gap = max(0, seg.segment.start - currentEnd)
                 currentText = appendText(currentText, seg.segment.text, gap: gap)
                 currentEnd = max(currentEnd, seg.segment.end)
             } else {
-                // Speaker changed — emit accumulated segment
+                // Speaker changed or duration cap reached — emit accumulated segment
                 result.append(TaggedSegment(
                     segment: SpeechSegment(start: currentStart, end: currentEnd, text: currentText),
                     speaker: currentSpeaker
