@@ -77,6 +77,26 @@ struct IndicatorFrameSizeTests {
         #expect(center.x == 1270)
         #expect(center.y == 450)
     }
+
+    @Test("off-screen saved indicator center falls back to right-middle default")
+    @MainActor
+    func offscreenSavedIndicatorCenterFallsBack() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1200, height: 800)
+        let size = NSSize(width: 76, height: 22)
+        let offscreen = CGPoint(x: 1708, y: 1491)
+
+        #expect(
+            !FloatingIndicatorController.isUsableIndicatorCenter(
+                offscreen,
+                in: visibleFrame,
+                size: size
+            )
+        )
+        #expect(
+            FloatingIndicatorController.defaultIndicatorCenter(in: visibleFrame) ==
+            CGPoint(x: 1270, y: 450)
+        )
+    }
 }
 
 // MARK: - OpenAI Logo Shape

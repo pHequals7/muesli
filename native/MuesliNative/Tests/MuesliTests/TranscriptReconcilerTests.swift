@@ -6,8 +6,8 @@ import MuesliCore
 @Suite("TranscriptReconciler")
 struct TranscriptReconcilerTests {
 
-    @Test("drops overlapping mic duplicates of system speech")
-    func dropsDuplicateMicTurn() {
+    @Test("keeps overlapping mic turns when preserving local speech is safer")
+    func keepsOverlappingMicTurn() {
         let mic = [
             SpeechSegment(start: 0.0, end: 0.8, text: "barking first")
         ]
@@ -21,7 +21,8 @@ struct TranscriptReconcilerTests {
             diarizationSegments: nil
         )
 
-        #expect(reconciled.micSegments.isEmpty)
+        #expect(reconciled.micSegments.count == 1)
+        #expect(reconciled.micSegments[0].text == "barking first")
         #expect(reconciled.systemSegments.count == 1)
     }
 
@@ -47,8 +48,8 @@ struct TranscriptReconcilerTests {
         #expect(reconciled.systemSegments[0].text == "can you hear me okay")
     }
 
-    @Test("drops ambiguous long mic turns when system overlap dominates")
-    func dropsAmbiguousLongMicTurn() {
+    @Test("keeps ambiguous long mic turns when overlap cannot be resolved confidently")
+    func keepsAmbiguousLongMicTurn() {
         let mic = [
             SpeechSegment(
                 start: 10.0,
@@ -68,7 +69,8 @@ struct TranscriptReconcilerTests {
             diarizationSegments: nil
         )
 
-        #expect(reconciled.micSegments.isEmpty)
+        #expect(reconciled.micSegments.count == 1)
+        #expect(reconciled.micSegments[0].text.contains("Nice to meet you everyone"))
         #expect(reconciled.systemSegments.count == 3)
     }
 

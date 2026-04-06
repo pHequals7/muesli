@@ -17,7 +17,7 @@ struct MeetingTranscriptHealthMonitorTests {
         ]
 
         let snapshot = MeetingTranscriptHealthMonitor.evaluate(
-            existingMicSegments: mic,
+            existingSegments: mic,
             offlineSpeechSegments: offline,
             chunkHealth: MeetingTranscriptChunkHealthSnapshot(
                 successfulChunkCount: 2,
@@ -43,7 +43,7 @@ struct MeetingTranscriptHealthMonitorTests {
         ]
 
         let snapshot = MeetingTranscriptHealthMonitor.evaluate(
-            existingMicSegments: mic,
+            existingSegments: mic,
             offlineSpeechSegments: offline,
             chunkHealth: MeetingTranscriptChunkHealthSnapshot(
                 successfulChunkCount: 2,
@@ -71,7 +71,7 @@ struct MeetingTranscriptHealthMonitorTests {
         ]
 
         let snapshot = MeetingTranscriptHealthMonitor.evaluate(
-            existingMicSegments: mic,
+            existingSegments: mic,
             offlineSpeechSegments: offline,
             chunkHealth: MeetingTranscriptChunkHealthSnapshot(
                 successfulChunkCount: 0,
@@ -80,6 +80,6 @@ struct MeetingTranscriptHealthMonitorTests {
             )
         )
 
-        #expect(snapshot.action == .fullFallback(reason: "no_live_mic_segments"))
+        #expect(snapshot.action == .fullFallback(reason: "no_live_segments"))
     }
 }

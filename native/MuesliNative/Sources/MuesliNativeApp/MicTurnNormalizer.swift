@@ -1,5 +1,6 @@
 import FluidAudio
 import Foundation
+import NaturalLanguage
 
 enum MicTurnNormalizer {
     private static let maxMergeGapSeconds: TimeInterval = 0.35
@@ -18,16 +19,16 @@ enum MicTurnNormalizer {
         let timedSegments = timedSegments(from: result, startTime: startTime, endTime: clampedEndTime)
 
         guard !timedSegments.isEmpty else {
-            return [SpeechSegment(start: startTime, end: clampedEndTime, text: trimmedText)]
+            return sentenceSplit(text: trimmedText, startTime: startTime, endTime: clampedEndTime)
         }
 
         if isFragmented(timedSegments) {
-            return [SpeechSegment(start: startTime, end: clampedEndTime, text: trimmedText)]
+            return sentenceSplit(text: trimmedText, startTime: startTime, endTime: clampedEndTime)
         }
 
         let mergedSegments = mergeAdjacentSegments(timedSegments)
         guard !isFragmented(mergedSegments) else {
-            return [SpeechSegment(start: startTime, end: clampedEndTime, text: trimmedText)]
+            return sentenceSplit(text: trimmedText, startTime: startTime, endTime: clampedEndTime)
         }
 
         return mergedSegments
@@ -99,6 +100,59 @@ enum MicTurnNormalizer {
         let averageVisibleLength = Double(visibleLengths.reduce(0, +)) / Double(visibleLengths.count)
 
         return Double(shortSegmentCount) / Double(segments.count) >= 0.5 || averageVisibleLength < 8
+    }
+
+    private static func sentenceSplit(
+        text: String,
+        startTime: TimeInterval,
+        endTime: TimeInterval
+    ) -> [SpeechSegment] {
+        let units = sentenceUnits(from: text)
+        guard units.count > 1 else {
+            return [SpeechSegment(start: startTime, end: endTime, text: text)]
+        }
+
+        let weights = units.map(visibleLength)
+        let totalWeight = max(weights.reduce(0, +), 1)
+        let totalDuration = max(endTime - startTime, 0.1)
+
+        var cursor = startTime
+        var segments: [SpeechSegment] = []
+
+        for (index, unit) in units.enumerated() {
+            let duration: TimeInterval
+            if index == units.count - 1 {
+                duration = max(endTime - cursor, 0.05)
+            } else {
+                duration = max(totalDuration * (Double(weights[index]) / Double(totalWeight)), 0.05)
+            }
+            let segmentEnd = min(endTime, cursor + duration)
+            segments.append(SpeechSegment(start: cursor, end: max(segmentEnd, cursor), text: unit))
+            cursor = segmentEnd
+        }
+
+        return segments
+    }
+
+    private static func sentenceUnits(from text: String) -> [String] {
+        let tokenizer = NLTokenizer(unit: .sentence)
+        tokenizer.string = text
+
+        var units: [String] = []
+        tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+            let sentence = text[range].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !sentence.isEmpty {
+                units.append(String(sentence))
+            }
+            return true
+        }
+
+        if units.isEmpty {
+            let fallback = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return fallback.isEmpty ? [] : [fallback]
+        }
+
+        return units
     }
 
     private static func visibleLength(of text: String) -> Int {

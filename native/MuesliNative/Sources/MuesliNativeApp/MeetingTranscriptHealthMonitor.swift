@@ -113,21 +113,21 @@ enum MeetingTranscriptHealthMonitor {
     private static let minimumChunksForSystemicFailure = 4
 
     static func evaluate(
-        existingMicSegments: [SpeechSegment],
+        existingSegments: [SpeechSegment],
         offlineSpeechSegments: [VadSegment],
         chunkHealth: MeetingTranscriptChunkHealthSnapshot
     ) -> MeetingTranscriptHealthSnapshot {
         let evaluatedSpeechSegments = offlineSpeechSegments.filter { $0.duration >= minimumEvaluatedSpeechDuration }
         let coverage = coverageSummary(
-            existingMicSegments: existingMicSegments,
+            existingSegments: existingSegments,
             offlineSpeechSegments: evaluatedSpeechSegments
         )
 
         let action: MeetingTranscriptRecoveryAction
         if coverage.totalEvaluatedSpeechDuration < minimumFallbackSpeechDuration {
             action = .accept
-        } else if existingMicSegments.isEmpty {
-            action = .fullFallback(reason: "no_live_mic_segments")
+        } else if existingSegments.isEmpty {
+            action = .fullFallback(reason: "no_live_segments")
         } else if coverage.speechCoverageRatio < fullFallbackCoverageThreshold {
             action = .fullFallback(reason: "low_speech_coverage")
         } else if coverage.uncoveredSpeechDuration >= max(
@@ -165,7 +165,7 @@ enum MeetingTranscriptHealthMonitor {
     }
 
     private static func coverageSummary(
-        existingMicSegments: [SpeechSegment],
+        existingSegments: [SpeechSegment],
         offlineSpeechSegments: [VadSegment]
     ) -> CoverageSummary {
         var totalEvaluatedSpeechDuration: TimeInterval = 0
@@ -179,7 +179,7 @@ enum MeetingTranscriptHealthMonitor {
 
             totalEvaluatedSpeechDuration += duration
             let covered = min(duration, overlapDuration(
-                existingMicSegments: existingMicSegments,
+                existingSegments: existingSegments,
                 targetStart: offlineSegment.startTime,
                 targetEnd: offlineSegment.endTime
             ))
@@ -205,11 +205,11 @@ enum MeetingTranscriptHealthMonitor {
     }
 
     private static func overlapDuration(
-        existingMicSegments: [SpeechSegment],
+        existingSegments: [SpeechSegment],
         targetStart: TimeInterval,
         targetEnd: TimeInterval
     ) -> TimeInterval {
-        existingMicSegments.reduce(0) { partialResult, segment in
+        existingSegments.reduce(0) { partialResult, segment in
             let overlapStart = max(segment.start, targetStart)
             let overlapEnd = min(segment.end, targetEnd)
             return partialResult + max(0, overlapEnd - overlapStart)

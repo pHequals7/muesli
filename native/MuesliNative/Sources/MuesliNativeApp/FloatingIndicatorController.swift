@@ -519,6 +519,15 @@ final class FloatingIndicatorController {
         )
     }
 
+    static func isUsableIndicatorCenter(
+        _ center: CGPoint,
+        in visibleFrame: NSRect,
+        size: NSSize
+    ) -> Bool {
+        let allowedRect = visibleFrame.insetBy(dx: size.width / 2, dy: size.height / 2)
+        return allowedRect.contains(center)
+    }
+
     private func frameForState(_ state: DictationState, config: AppConfig) -> NSRect {
         guard let screen = NSScreen.main?.visibleFrame else {
             return NSRect(x: 0, y: 0, width: 64, height: 28)
@@ -538,7 +547,8 @@ final class FloatingIndicatorController {
         let center: CGPoint
         if let currentFrame = panel?.frame, currentFrame.width > 0 {
             center = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
-        } else if let saved = config.indicatorOrigin {
+        } else if let saved = config.indicatorOrigin,
+                  Self.isUsableIndicatorCenter(CGPoint(x: saved.x, y: saved.y), in: screen, size: size) {
             center = CGPoint(x: saved.x, y: saved.y)
         } else {
             center = Self.defaultIndicatorCenter(in: screen)

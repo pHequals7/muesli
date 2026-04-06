@@ -105,6 +105,23 @@ struct TranscriptFormatterTests {
         #expect(lines[1].contains("Others:"))
     }
 
+    @Test("consolidation inserts spacing between same-speaker chunk text")
+    func consolidationPreservesChunkSpacing() {
+        let meetingStart = Date(timeIntervalSince1970: 0)
+        let system = [
+            SpeechSegment(start: 0.0, end: 2.0, text: "This is the first sentence."),
+            SpeechSegment(start: 2.1, end: 4.0, text: "This is the second sentence."),
+        ]
+
+        let result = TranscriptFormatter.merge(
+            micSegments: [],
+            systemSegments: system,
+            meetingStart: meetingStart
+        )
+
+        #expect(result.contains("Others: This is the first sentence. This is the second sentence."))
+    }
+
     @Test("formatter preserves overlapping sources after reconciliation has happened upstream")
     func preservesOverlappingSources() {
         let meetingStart = Date(timeIntervalSince1970: 0)
@@ -122,6 +139,51 @@ struct TranscriptFormatterTests {
         )
 
         #expect(result.contains("You: wait hold on"))
+        #expect(result.contains("Others: can you hear me okay"))
+    }
+
+    @Test("formatter drops pure echoed mic duplicates when system carries the same content")
+    func dropsPureEchoedMicDuplicates() {
+        let meetingStart = Date(timeIntervalSince1970: 0)
+        let mic = [
+            SpeechSegment(start: 1.0, end: 3.0, text: "can you hear me okay"),
+        ]
+        let system = [
+            SpeechSegment(start: 1.05, end: 3.0, text: "can you hear me okay"),
+        ]
+
+        let result = TranscriptFormatter.merge(
+            micSegments: mic,
+            systemSegments: system,
+            meetingStart: meetingStart
+        )
+
+        #expect(!result.contains("You: can you hear me okay"))
+        #expect(result.contains("Others: can you hear me okay"))
+    }
+
+    @Test("formatter trims echoed suffix from mic when user spoke before system overlap")
+    func trimsEchoedMicSuffix() {
+        let meetingStart = Date(timeIntervalSince1970: 0)
+        let mic = [
+            SpeechSegment(
+                start: 0.0,
+                end: 4.0,
+                text: "Okay I am recording this test can you hear me okay"
+            ),
+        ]
+        let system = [
+            SpeechSegment(start: 1.2, end: 4.0, text: "can you hear me okay"),
+        ]
+
+        let result = TranscriptFormatter.merge(
+            micSegments: mic,
+            systemSegments: system,
+            meetingStart: meetingStart
+        )
+
+        #expect(result.contains("You: Okay I am"))
+        #expect(!result.contains("You: Okay I am recording this test can you hear me okay"))
         #expect(result.contains("Others: can you hear me okay"))
     }
 
@@ -226,14 +288,15 @@ struct TranscriptFormatterTests {
         #expect(result.contains("Speaker 2: A speaks second"))
     }
 
-    @Test("diarization with no overlap falls back to Others")
-    func diarizationNoOverlapFallback() {
+    @Test("single-speaker diarization labels all system segments consistently")
+    func singleSpeakerDiarizationFallback() {
         let meetingStart = Date(timeIntervalSince1970: 0)
         let system = [
-            SpeechSegment(start: 100.0, end: 105.0, text: "Orphan segment"),
+            SpeechSegment(start: 0.0, end: 1.0, text: "First chunk"),
+            SpeechSegment(start: 3.0, end: 4.0, text: "Second chunk"),
         ]
         let diarization = [
-            makeDiarSeg(speakerId: "spk_0", start: 0.0, end: 10.0),
+            makeDiarSeg(speakerId: "spk_0", start: 0.2, end: 0.8),
         ]
         let result = TranscriptFormatter.merge(
             micSegments: [],
@@ -241,7 +304,8 @@ struct TranscriptFormatterTests {
             diarizationSegments: diarization,
             meetingStart: meetingStart
         )
-        #expect(result.contains("Others: Orphan segment"))
+        #expect(result.contains("Speaker 1: First chunk Second chunk"))
+        #expect(!result.contains("Others:"))
     }
 
     @Test("nil diarization segments falls back to Others labels")
@@ -375,4 +439,5 @@ struct TranscriptFormatterTests {
             qualityScore: 1.0
         )
     }
+
 }
