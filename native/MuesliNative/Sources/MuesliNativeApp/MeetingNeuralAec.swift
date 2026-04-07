@@ -19,17 +19,25 @@ enum MeetingNeuralAec {
             return nil
         }
 
-        let commonLength = min(micSamples.count, systemSamples.count)
+        let micLength = micSamples.count
+        let systemLength = systemSamples.count
         let frameSize = 512 // ~32ms at 16kHz
         let batchSize = 500 // process 500 frames (~16s) per autorelease batch
         var cleanedSamples: [Float] = []
-        cleanedSamples.reserveCapacity(commonLength)
+        cleanedSamples.reserveCapacity(micLength)
 
         var frameIndex = 0
-        for offset in stride(from: 0, to: commonLength, by: frameSize) {
-            let end = min(offset + frameSize, commonLength)
-            let systemFrame = Array(systemSamples[offset..<end])
+        for offset in stride(from: 0, to: micLength, by: frameSize) {
+            let end = min(offset + frameSize, micLength)
             let micFrame = Array(micSamples[offset..<end])
+            // Feed system audio as reference; use silence if system recording is shorter
+            let systemFrame: [Float]
+            if offset < systemLength {
+                let sysEnd = min(offset + frameSize, systemLength)
+                systemFrame = Array(systemSamples[offset..<sysEnd])
+            } else {
+                systemFrame = [Float](repeating: 0, count: end - offset)
+            }
 
             autoreleasepool {
                 processor.feedFarEnd(systemFrame)
@@ -49,7 +57,7 @@ enum MeetingNeuralAec {
         cleanedSamples.append(contentsOf: remaining)
         processor.resetStates()
 
-        fputs("[meeting-aec] DTLN-aec processed \(commonLength) samples → \(cleanedSamples.count) cleaned samples\n", stderr)
+        fputs("[meeting-aec] DTLN-aec processed \(micLength) mic samples (system=\(systemLength)) → \(cleanedSamples.count) cleaned samples\n", stderr)
         return cleanedSamples
     }
 
