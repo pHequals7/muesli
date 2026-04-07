@@ -887,6 +887,7 @@ final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             var meetingTitle = "Meeting"
+            var completedMeetingID: Int64?
             var meetingResult: MeetingSessionResult?
             defer {
                 if let meetingResult {
@@ -901,6 +902,7 @@ final class MuesliController: NSObject {
                     self.setMeetingProcessingStatus("Finalizing")
                 }
                 let persistenceResult = try self.persistCompletedMeetingResult(result)
+                completedMeetingID = persistenceResult.meetingID
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
                 }
@@ -923,12 +925,18 @@ final class MuesliController: NSObject {
                 TelemetryDeck.signal("meeting.completed")
 
                 self.presentedMeetingDetection = nil
+                let savedMeetingID = completedMeetingID
                 self.meetingNotification.show(
                     title: "Transcription complete",
                     subtitle: meetingTitle,
                     actionLabel: "View Notes",
                     onStartRecording: { [weak self] in
-                        self?.openHistoryWindow(tab: .meetings)
+                        guard let self else { return }
+                        if let savedMeetingID {
+                            self.showMeetingDocument(id: savedMeetingID)
+                        }
+                        self.syncAppState()
+                        self.historyWindowController?.show()
                     }
                 )
                 self.updateMeetingNotificationVisibility()
