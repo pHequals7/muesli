@@ -34,6 +34,7 @@ struct SidebarView: View {
 
             sidebarItem(tab: .settings, icon: "gearshape", label: "Settings")
             sidebarItem(tab: .about, icon: "info.circle", label: "About")
+            darkModeToggle
                 .padding(.bottom, MuesliTheme.spacing16)
         }
         .frame(maxHeight: .infinity)
@@ -226,6 +227,52 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, sidebarRowOuterPadding)
+    }
+
+    @ViewBuilder
+    private var darkModeToggle: some View {
+        let isDark = appState.config.darkMode
+        HStack(spacing: 2) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    controller.updateConfig { $0.darkMode = false }
+                }
+            } label: {
+                Image(systemName: "sun.max.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(!isDark ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 28, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(!isDark ? MuesliTheme.surfaceSelected : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    controller.updateConfig { $0.darkMode = true }
+                }
+            } label: {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isDark ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 28, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(isDark ? MuesliTheme.surfaceSelected : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .fill(MuesliTheme.backgroundRaised)
+        )
+        .padding(.horizontal, sidebarRowOuterPadding)
+        .padding(.leading, sidebarRowHorizontalPadding)
+        .padding(.bottom, MuesliTheme.spacing4)
     }
 
     @ViewBuilder

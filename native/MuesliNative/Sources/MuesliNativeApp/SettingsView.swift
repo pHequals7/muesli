@@ -64,12 +64,6 @@ struct SettingsView: View {
                         }
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Dark mode") {
-                        settingsSwitch(isOn: appState.config.darkMode) { newValue in
-                            controller.updateConfig { $0.darkMode = newValue }
-                        }
-                    }
-                    Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Show floating indicator") {
                         settingsSwitch(isOn: appState.config.showFloatingIndicator) { newValue in
                             controller.updateConfig { $0.showFloatingIndicator = newValue }
@@ -183,7 +177,7 @@ struct SettingsView: View {
                                 placeholder: "sk-...",
                                 onChange: { val in controller.updateConfig { $0.openAIAPIKey = val } }
                             )
-                            .frame(width: controlWidth, height: 22)
+                            .frame(height: 22)
                         }
                         Divider().background(MuesliTheme.surfaceBorder)
                         settingsRow("Model") {
@@ -200,7 +194,7 @@ struct SettingsView: View {
                                 placeholder: "sk-or-...",
                                 onChange: { val in controller.updateConfig { $0.openRouterAPIKey = val } }
                             )
-                            .frame(width: controlWidth, height: 22)
+                            .frame(height: 22)
                         }
                         Divider().background(MuesliTheme.surfaceBorder)
                         settingsRow("Model") {
@@ -323,6 +317,7 @@ struct SettingsView: View {
                 .foregroundStyle(MuesliTheme.textPrimary)
             Spacer()
             control()
+                .frame(width: controlWidth, alignment: .trailing)
         }
         .frame(minHeight: 32)
     }
@@ -343,7 +338,7 @@ struct SettingsView: View {
             ForEach(options, id: \.self) { Text($0).tag($0) }
         }
         .pickerStyle(.menu)
-        .frame(width: controlWidth)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -374,7 +369,7 @@ struct SettingsView: View {
             }
         }
         .pickerStyle(.menu)
-        .frame(width: controlWidth)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -386,7 +381,7 @@ struct SettingsView: View {
             ForEach(presets, id: \.id) { Text($0.label).tag($0.id) }
         }
         .pickerStyle(.menu)
-        .frame(width: controlWidth)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
