@@ -14,6 +14,7 @@ struct SidebarView: View {
     @State private var renamingFolderName = ""
     @State private var folderToDelete: MeetingFolder?
     @State private var showDeleteConfirmation = false
+    @State private var draggingFolderID: Int64?
 
     private var userName: String {
         appState.config.userName
@@ -168,6 +169,17 @@ struct SidebarView: View {
                             ) {
                                 controller.showMeetingsHome(folderID: folder.id)
                             }
+                            .opacity(draggingFolderID == folder.id ? 0.1 : 1)
+                            .onDrag {
+                                draggingFolderID = folder.id
+                                return NSItemProvider(object: "\(folder.id)" as NSString)
+                            }
+                            .onDrop(of: [.text], delegate: FolderDropDelegate(
+                                folderID: folder.id,
+                                folders: appState.folders,
+                                draggingFolderID: $draggingFolderID,
+                                reorder: { ids in controller.reorderFolders(ids: ids) }
+                            ))
                             .contextMenu {
                                 Button("Rename") {
                                     renamingFolderID = folder.id
@@ -234,11 +246,11 @@ struct SidebarView: View {
                 .foregroundStyle(isSelected ? MuesliTheme.textPrimary : MuesliTheme.textSecondary)
                 .lineLimit(1)
             Spacer()
-            Text("\(count)")
+            Text(formattedCount(count))
                 .font(MuesliTheme.caption())
                 .monospacedDigit()
                 .foregroundStyle(MuesliTheme.textTertiary)
-                .frame(width: meetingsTrailingColumnWidth, alignment: .center)
+                .frame(minWidth: meetingsTrailingColumnWidth, alignment: .center)
         }
         .padding(.horizontal, sidebarRowHorizontalPadding)
         .padding(.vertical, 6)
@@ -276,6 +288,15 @@ struct SidebarView: View {
         )
     }
 
+    private func formattedCount(_ count: Int) -> String {
+        if count < 1000 { return "\(count)" }
+        let k = Double(count) / 1000.0
+        if count < 10000 {
+            return String(format: "%.1fk+", k)
+        }
+        return String(format: "%.0fk+", k)
+    }
+
     private func createNewFolder() {
         if let id = controller.createFolder(name: "New Folder") {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -285,5 +306,32 @@ struct SidebarView: View {
             renamingFolderName = "New Folder"
             controller.showMeetingsHome(folderID: id)
         }
+    }
+}
+
+private struct FolderDropDelegate: DropDelegate {
+    let folderID: Int64
+    let folders: [MeetingFolder]
+    @Binding var draggingFolderID: Int64?
+    let reorder: ([Int64]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let dragID = draggingFolderID, dragID != folderID else { return }
+        var ids = folders.map(\.id)
+        guard let fromIndex = ids.firstIndex(of: dragID),
+              let toIndex = ids.firstIndex(of: folderID) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            ids.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+            reorder(ids)
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingFolderID = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }

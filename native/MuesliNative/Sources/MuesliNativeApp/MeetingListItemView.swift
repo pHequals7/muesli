@@ -7,9 +7,13 @@ struct MeetingListItemView: View {
     let folders: [MeetingFolder]
     let onSelect: () -> Void
     let onMove: (Int64?) -> Void
+    let onCreateFolderAndMove: ((String) -> Void)?
     let onDelete: (() -> Void)?
     @State private var isHovering = false
     @State private var showDeleteConfirmation = false
+    @State private var showFolderPopover = false
+    @State private var showNewFolderPrompt = false
+    @State private var newFolderName = ""
 
     private var currentFolderName: String? {
         guard let fid = record.folderID else { return nil }
@@ -87,25 +91,8 @@ struct MeetingListItemView: View {
 
     @ViewBuilder
     private var folderMenuButton: some View {
-        Menu {
-            Button {
-                onMove(nil)
-            } label: {
-                Label("Unfiled", systemImage: "tray")
-            }
-            Divider()
-            ForEach(folders) { folder in
-                Button {
-                    onMove(folder.id)
-                } label: {
-                    HStack {
-                        Label(folder.name, systemImage: "folder")
-                        if record.folderID == folder.id {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
+        Button {
+            showFolderPopover.toggle()
         } label: {
             Image(systemName: record.folderID != nil ? "folder.fill" : "folder.badge.plus")
                 .font(.system(size: 11))
@@ -117,10 +104,67 @@ struct MeetingListItemView: View {
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(.plain)
         .help("Move to folder")
+        .popover(isPresented: $showFolderPopover, arrowEdge: .leading) {
+            VStack(alignment: .leading, spacing: 0) {
+                folderPopoverRow(icon: "tray", label: "Unfiled", isActive: record.folderID == nil) {
+                    onMove(nil)
+                    showFolderPopover = false
+                }
+                Divider().padding(.vertical, 4)
+                ForEach(folders) { folder in
+                    folderPopoverRow(icon: "folder", label: folder.name, isActive: record.folderID == folder.id) {
+                        onMove(folder.id)
+                        showFolderPopover = false
+                    }
+                }
+                if onCreateFolderAndMove != nil {
+                    Divider().padding(.vertical, 4)
+                    folderPopoverRow(icon: "folder.badge.plus", label: "New Folder...") {
+                        showFolderPopover = false
+                        newFolderName = ""
+                        showNewFolderPrompt = true
+                    }
+                }
+            }
+            .padding(8)
+        }
+        .alert("New Folder", isPresented: $showNewFolderPrompt) {
+            TextField("Folder name", text: $newFolderName)
+            Button("Create") {
+                let trimmed = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    onCreateFolderAndMove?(trimmed)
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Create a new folder and move this meeting into it.")
+        }
+    }
+
+    @ViewBuilder
+    private func folderPopoverRow(icon: String, label: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                    .frame(width: 16)
+                Text(label)
+                    .font(MuesliTheme.callout())
+                Spacer()
+                if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.accent)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

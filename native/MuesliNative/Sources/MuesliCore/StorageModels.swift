@@ -118,11 +118,13 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
 public struct MeetingFolder: Identifiable, Codable, Sendable {
     public let id: Int64
     public var name: String
+    public var sortOrder: Int
     public let createdAt: String
 
-    public init(id: Int64, name: String, createdAt: String) {
+    public init(id: Int64, name: String, sortOrder: Int = 0, createdAt: String) {
         self.id = id
         self.name = name
+        self.sortOrder = sortOrder
         self.createdAt = createdAt
     }
 }

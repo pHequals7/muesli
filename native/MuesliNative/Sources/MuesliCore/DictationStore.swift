@@ -215,38 +215,31 @@ public final class DictationStore {
         )
     }
 
-    public func recentMeetings(limit: Int = 10, folderID: Int64? = nil) throws -> [MeetingRecord] {
+    public func recentMeetings(limit: Int? = nil, folderID: Int64? = nil) throws -> [MeetingRecord] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
 
-        let sql: String
-        if folderID == nil {
-            sql = """
-            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
-            FROM meetings
-            ORDER BY id DESC
-            LIMIT ?
-            """
+        let columns = "id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt"
+        var sql: String
+        if let folderID {
+            sql = "SELECT \(columns) FROM meetings WHERE folder_id = ? ORDER BY id DESC"
         } else {
-            sql = """
-            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
-            FROM meetings
-            WHERE folder_id = ?
-            ORDER BY id DESC
-            LIMIT ?
-            """
+            sql = "SELECT \(columns) FROM meetings ORDER BY id DESC"
         }
+        if limit != nil { sql += " LIMIT ?" }
 
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
         }
         defer { sqlite3_finalize(statement) }
+        var bindIndex: Int32 = 1
         if let folderID {
-            sqlite3_bind_int64(statement, 1, folderID)
-            sqlite3_bind_int(statement, 2, Int32(limit))
-        } else {
-            sqlite3_bind_int(statement, 1, Int32(limit))
+            sqlite3_bind_int64(statement, bindIndex, folderID)
+            bindIndex += 1
+        }
+        if let limit {
+            sqlite3_bind_int(statement, bindIndex, Int32(limit))
         }
 
         var rows: [MeetingRecord] = []
@@ -612,7 +605,7 @@ public final class DictationStore {
     public func listFolders() throws -> [MeetingFolder] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        let sql = "SELECT id, name, created_at FROM meeting_folders ORDER BY sort_order ASC, id ASC"
+        let sql = "SELECT id, name, sort_order, created_at FROM meeting_folders ORDER BY sort_order ASC, id ASC"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
@@ -623,10 +616,27 @@ public final class DictationStore {
             rows.append(MeetingFolder(
                 id: sqlite3_column_int64(statement, 0),
                 name: stringColumn(statement, index: 1),
-                createdAt: stringColumn(statement, index: 2)
+                sortOrder: Int(sqlite3_column_int(statement, 2)),
+                createdAt: stringColumn(statement, index: 3)
             ))
         }
         return rows
+    }
+
+    public func updateFolderOrder(ids: [Int64]) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = "UPDATE meeting_folders SET sort_order = ? WHERE id = ?"
+        for (index, id) in ids.enumerated() {
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(statement) }
+            sqlite3_bind_int(statement, 1, Int32(index))
+            sqlite3_bind_int64(statement, 2, id)
+            sqlite3_step(statement)
+        }
     }
 
     public func moveMeeting(id: Int64, toFolder folderID: Int64?) throws {
