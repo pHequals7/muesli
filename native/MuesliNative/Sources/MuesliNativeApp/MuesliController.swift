@@ -1161,6 +1161,8 @@ final class MuesliController: NSObject {
         switch stage {
         case .transcribingAudio:
             setMeetingProcessingStatus("Transcribing")
+        case .cleaningAudio:
+            setMeetingProcessingStatus("Cleaning")
         case .generatingTitle:
             setMeetingProcessingStatus("Titling")
         case .summarizingNotes:

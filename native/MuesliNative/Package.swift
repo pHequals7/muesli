@@ -13,10 +13,11 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.2"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", "0.12.2"..<"0.13.0"),
         .package(url: "https://github.com/exPHAT/SwiftWhisper.git", branch: "master"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
         .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0"),
+        .package(url: "https://github.com/MimicScribe/dtln-aec-coreml.git", from: "0.4.0-beta"),
     ],
     targets: [
         .target(
@@ -35,6 +36,8 @@ let package = Package(
                 .product(name: "SwiftWhisper", package: "SwiftWhisper"),
                 .product(name: "Sparkle", package: "Sparkle"),
                 .product(name: "TelemetryDeck", package: "SwiftSDK"),
+                .product(name: "DTLNAecCoreML", package: "dtln-aec-coreml"),
+                .product(name: "DTLNAec512", package: "dtln-aec-coreml"),
             ],
             path: "Sources/MuesliNativeApp",
             swiftSettings: [

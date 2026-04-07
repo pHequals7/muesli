@@ -68,6 +68,7 @@ struct MeetingSessionResult {
 
 enum MeetingProcessingStage {
     case transcribingAudio
+    case cleaningAudio
     case generatingTitle
     case summarizingNotes
 }
@@ -383,6 +384,81 @@ final class MeetingSession {
 
         fputs("[meeting] \(micSegments.count) mic chunks transcribed during meeting\n", stderr)
         fputs("[meeting] \(systemSegments.count) system chunks transcribed during meeting\n", stderr)
+
+        // Run neural AEC on full-session recordings to recover local speech
+        onProgress?(.cleaningAudio)
+        if let fullSessionMicURL, let systemAudioURL {
+            do {
+                let micSamples = try AudioConverter().resampleAudioFile(fullSessionMicURL)
+                let systemSamples = try AudioConverter().resampleAudioFile(systemAudioURL)
+                if let cleanedSamples = await MeetingNeuralAec.cleanMicAudio(
+                    micSamples: micSamples,
+                    systemSamples: systemSamples
+                ) {
+                    // Use offline VAD on cleaned audio to find speech regions,
+                    // then transcribe each region individually for proper timestamps.
+                    var aecSegments: [SpeechSegment] = []
+                    let sampleRate = 16_000
+                    if let vadManager = await transcriptionCoordinator.getVadManager() {
+                        let speechRegions = try await vadManager.segmentSpeech(
+                            cleanedSamples,
+                            config: VadSegmentationConfig(maxSpeechDuration: 30.0, speechPadding: 0.15)
+                        )
+                        fputs("[meeting] neural AEC: \(speechRegions.count) speech regions detected in cleaned audio\n", stderr)
+
+                        for (i, region) in speechRegions.enumerated() {
+                            let startIdx = max(0, region.startSample(sampleRate: sampleRate))
+                            let endIdx = min(cleanedSamples.count, region.endSample(sampleRate: sampleRate))
+                            guard endIdx > startIdx else { continue }
+
+                            do {
+                                let regionSamples = Array(cleanedSamples[startIdx..<endIdx])
+                                let regionURL = try MeetingNeuralAec.writeTemporaryWAV(samples: regionSamples)
+                                defer { try? FileManager.default.removeItem(at: regionURL) }
+
+                                fputs("[meeting] neural AEC: transcribing region \(i+1)/\(speechRegions.count) (\(String(format: "%.1f", region.startTime))-\(String(format: "%.1f", region.endTime))s, \(regionSamples.count) samples)\n", stderr)
+
+                                let regionResult = try await transcriptionCoordinator.transcribeMeetingChunk(
+                                    at: regionURL,
+                                    backend: backend,
+                                    customWords: serializedCustomWords
+                                )
+                                let normalized = MicTurnNormalizer.normalize(
+                                    result: regionResult,
+                                    startTime: region.startTime,
+                                    endTime: region.endTime
+                                )
+                                aecSegments.append(contentsOf: normalized)
+                            } catch {
+                                fputs("[meeting] neural AEC: region \(i+1) failed: \(error)\n", stderr)
+                            }
+                        }
+                    } else {
+                        // No VAD — fall back to full-session transcription
+                        let cleanedURL = try MeetingNeuralAec.writeTemporaryWAV(samples: cleanedSamples)
+                        defer { try? FileManager.default.removeItem(at: cleanedURL) }
+                        let totalDuration = durationSeconds(from: meetingStart, to: endTime)
+                        let cleanedResult = try await transcriptionCoordinator.transcribeMeeting(
+                            at: cleanedURL,
+                            backend: backend,
+                            customWords: serializedCustomWords
+                        )
+                        aecSegments = MicTurnNormalizer.normalize(
+                            result: cleanedResult,
+                            startTime: 0,
+                            endTime: totalDuration
+                        )
+                    }
+
+                    if !aecSegments.isEmpty {
+                        fputs("[meeting] neural AEC produced \(aecSegments.count) cleaned mic segments\n", stderr)
+                        micSegments = aecSegments
+                    }
+                }
+            } catch {
+                fputs("[meeting] neural AEC skipped: \(error)\n", stderr)
+            }
+        }
 
         let reconciledTranscriptInputs = TranscriptReconciler.reconcile(
             micTurns: micSegments,
