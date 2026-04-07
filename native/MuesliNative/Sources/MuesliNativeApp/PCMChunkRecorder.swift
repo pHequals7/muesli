@@ -80,7 +80,7 @@ final class PCMChunkRecorder {
                 userInfo: [NSLocalizedDescriptionKey: "Could not open chunk recorder file for writing."]
             )
         }
-        fileHandle.write(Self.wavHeader(dataSize: 0))
+        fileHandle.write(WavWriter.header(dataSize: 0))
         return State(fileHandle: fileHandle, fileURL: fileURL, bytesWritten: 0)
     }
 
@@ -88,7 +88,7 @@ final class PCMChunkRecorder {
         guard let fileHandle = state.fileHandle, let fileURL = state.fileURL else { return nil }
 
         fileHandle.seek(toFileOffset: 0)
-        fileHandle.write(Self.wavHeader(dataSize: UInt32(state.bytesWritten)))
+        fileHandle.write(WavWriter.header(dataSize: UInt32(state.bytesWritten)))
         fileHandle.closeFile()
 
         guard state.bytesWritten > 0 else {
@@ -98,28 +98,4 @@ final class PCMChunkRecorder {
         return fileURL
     }
 
-    private static func wavHeader(dataSize: UInt32) -> Data {
-        let sampleRate: UInt32 = 16_000
-        let channels: UInt16 = 1
-        let bitsPerSample: UInt16 = 16
-        let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
-        let blockAlign = channels * (bitsPerSample / 8)
-        let chunkSize = 36 + dataSize
-
-        var header = Data()
-        header.append(contentsOf: "RIFF".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: chunkSize.littleEndian) { Array($0) })
-        header.append(contentsOf: "WAVE".utf8)
-        header.append(contentsOf: "fmt ".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: channels.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: sampleRate.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian) { Array($0) })
-        header.append(contentsOf: "data".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
-        return header
-    }
 }

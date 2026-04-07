@@ -88,6 +88,7 @@ final class MeetingSession {
     private let transcriptionCoordinator: TranscriptionCoordinator
     private let systemAudioRecorder = SystemAudioRecorder()
     private let fullSessionMicRecorder = MicrophoneRecorder()
+    private let neuralAec = MeetingNeuralAec()
 
     /// Streaming mic recorder with real-time buffer access (AVAudioEngine)
     private var streamingMicRecorder = StreamingMicRecorder()
@@ -144,6 +145,9 @@ final class MeetingSession {
     func start() async throws {
         let vadManager = await transcriptionCoordinator.getVadManager()
         let now = Date()
+
+        // Preload neural AEC model in background so it's ready at stop time
+        Task { await neuralAec.preload() }
 
         chunkRotationQueue.sync {
             startTime = now
@@ -391,7 +395,7 @@ final class MeetingSession {
             do {
                 let micSamples = try AudioConverter().resampleAudioFile(fullSessionMicURL)
                 let systemSamples = try AudioConverter().resampleAudioFile(systemAudioURL)
-                if let cleanedSamples = await MeetingNeuralAec.cleanMicAudio(
+                if let cleanedSamples = await neuralAec.cleanMicAudio(
                     micSamples: micSamples,
                     systemSamples: systemSamples
                 ) {
@@ -413,7 +417,7 @@ final class MeetingSession {
 
                             do {
                                 let regionSamples = Array(cleanedSamples[startIdx..<endIdx])
-                                let regionURL = try MeetingNeuralAec.writeTemporaryWAV(samples: regionSamples)
+                                let regionURL = try WavWriter.writeTemporaryWAV(samples: regionSamples)
                                 defer { try? FileManager.default.removeItem(at: regionURL) }
 
                                 fputs("[meeting] neural AEC: transcribing region \(i+1)/\(speechRegions.count) (\(String(format: "%.1f", region.startTime))-\(String(format: "%.1f", region.endTime))s, \(regionSamples.count) samples)\n", stderr)
@@ -435,7 +439,7 @@ final class MeetingSession {
                         }
                     } else {
                         // No VAD — fall back to full-session transcription
-                        let cleanedURL = try MeetingNeuralAec.writeTemporaryWAV(samples: cleanedSamples)
+                        let cleanedURL = try WavWriter.writeTemporaryWAV(samples: cleanedSamples)
                         defer { try? FileManager.default.removeItem(at: cleanedURL) }
                         let totalDuration = durationSeconds(from: meetingStart, to: endTime)
                         let cleanedResult = try await transcriptionCoordinator.transcribeMeeting(

@@ -120,7 +120,7 @@ enum TranscriptReconciler {
         }
 
         for candidate in orderedCandidates {
-            if let activeStart = currentStart {
+            if currentStart != nil {
                 if candidate.paddedStart <= currentEnd {
                     currentEnd = max(currentEnd, candidate.paddedEnd)
                 } else {
@@ -128,7 +128,6 @@ enum TranscriptReconciler {
                     currentStart = candidate.paddedStart
                     currentEnd = candidate.paddedEnd
                 }
-                _ = activeStart
             } else {
                 currentStart = candidate.paddedStart
                 currentEnd = candidate.paddedEnd
@@ -155,19 +154,14 @@ enum TranscriptReconciler {
         )
     }
 
+    /// Preserve-first: keep all non-empty mic turns. System capture is the
+    /// remote source of truth; deleting a real local turn is irreversible.
     private static func shouldKeepMicTurn(
         _ micTurn: SpeechSegment,
         overlappingSystemTurns: [SpeechSegment]
     ) -> Bool {
         guard !overlappingSystemTurns.isEmpty else { return true }
-
-        let normalizedMicText = normalizedText(micTurn.text)
-        guard !normalizedMicText.isEmpty else { return false }
-        // Preserve-first policy: overlapping mic speech is more valuable than
-        // removing a possible duplicate. System capture already exists as the
-        // remote source of truth, while deleting a real local turn is
-        // irreversible and is the current production failure mode.
-        return true
+        return !normalizedText(micTurn.text).isEmpty
     }
 
     private static func mergeReadableSegments(_ segments: [SpeechSegment]) -> [SpeechSegment] {

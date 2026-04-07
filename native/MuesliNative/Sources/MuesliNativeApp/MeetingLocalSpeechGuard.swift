@@ -34,8 +34,7 @@ enum MeetingLocalSpeechGuard {
         let uncoveredSpeechIncrease = reconciledHealth.uncoveredSpeechDuration - originalHealth.uncoveredSpeechDuration
         let shouldRevert =
             coverageLoss >= minimumCoverageLossToRevert &&
-            uncoveredSpeechIncrease >= minimumUncoveredSpeechIncreaseToRevert &&
-            originalHealth.speechCoverageRatio > reconciledHealth.speechCoverageRatio
+            uncoveredSpeechIncrease >= minimumUncoveredSpeechIncreaseToRevert
 
         return MeetingLocalSpeechGuardDecision(
             preferredMicSegments: shouldRevert ? originalMicSegments : reconciledMicSegments,

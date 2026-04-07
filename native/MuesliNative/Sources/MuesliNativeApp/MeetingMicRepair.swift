@@ -24,24 +24,7 @@ enum MeetingMicRepairPlanner {
     }
 
     static func writeTemporaryWAV(samples: [Float]) throws -> URL {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-meeting-mic-repair", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
-
-        var pcmSamples = [Int16]()
-        pcmSamples.reserveCapacity(samples.count)
-        for sample in samples {
-            let clamped = max(-1.0, min(1.0, sample))
-            pcmSamples.append(Int16(clamped * 32767.0))
-        }
-
-        var data = Data()
-        let dataSize = UInt32(pcmSamples.count * MemoryLayout<Int16>.size)
-        data.append(contentsOf: wavHeader(dataSize: dataSize))
-        data.append(pcmSamples.withUnsafeBufferPointer { Data(buffer: $0) })
-        try data.write(to: url, options: .atomic)
-        return url
+        try WavWriter.writeTemporaryWAV(samples: samples, directoryName: "muesli-meeting-mic-repair")
     }
 
     static func wavDurationSeconds(for url: URL) -> Double {
@@ -63,28 +46,4 @@ enum MeetingMicRepairPlanner {
         }
     }
 
-    private static func wavHeader(dataSize: UInt32) -> Data {
-        let sampleRate: UInt32 = 16_000
-        let channels: UInt16 = 1
-        let bitsPerSample: UInt16 = 16
-        let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
-        let blockAlign = channels * (bitsPerSample / 8)
-        let chunkSize = 36 + dataSize
-
-        var header = Data()
-        header.append(contentsOf: "RIFF".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: chunkSize.littleEndian) { Array($0) })
-        header.append(contentsOf: "WAVE".utf8)
-        header.append(contentsOf: "fmt ".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: channels.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: sampleRate.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian) { Array($0) })
-        header.append(contentsOf: "data".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
-        return header
-    }
 }

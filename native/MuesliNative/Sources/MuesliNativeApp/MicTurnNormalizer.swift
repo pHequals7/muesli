@@ -74,9 +74,10 @@ enum MicTurnNormalizer {
             }
 
             let gap = max(0, segment.start - previous.end)
+            let shortSegmentGapCap: TimeInterval = 1.5
             let shouldMerge = gap <= maxMergeGapSeconds
-                || visibleLength(of: previous.text) < shortSegmentVisibleLength
-                || visibleLength(of: segment.text) < shortSegmentVisibleLength
+                || (gap <= shortSegmentGapCap && visibleLength(of: previous.text) < shortSegmentVisibleLength)
+                || (gap <= shortSegmentGapCap && visibleLength(of: segment.text) < shortSegmentVisibleLength)
 
             if shouldMerge {
                 merged[merged.count - 1] = SpeechSegment(
