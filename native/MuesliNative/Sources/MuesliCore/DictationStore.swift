@@ -215,6 +215,29 @@ public final class DictationStore {
         )
     }
 
+    public func meetingCounts() throws -> (total: Int, byFolder: [Int64: Int]) {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+
+        var total = 0
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM meetings", -1, &stmt, nil) == SQLITE_OK {
+            if sqlite3_step(stmt) == SQLITE_ROW { total = Int(sqlite3_column_int(stmt, 0)) }
+            sqlite3_finalize(stmt)
+        }
+
+        var byFolder: [Int64: Int] = [:]
+        var stmt2: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT folder_id, COUNT(*) FROM meetings WHERE folder_id IS NOT NULL GROUP BY folder_id", -1, &stmt2, nil) == SQLITE_OK {
+            while sqlite3_step(stmt2) == SQLITE_ROW {
+                byFolder[sqlite3_column_int64(stmt2, 0)] = Int(sqlite3_column_int(stmt2, 1))
+            }
+            sqlite3_finalize(stmt2)
+        }
+
+        return (total, byFolder)
+    }
+
     public func recentMeetings(limit: Int? = nil, folderID: Int64? = nil) throws -> [MeetingRecord] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }

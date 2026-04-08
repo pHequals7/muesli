@@ -23,6 +23,8 @@ final class AppState {
     // Dashboard data
     var dictationRows: [DictationRecord] = []
     var meetingRows: [MeetingRecord] = []
+    var totalMeetingCount: Int = 0
+    var meetingCountsByFolder: [Int64: Int] = [:]
     var selectedMeetingID: Int64?
     var selectedMeetingRecord: MeetingRecord?
     var folders: [MeetingFolder] = []

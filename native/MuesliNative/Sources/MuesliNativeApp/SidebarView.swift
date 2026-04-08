@@ -66,7 +66,7 @@ struct SidebarView: View {
             }
         } message: {
             let count = folderToDelete.map { folder in
-                appState.meetingRows.filter { $0.folderID == folder.id }.count
+                appState.meetingCountsByFolder[folder.id] ?? 0
             } ?? 0
             if count > 0 {
                 Text("\(count) meeting\(count == 1 ? "" : "s") in this folder will be moved to Unfiled.")
@@ -158,7 +158,7 @@ struct SidebarView: View {
                     meetingFilterRow(
                         icon: "tray.2",
                         label: "All Meetings",
-                        count: appState.meetingRows.count,
+                        count: appState.totalMeetingCount,
                         isSelected: appState.selectedTab == .meetings && appState.selectedFolderID == nil
                     ) {
                         controller.showMeetingsHome()
@@ -171,7 +171,7 @@ struct SidebarView: View {
                             meetingFilterRow(
                                 icon: "folder",
                                 label: folder.name,
-                                count: appState.meetingRows.filter { $0.folderID == folder.id }.count,
+                                count: appState.meetingCountsByFolder[folder.id] ?? 0,
                                 isSelected: appState.selectedTab == .meetings && appState.selectedFolderID == folder.id
                             ) {
                                 controller.showMeetingsHome(folderID: folder.id)

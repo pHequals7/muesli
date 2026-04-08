@@ -311,7 +311,10 @@ final class MuesliController: NSObject {
         )) ?? []
         appState.dictationRows = rows
         appState.hasMoreDictations = rows.count >= appState.dictationPageSize
-        appState.meetingRows = (try? dictationStore.recentMeetings(limit: 500)) ?? []
+        appState.meetingRows = (try? dictationStore.recentMeetings()) ?? []
+        let counts = (try? dictationStore.meetingCounts()) ?? (total: 0, byFolder: [:])
+        appState.totalMeetingCount = counts.total
+        appState.meetingCountsByFolder = counts.byFolder
         if let selectedMeetingID = appState.selectedMeetingID {
             appState.selectedMeetingRecord = appState.meetingRows.first(where: { $0.id == selectedMeetingID })
                 ?? meeting(id: selectedMeetingID)
