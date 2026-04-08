@@ -80,9 +80,18 @@ struct SidebarView: View {
     private var sidebarHeader: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
             HStack(spacing: MuesliTheme.spacing12) {
-                MWaveformIcon(barCount: 9, spacing: 2)
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(MuesliTheme.accent)
+                Group {
+                    if appState.config.menuBarIcon == "muesli",
+                       let img = MenuBarIconRenderer.make(choice: "muesli") {
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        Image(systemName: appState.config.menuBarIcon)
+                    }
+                }
+                .frame(width: 22, height: 22)
+                .foregroundStyle(MuesliTheme.accent)
                 Text("muesli")
                     .font(MuesliTheme.title2())
                     .foregroundStyle(MuesliTheme.textPrimary)
