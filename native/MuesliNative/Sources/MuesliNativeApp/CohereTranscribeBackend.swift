@@ -664,14 +664,7 @@ enum CohereTranscribeModelStore {
             let destination = directory.appendingPathComponent(relativePath)
             try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
             let sourceURL = remoteURL(for: relativePath)
-            let (tempURL, response) = try await URLSession.shared.download(from: sourceURL)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                throw NSError(domain: "CohereTranscribe", code: 13, userInfo: [
-                    NSLocalizedDescriptionKey: "Failed to download \(relativePath)",
-                ])
-            }
-            try? fm.removeItem(at: destination)
-            try fm.moveItem(at: tempURL, to: destination)
+            try await downloadWithRetry(from: sourceURL, to: destination)
         }
         progress?(1.0, "Cohere Transcribe download complete")
     }

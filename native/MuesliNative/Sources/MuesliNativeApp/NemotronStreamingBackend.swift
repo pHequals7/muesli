@@ -365,8 +365,7 @@ actor NemotronStreamingTranscriber {
                 let parentDir = localFile.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
                 fputs("[nemotron] downloading \(relativePath)...\n", stderr)
-                let (tempURL, _) = try await URLSession.shared.download(from: fileURL)
-                try FileManager.default.moveItem(at: tempURL, to: localFile)
+                try await downloadWithRetry(from: fileURL, to: localFile)
                 onFileDownloaded?()
             }
         }

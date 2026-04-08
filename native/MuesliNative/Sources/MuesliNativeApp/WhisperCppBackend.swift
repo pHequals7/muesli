@@ -98,8 +98,7 @@ actor WhisperCppTranscriber {
             progress?(fraction * 0.9, "Downloading \(modelName)...")  // Reserve 10% for loading
         }
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        let (tempURL, _) = try await session.download(from: url)
-        try FileManager.default.moveItem(at: tempURL, to: localPath)
+        try await downloadWithRetry(from: url, to: localPath, session: session)
         fputs("[whisper.cpp] download complete: \(localPath.path)\n", stderr)
         return localPath.path
     }
