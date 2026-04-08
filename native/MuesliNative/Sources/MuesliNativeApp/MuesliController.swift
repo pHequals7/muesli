@@ -311,7 +311,7 @@ final class MuesliController: NSObject {
         )) ?? []
         appState.dictationRows = rows
         appState.hasMoreDictations = rows.count >= appState.dictationPageSize
-        appState.meetingRows = (try? dictationStore.recentMeetings(limit: 200)) ?? []
+        appState.meetingRows = (try? dictationStore.recentMeetings(limit: 200, folderID: appState.selectedFolderID)) ?? []
         let counts = (try? dictationStore.meetingCounts()) ?? (total: 0, byFolder: [:])
         appState.totalMeetingCount = counts.total
         appState.meetingCountsByFolder = counts.byFolder
@@ -322,6 +322,9 @@ final class MuesliController: NSObject {
             appState.selectedMeetingRecord = nil
         }
         let allFolders = (try? dictationStore.listFolders()) ?? []
+        if config.folderOrder.isEmpty && !allFolders.isEmpty {
+            updateConfig { $0.folderOrder = allFolders.map(\.id) }
+        }
         let order = config.folderOrder
         appState.folders = allFolders.sorted { a, b in
             let ai = order.firstIndex(of: a.id) ?? Int.max
@@ -693,9 +696,9 @@ final class MuesliController: NSObject {
     }
 
     func createFolderAndMoveMeeting(name: String, meetingID: Int64) {
-        if let folderID = createFolder(name: name) {
-            moveMeeting(id: meetingID, toFolder: folderID)
-        }
+        guard let folderID = try? dictationStore.createFolder(name: name) else { return }
+        try? dictationStore.moveMeeting(id: meetingID, toFolder: folderID)
+        syncAppState()
     }
 
     func deleteFolder(id: Int64) {

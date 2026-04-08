@@ -344,11 +344,11 @@ struct SidebarView: View {
 
     private func formattedCount(_ count: Int) -> String {
         if count < 1000 { return "\(count)" }
-        let k = Double(count) / 1000.0
         if count < 10000 {
-            return String(format: "%.1fk", k)
+            let k = Double(count) / 1000.0
+            return String(format: "%.1fk", Double(Int(k * 10)) / 10.0)
         }
-        return String(format: "%.0fk", k)
+        return "\(count / 1000)k"
     }
 
     private func createNewFolder() {

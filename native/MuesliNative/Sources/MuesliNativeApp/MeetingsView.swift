@@ -137,10 +137,7 @@ struct MeetingsView: View {
     @State private var selectedSort: MeetingBrowserSort = .newestFirst
 
     private var scopedMeetings: [MeetingRecord] {
-        guard let folderID = appState.selectedFolderID else {
-            return appState.meetingRows
-        }
-        return appState.meetingRows.filter { $0.folderID == folderID }
+        appState.meetingRows
     }
 
     private var filteredMeetings: [MeetingRecord] {

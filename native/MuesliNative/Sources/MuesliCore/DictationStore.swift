@@ -224,6 +224,8 @@ public final class DictationStore {
         if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM meetings", -1, &stmt, nil) == SQLITE_OK {
             if sqlite3_step(stmt) == SQLITE_ROW { total = Int(sqlite3_column_int(stmt, 0)) }
             sqlite3_finalize(stmt)
+        } else {
+            fputs("[muesli-store] meetingCounts: failed to prepare total count query\n", stderr)
         }
 
         var byFolder: [Int64: Int] = [:]
@@ -233,6 +235,8 @@ public final class DictationStore {
                 byFolder[sqlite3_column_int64(stmt2, 0)] = Int(sqlite3_column_int(stmt2, 1))
             }
             sqlite3_finalize(stmt2)
+        } else {
+            fputs("[muesli-store] meetingCounts: failed to prepare folder count query\n", stderr)
         }
 
         return (total, byFolder)
