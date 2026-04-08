@@ -591,20 +591,6 @@ struct PastableSecureField: NSViewRepresentable {
     }
 }
 
-// MARK: - Appearance Helpers
-
-private struct AppearancePreset {
-    let name: String
-    let hex: String
-    var swatchColor: Color { Color(hex: hex) }
-
-    static let all: [AppearancePreset] = [
-        AppearancePreset(name: "Mocha", hex: "1e1e2e"),
-        AppearancePreset(name: "Frappe", hex: "303446"),
-        AppearancePreset(name: "Latte", hex: "eff1f5"),
-    ]
-}
-
 private extension Color {
     init(hex: String) {
         var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -86,7 +86,6 @@ final class FloatingIndicatorController {
     private var tintLayer: CALayer?
     private var micIconView: NSImageView?
     private var wandIconView: NSImageView?
-    private var specularLayer: CAGradientLayer?
     private var barLayers: [CALayer] = []
     private var amplitudeTimer: Timer?
     private var smoothedAmplitude: CGFloat = 0
@@ -224,7 +223,7 @@ final class FloatingIndicatorController {
             micIconView?.isHidden = true
             glassView?.isHidden = true
             tintLayer?.isHidden = true
-            specularLayer?.isHidden = true
+
         }
 
         let style = styleForState(state)
@@ -335,7 +334,6 @@ final class FloatingIndicatorController {
         // Warning uses its own solid amber background — hide glass layers.
         glassView?.isHidden = true
         tintLayer?.isHidden = true
-        specularLayer?.isHidden = true
         micIconView?.isHidden = true
 
         NSAnimationContext.runAnimationGroup { context in
@@ -408,7 +406,6 @@ final class FloatingIndicatorController {
         tintLayer = nil
         micIconView = nil
         wandIconView = nil
-        specularLayer = nil
     }
 
     // MARK: - Stop Layer (toggle dictation)
@@ -528,17 +525,6 @@ final class FloatingIndicatorController {
         tintLayer?.frame = CGRect(origin: .zero, size: frameSize)
         tintLayer?.cornerRadius = radius
 
-        specularLayer?.isHidden = true
-        if false {
-            specularLayer?.frame = CGRect(
-                x: 0,
-                y: frameSize.height * 0.45,
-                width: frameSize.width,
-                height: frameSize.height * 0.55
-            )
-            specularLayer?.cornerRadius = radius
-        }
-
         let iconSize = NSSize(width: 18, height: 18)
 
         switch state {
@@ -574,7 +560,7 @@ final class FloatingIndicatorController {
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: 11, weight: .regular)
                 ]
-                let textW = ceil(("Transcribing" as NSString).size(withAttributes: attrs).width) + 2
+                let textW = ceil((transcribingTitle as NSString).size(withAttributes: attrs).width) + 2
                 let totalW = iconSize.width + gap + textW
                 let startX = (frameSize.width - totalW) / 2
                 wand.frame = NSRect(x: startX, y: (frameSize.height - iconSize.height) / 2,
@@ -685,17 +671,6 @@ final class FloatingIndicatorController {
         contentView.addSubview(wandView)
         wandIconView = wandView
 
-        // Specular highlight — white-to-clear gradient on the upper half for glass depth.
-        let specular = CAGradientLayer()
-        specular.colors = [
-            NSColor.white.withAlphaComponent(0.28).cgColor,
-            NSColor.white.withAlphaComponent(0.0).cgColor,
-        ]
-        specular.startPoint = CGPoint(x: 0.5, y: 1.0)
-        specular.endPoint   = CGPoint(x: 0.5, y: 0.4)
-        specular.isHidden = true
-        contentView.layer?.addSublayer(specular)
-        specularLayer = specular
     }
 
     static func defaultIndicatorCenter(in visibleFrame: NSRect, idleSize: NSSize = NSSize(width: 44, height: 28)) -> CGPoint {

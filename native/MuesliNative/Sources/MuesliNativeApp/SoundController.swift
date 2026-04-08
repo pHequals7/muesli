@@ -1,7 +1,6 @@
 import AppKit
 
 /// Plays subtle system sounds for dictation lifecycle events.
-/// Plays subtle system sounds for dictation lifecycle events.
 /// Sounds are skipped when `soundEnabled` is false.
 enum SoundController {
     static func playDictationStart(enabled: Bool) {
