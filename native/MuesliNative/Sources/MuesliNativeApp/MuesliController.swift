@@ -311,14 +311,20 @@ final class MuesliController: NSObject {
         )) ?? []
         appState.dictationRows = rows
         appState.hasMoreDictations = rows.count >= appState.dictationPageSize
-        appState.meetingRows = (try? dictationStore.recentMeetings()) ?? []
+        appState.meetingRows = (try? dictationStore.recentMeetings(limit: 500)) ?? []
         if let selectedMeetingID = appState.selectedMeetingID {
             appState.selectedMeetingRecord = appState.meetingRows.first(where: { $0.id == selectedMeetingID })
                 ?? meeting(id: selectedMeetingID)
         } else {
             appState.selectedMeetingRecord = nil
         }
-        appState.folders = (try? dictationStore.listFolders()) ?? []
+        let allFolders = (try? dictationStore.listFolders()) ?? []
+        let order = config.folderOrder
+        appState.folders = allFolders.sorted { a, b in
+            let ai = order.firstIndex(of: a.id) ?? Int.max
+            let bi = order.firstIndex(of: b.id) ?? Int.max
+            return ai < bi
+        }
         appState.dictationStats = dictationStats()
         appState.meetingStats = meetingStats()
         appState.selectedBackend = selectedBackend
@@ -679,8 +685,7 @@ final class MuesliController: NSObject {
     }
 
     func reorderFolders(ids: [Int64]) {
-        try? dictationStore.updateFolderOrder(ids: ids)
-        syncAppState()
+        updateConfig { $0.folderOrder = ids }
     }
 
     func createFolderAndMoveMeeting(name: String, meetingID: Int64) {

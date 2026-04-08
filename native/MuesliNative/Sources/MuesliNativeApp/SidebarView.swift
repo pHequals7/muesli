@@ -15,6 +15,7 @@ struct SidebarView: View {
     @State private var folderToDelete: MeetingFolder?
     @State private var showDeleteConfirmation = false
     @State private var draggingFolderID: Int64?
+    @State private var dragOrderedFolders: [MeetingFolder]?
 
     private var userName: String {
         appState.config.userName
@@ -42,6 +43,11 @@ struct SidebarView: View {
         .onChange(of: appState.selectedTab) { _, tab in
             if tab == .meetings {
                 meetingsExpanded = true
+            }
+            // Reset drag state if user navigates away during a drag
+            if draggingFolderID != nil {
+                draggingFolderID = nil
+                dragOrderedFolders = nil
             }
         }
         .alert(
@@ -158,7 +164,7 @@ struct SidebarView: View {
                         controller.showMeetingsHome()
                     }
 
-                    ForEach(appState.folders) { folder in
+                    ForEach(dragOrderedFolders ?? appState.folders) { folder in
                         if renamingFolderID == folder.id {
                             folderRenameField(folder: folder)
                         } else {
@@ -173,13 +179,14 @@ struct SidebarView: View {
                             .opacity(draggingFolderID == folder.id ? 0.1 : 1)
                             .onDrag {
                                 draggingFolderID = folder.id
+                                dragOrderedFolders = appState.folders
                                 return NSItemProvider(object: "\(folder.id)" as NSString)
                             }
                             .onDrop(of: [.text], delegate: FolderDropDelegate(
                                 folderID: folder.id,
-                                folders: appState.folders,
+                                dragOrderedFolders: $dragOrderedFolders,
                                 draggingFolderID: $draggingFolderID,
-                                reorder: { ids in controller.reorderFolders(ids: ids) }
+                                commitOrder: { ids in controller.reorderFolders(ids: ids) }
                             ))
                             .contextMenu {
                                 Button("Rename") {
@@ -339,9 +346,9 @@ struct SidebarView: View {
         if count < 1000 { return "\(count)" }
         let k = Double(count) / 1000.0
         if count < 10000 {
-            return String(format: "%.1fk+", k)
+            return String(format: "%.1fk", k)
         }
-        return String(format: "%.0fk+", k)
+        return String(format: "%.0fk", k)
     }
 
     private func createNewFolder() {
@@ -358,23 +365,27 @@ struct SidebarView: View {
 
 private struct FolderDropDelegate: DropDelegate {
     let folderID: Int64
-    let folders: [MeetingFolder]
+    @Binding var dragOrderedFolders: [MeetingFolder]?
     @Binding var draggingFolderID: Int64?
-    let reorder: ([Int64]) -> Void
+    let commitOrder: ([Int64]) -> Void
 
     func dropEntered(info: DropInfo) {
-        guard let dragID = draggingFolderID, dragID != folderID else { return }
-        var ids = folders.map(\.id)
-        guard let fromIndex = ids.firstIndex(of: dragID),
-              let toIndex = ids.firstIndex(of: folderID) else { return }
+        guard let dragID = draggingFolderID, dragID != folderID,
+              var folders = dragOrderedFolders else { return }
+        guard let fromIndex = folders.firstIndex(where: { $0.id == dragID }),
+              let toIndex = folders.firstIndex(where: { $0.id == folderID }) else { return }
         withAnimation(.easeInOut(duration: 0.15)) {
-            ids.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
-            reorder(ids)
+            folders.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+            dragOrderedFolders = folders
         }
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if let folders = dragOrderedFolders {
+            commitOrder(folders.map(\.id))
+        }
         draggingFolderID = nil
+        dragOrderedFolders = nil
         return true
     }
 

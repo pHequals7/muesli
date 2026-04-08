@@ -605,7 +605,7 @@ public final class DictationStore {
     public func listFolders() throws -> [MeetingFolder] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        let sql = "SELECT id, name, sort_order, created_at FROM meeting_folders ORDER BY sort_order ASC, id ASC"
+        let sql = "SELECT id, name, created_at FROM meeting_folders ORDER BY id ASC"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
@@ -616,27 +616,10 @@ public final class DictationStore {
             rows.append(MeetingFolder(
                 id: sqlite3_column_int64(statement, 0),
                 name: stringColumn(statement, index: 1),
-                sortOrder: Int(sqlite3_column_int(statement, 2)),
-                createdAt: stringColumn(statement, index: 3)
+                createdAt: stringColumn(statement, index: 2)
             ))
         }
         return rows
-    }
-
-    public func updateFolderOrder(ids: [Int64]) throws {
-        let db = try openDatabase()
-        defer { sqlite3_close(db) }
-        let sql = "UPDATE meeting_folders SET sort_order = ? WHERE id = ?"
-        for (index, id) in ids.enumerated() {
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-                throw lastError(db)
-            }
-            defer { sqlite3_finalize(statement) }
-            sqlite3_bind_int(statement, 1, Int32(index))
-            sqlite3_bind_int64(statement, 2, id)
-            sqlite3_step(statement)
-        }
     }
 
     public func moveMeeting(id: Int64, toFolder folderID: Int64?) throws {
