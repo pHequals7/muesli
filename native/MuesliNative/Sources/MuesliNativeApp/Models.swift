@@ -276,6 +276,10 @@ struct AppConfig: Codable {
     var customWords: [CustomWord] = [
         CustomWord(word: "muesli", replacement: "muesli"),
     ]
+    var folderOrder: [Int64] = []
+    var soundEnabled: Bool = true
+    var recordingColorHex: String = "1e1e2e"   // Catppuccin Mocha base, without #
+    var menuBarIcon: String = "muesli"
 
     enum CodingKeys: String, CodingKey {
         case dictationHotkey = "dictation_hotkey"
@@ -306,6 +310,10 @@ struct AppConfig: Codable {
         case userName = "user_name"
         case customMeetingTemplates = "custom_meeting_templates"
         case customWords = "custom_words"
+        case folderOrder = "folder_order"
+        case soundEnabled = "sound_enabled"
+        case recordingColorHex = "recording_color_hex"
+        case menuBarIcon = "menu_bar_icon"
     }
 
     init() {}
@@ -341,6 +349,10 @@ struct AppConfig: Codable {
         userName = (try? c.decode(String.self, forKey: .userName)) ?? defaults.userName
         customMeetingTemplates = (try? c.decode([CustomMeetingTemplate].self, forKey: .customMeetingTemplates)) ?? defaults.customMeetingTemplates
         customWords = (try? c.decode([CustomWord].self, forKey: .customWords)) ?? defaults.customWords
+        folderOrder = (try? c.decode([Int64].self, forKey: .folderOrder)) ?? defaults.folderOrder
+        soundEnabled = (try? c.decode(Bool.self, forKey: .soundEnabled)) ?? defaults.soundEnabled
+        recordingColorHex = (try? c.decode(String.self, forKey: .recordingColorHex)) ?? defaults.recordingColorHex
+        menuBarIcon = (try? c.decode(String.self, forKey: .menuBarIcon)) ?? defaults.menuBarIcon
     }
 }
 

@@ -60,6 +60,12 @@ if [[ -d "$SPARKLE_FW" ]]; then
   ditto "$SPARKLE_FW" "$STAGED_APP_DIR/Contents/MacOS/Sparkle.framework"
 fi
 
+# Bundle SPM resource bundles (CoreML models, privacy manifests, etc.)
+for bundle in "$BIN_DIR"/*.bundle; do
+  [[ -d "$bundle" ]] || continue
+  ditto "$bundle" "$STAGED_APP_DIR/Contents/Resources/$(basename "$bundle")"
+done
+
 # Bundle assets
 cp "$ROOT/assets/menu_m_template.png" "$STAGED_APP_DIR/Contents/Resources/menu_m_template.png"
 cp "$ROOT/assets/muesli.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"

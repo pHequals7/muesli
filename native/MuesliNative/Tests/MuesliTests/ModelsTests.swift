@@ -438,3 +438,69 @@ struct HotkeyConfigTests {
         #expect(HotkeyConfig.label(for: 100) == nil)
     }
 }
+
+@Suite("AppConfig — appearance fields")
+struct AppConfigAppearanceTests {
+
+    @Test("soundEnabled defaults to true")
+    func soundEnabledDefault() {
+        let config = AppConfig()
+        #expect(config.soundEnabled == true)
+    }
+
+    @Test("recordingColorHex defaults to Catppuccin Mocha base")
+    func recordingColorHexDefault() {
+        let config = AppConfig()
+        #expect(config.recordingColorHex == "1e1e2e")
+    }
+
+    @Test("soundEnabled round-trips through JSON")
+    func soundEnabledRoundTrip() throws {
+        var config = AppConfig()
+        config.soundEnabled = false
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+        #expect(decoded.soundEnabled == false)
+    }
+
+    @Test("recordingColorHex round-trips through JSON")
+    func recordingColorHexRoundTrip() throws {
+        var config = AppConfig()
+        config.recordingColorHex = "303446"
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+        #expect(decoded.recordingColorHex == "303446")
+    }
+
+    @Test("unknown JSON keys are ignored — soundEnabled falls back to default")
+    func soundEnabledFallsBackOnMissingKey() throws {
+        let json = Data("{}".utf8)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: json)
+        #expect(decoded.soundEnabled == true)
+    }
+
+    @Test("unknown JSON keys are ignored — recordingColorHex falls back to default")
+    func recordingColorHexFallsBackOnMissingKey() throws {
+        let json = Data("{}".utf8)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: json)
+        #expect(decoded.recordingColorHex == "1e1e2e")
+    }
+
+    @Test("soundEnabled CodingKey is sound_enabled")
+    func soundEnabledCodingKey() throws {
+        var config = AppConfig()
+        config.soundEnabled = false
+        let data = try JSONEncoder().encode(config)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["sound_enabled"] as? Bool == false)
+    }
+
+    @Test("recordingColorHex CodingKey is recording_color_hex")
+    func recordingColorHexCodingKey() throws {
+        var config = AppConfig()
+        config.recordingColorHex = "eff1f5"
+        let data = try JSONEncoder().encode(config)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["recording_color_hex"] as? String == "eff1f5")
+    }
+}

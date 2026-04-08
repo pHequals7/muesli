@@ -137,10 +137,7 @@ struct MeetingsView: View {
     @State private var selectedSort: MeetingBrowserSort = .newestFirst
 
     private var scopedMeetings: [MeetingRecord] {
-        guard let folderID = appState.selectedFolderID else {
-            return appState.meetingRows
-        }
-        return appState.meetingRows.filter { $0.folderID == folderID }
+        appState.meetingRows
     }
 
     private var filteredMeetings: [MeetingRecord] {
@@ -212,6 +209,9 @@ struct MeetingsView: View {
                                 onSelect: { controller.showMeetingDocument(id: meeting.id) },
                                 onMove: { folderID in
                                     controller.moveMeeting(id: meeting.id, toFolder: folderID)
+                                },
+                                onCreateFolderAndMove: { name in
+                                    controller.createFolderAndMoveMeeting(name: name, meetingID: meeting.id)
                                 },
                                 onDelete: {
                                     controller.deleteMeeting(id: meeting.id)

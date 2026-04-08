@@ -81,10 +81,14 @@ final class FloatingIndicatorController {
     private var isHovered = false
     private var hoverExitWorkItem: DispatchWorkItem?
     private let configStore: ConfigStore
+    private var isMeetingRecording = false
+    private var glassView: NSVisualEffectView?
+    private var tintLayer: CALayer?
+    private var micIconView: NSImageView?
+    private var wandIconView: NSImageView?
     private var barLayers: [CALayer] = []
     private var amplitudeTimer: Timer?
     private var smoothedAmplitude: CGFloat = 0
-    private var isMeetingRecording = false
     fileprivate var isDragging = false
     var powerProvider: (() -> Float)?
     var onStopMeeting: (() -> Void)?
@@ -92,6 +96,7 @@ final class FloatingIndicatorController {
     var onCancelToggleDictation: (() -> Void)?
     var isToggleDictation = false
     private var stopLayer: CALayer?
+    private var transcribingTitle = "Transcribing"
     var hotkeyLabel: String = "Left Cmd"
 
     init(configStore: ConfigStore) {
@@ -153,6 +158,7 @@ final class FloatingIndicatorController {
         textLabel.isHidden = true
         textLabel.alphaValue = 0
         layoutLabels(iconLabel: iconLabel, textLabel: textLabel, in: targetFrame.size, hasTitle: false, animated: false)
+        applyGlassState(.idle, frameSize: targetFrame.size)
     }
 
     func savePosition() {
@@ -182,10 +188,19 @@ final class FloatingIndicatorController {
         }
     }
 
+    func setTranscribingTitle(_ title: String, config: AppConfig) {
+        transcribingTitle = title
+        guard state == .transcribing else { return }
+        setState(.transcribing, config: config)
+    }
+
     func setState(_ state: DictationState, config: AppConfig) {
         let previousState = self.state
         let previousHover = isHovered
         self.state = state
+        if state != .transcribing {
+            transcribingTitle = "Transcribing"
+        }
         if state != .idle {
             isHovered = false
         }
@@ -200,6 +215,15 @@ final class FloatingIndicatorController {
 
         if previousState == .recording && state != .recording {
             stopWaveformAnimation()
+        }
+
+        // Immediately snap glass elements off when leaving idle so the SF Symbol
+        // mic doesn't linger/fade during the recording/transcribing transition.
+        if state != .idle {
+            micIconView?.isHidden = true
+            glassView?.isHidden = true
+            tintLayer?.isHidden = true
+
         }
 
         let style = styleForState(state)
@@ -261,11 +285,29 @@ final class FloatingIndicatorController {
                     animated: true
                 )
             }
+
+            // Apply glass state last so it can override iconLabel visibility set above.
+            applyGlassState(state, frameSize: targetFrame.size)
         }
 
-        if state == .recording {
-            startWaveformAnimation(in: targetFrame.size, xOffset: 24, rightPadding: 24)
+        // Manage SF Symbol effects — stop everything first, then start for the new state.
+        micIconView?.removeAllSymbolEffects(animated: false)
+        wandIconView?.removeAllSymbolEffects(animated: false)
+
+        switch state {
+        case .recording:
+            setupWaveformBars(in: targetFrame.size)
+            startWaveformAnimation()
             addStopLayer(in: targetFrame.size)
+        case .transcribing:
+            if #available(macOS 15, *) {
+                wandIconView?.addSymbolEffect(
+                    .wiggle.backward.byLayer,
+                    options: .repeating, animated: true
+                )
+            }
+        default:
+            break
         }
 
         panel.orderFrontRegardless()
@@ -288,6 +330,11 @@ final class FloatingIndicatorController {
         let x = min(max(center.x - warningSize.width / 2, screen.minX), screen.maxX - warningSize.width)
         let y = min(max(center.y - warningSize.height / 2, screen.minY), screen.maxY - warningSize.height)
         let targetFrame = NSRect(x: x, y: y, width: warningSize.width, height: warningSize.height)
+
+        // Warning uses its own solid amber background — hide glass layers.
+        glassView?.isHidden = true
+        tintLayer?.isHidden = true
+        micIconView?.isHidden = true
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
@@ -355,6 +402,10 @@ final class FloatingIndicatorController {
         contentView = nil
         iconLabel = nil
         textLabel = nil
+        glassView = nil
+        tintLayer = nil
+        micIconView = nil
+        wandIconView = nil
     }
 
     // MARK: - Stop Layer (toggle dictation)
@@ -383,82 +434,150 @@ final class FloatingIndicatorController {
         stopLayer = nil
     }
 
-    // MARK: - Waveform Animation
-
-    private static let barCount = 5
-    private static let barWidth: CGFloat = 3.0
-    private static let barSpacing: CGFloat = 4.0
-    private static let barMinHeight: CGFloat = 5.0
-    private static let barMaxHeight: CGFloat = 26.0
-    private static let barMultipliers5: [CGFloat] = [0.6, 0.85, 1.0, 0.85, 0.6]
-    private func startWaveformAnimation(in size: NSSize, xOffset: CGFloat = 0, rightPadding: CGFloat = 0, barCount: Int? = nil) {
-        let savedProvider = powerProvider
-        stopWaveformAnimation()
-        powerProvider = savedProvider
-        guard let contentView else { return }
-
-        let count = barCount ?? Self.barCount
-        let multipliers = Self.barMultipliers5
-        let totalWidth = CGFloat(count) * Self.barWidth + CGFloat(count - 1) * Self.barSpacing
-        let availableWidth = size.width - xOffset - rightPadding
-        let startX = xOffset + (availableWidth - totalWidth) / 2
-
-        for i in 0..<count {
-            let bar = CALayer()
-            let x = startX + CGFloat(i) * (Self.barWidth + Self.barSpacing)
-            let height = Self.barMinHeight * multipliers[i]
-            bar.frame = CGRect(
-                x: x,
-                y: (size.height - height) / 2,
-                width: Self.barWidth,
-                height: height
-            )
-            bar.cornerRadius = Self.barWidth / 2
-            bar.backgroundColor = NSColor.white.withAlphaComponent(0.85).cgColor
-            bar.anchorPoint = CGPoint(x: 0.5, y: 0.5)
-            bar.position = CGPoint(x: x + Self.barWidth / 2, y: size.height / 2)
-
-            contentView.layer?.addSublayer(bar)
-            barLayers.append(bar)
-        }
-
-        smoothedAmplitude = 0
-        amplitudeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.updateBarAmplitudes()
-            }
-        }
-    }
-
     private func stopWaveformAnimation() {
         amplitudeTimer?.invalidate()
         amplitudeTimer = nil
-        for bar in barLayers {
-            bar.removeAllAnimations()
-            bar.removeFromSuperlayer()
-        }
+        barLayers.forEach { $0.removeFromSuperlayer() }
         barLayers.removeAll()
         smoothedAmplitude = 0
         powerProvider = nil
+        contentView?.layer?.transform = CATransform3DIdentity
         removeStopLayer()
     }
 
-    private func updateBarAmplitudes() {
-        let dB = CGFloat(powerProvider?() ?? -160)
-        let normalized = max(0, min(1, (dB + 50) / 42))
-        smoothedAmplitude = smoothedAmplitude * 0.35 + normalized * 0.65
+    private func setupWaveformBars(in frameSize: NSSize) {
+        barLayers.forEach { $0.removeFromSuperlayer() }
+        barLayers.removeAll()
+        guard let layer = contentView?.layer else { return }
 
-        let pillHeight = panel?.frame.height ?? 32
-        let multipliers = Self.barMultipliers5
-        for (i, bar) in barLayers.enumerated() {
-            let multiplier = multipliers[i]
-            let baseline = Self.barMinHeight + (1 - multiplier) * 2
-            let height = baseline + smoothedAmplitude * (Self.barMaxHeight - baseline) * multiplier
+        let barCount = 5
+        let barWidth: CGFloat = 3
+        let barSpacing: CGFloat = 3
+        let totalWidth = CGFloat(barCount) * barWidth + CGFloat(barCount - 1) * barSpacing
+        let startX = (frameSize.width - totalWidth) / 2
+        let minHeight: CGFloat = 4
+
+        for i in 0..<barCount {
+            let bar = CALayer()
+            bar.backgroundColor = NSColor.white.withAlphaComponent(0.85).cgColor
+            bar.cornerRadius = barWidth / 2
+            let x = startX + CGFloat(i) * (barWidth + barSpacing)
+            bar.frame = CGRect(x: x, y: (frameSize.height - minHeight) / 2, width: barWidth, height: minHeight)
+            layer.addSublayer(bar)
+            barLayers.append(bar)
+        }
+    }
+
+    private func startWaveformAnimation() {
+        amplitudeTimer?.invalidate()
+        let multipliers: [CGFloat] = [0.6, 0.85, 1.0, 0.85, 0.6]
+        let minHeight: CGFloat = 3
+        let maxHeight: CGFloat = 14
+
+        amplitudeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self, let contentView = self.contentView else { return }
+            let dB = CGFloat(self.powerProvider?() ?? -160)
+            let raw = max(0, min(1, (dB + 50) / 50))
+            self.smoothedAmplitude = 0.35 * raw + 0.65 * self.smoothedAmplitude
+            let pillHeight = contentView.frame.height
+
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            bar.bounds = CGRect(x: 0, y: 0, width: Self.barWidth, height: height)
-            bar.position = CGPoint(x: bar.position.x, y: pillHeight / 2)
+            for (i, bar) in self.barLayers.enumerated() {
+                let m = i < multipliers.count ? multipliers[i] : 1.0
+                let h = minHeight + (maxHeight - minHeight) * self.smoothedAmplitude * m
+                bar.frame.size.height = h
+                bar.frame.origin.y = (pillHeight - h) / 2
+            }
             CATransaction.commit()
+        }
+    }
+
+    private func applyGlassState(_ state: DictationState, frameSize: NSSize) {
+        let config = configStore.load()
+        let isIdle = (state == .idle)
+        let radius = frameSize.height / 2
+        let themeHex = config.recordingColorHex
+
+        // During recording, hide frost and show solid accent. Otherwise frosted glass.
+        let isRecording = (state == .recording)
+        glassView?.isHidden = isRecording
+        glassView?.layer?.cornerRadius = radius
+
+        let tintAlpha: CGFloat
+        let tintHex: String
+        switch state {
+        case .idle:
+            tintAlpha = isHovered ? 0.72 : 0.44
+            tintHex = "1e1e2e"
+        case .preparing:
+            tintAlpha = 0.62
+            tintHex = "1e1e2e"
+        case .recording:
+            tintAlpha = 0.85
+            tintHex = themeHex
+        case .transcribing:
+            tintAlpha = 0.62
+            tintHex = "1e1e2e"
+        }
+        tintLayer?.isHidden = false
+        tintLayer?.backgroundColor = NSColor.colorWith(hexString: tintHex, alpha: tintAlpha).cgColor
+        tintLayer?.frame = CGRect(origin: .zero, size: frameSize)
+        tintLayer?.cornerRadius = radius
+
+        let iconSize = NSSize(width: 18, height: 18)
+
+        switch state {
+        case .idle:
+            // Mic symbol centred (or left-aligned when hovered beside text).
+            wandIconView?.isHidden = true
+            iconLabel?.isHidden = true
+            micIconView?.isHidden = false
+            if let mic = micIconView {
+                if isHovered {
+                    mic.frame = NSRect(x: 12, y: (frameSize.height - iconSize.height) / 2,
+                                      width: iconSize.width, height: iconSize.height)
+                } else {
+                    mic.frame = NSRect(x: (frameSize.width - iconSize.width) / 2,
+                                       y: (frameSize.height - iconSize.height) / 2,
+                                       width: iconSize.width, height: iconSize.height)
+                }
+            }
+
+        case .recording:
+            // Waveform bars replace mic icon during recording.
+            wandIconView?.isHidden = true
+            iconLabel?.isHidden = false   // keeps the ✕ cancel label
+            micIconView?.isHidden = true
+
+        case .transcribing:
+            // Animated wand beside "Transcribing" label, the pair centred in the pill.
+            micIconView?.isHidden = true
+            iconLabel?.isHidden = true
+            wandIconView?.isHidden = false
+            if let wand = wandIconView {
+                let gap: CGFloat = 6
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 11, weight: .regular)
+                ]
+                let textW = ceil((transcribingTitle as NSString).size(withAttributes: attrs).width) + 2
+                let totalW = iconSize.width + gap + textW
+                let startX = (frameSize.width - totalW) / 2
+                wand.frame = NSRect(x: startX, y: (frameSize.height - iconSize.height) / 2,
+                                    width: iconSize.width, height: iconSize.height)
+                // Reposition text label to sit right of the wand.
+                let textH: CGFloat = 14
+                textLabel?.frame = NSRect(x: startX + iconSize.width + gap,
+                                          y: (frameSize.height - textH) / 2,
+                                          width: textW, height: textH)
+                textLabel?.isHidden = false
+                textLabel?.alphaValue = 1
+            }
+
+        case .preparing:
+            wandIconView?.isHidden = true
+            micIconView?.isHidden = true
+            iconLabel?.isHidden = false
         }
     }
 
@@ -491,7 +610,7 @@ final class FloatingIndicatorController {
 
         let textLabel = NSTextField(labelWithString: "")
         textLabel.alignment = .left
-        textLabel.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        textLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
         contentView.addSubview(textLabel)
 
         panel.contentView = contentView
@@ -500,6 +619,74 @@ final class FloatingIndicatorController {
         self.contentView = contentView
         self.iconLabel = iconLabel
         self.textLabel = textLabel
+
+        setupGlassLayer(in: contentView, iconLabel: iconLabel)
+    }
+
+    private func setupGlassLayer(in contentView: HoverIndicatorView, iconLabel: NSTextField) {
+        // masksToBounds clips both the glass blur and the tint layer to the pill shape.
+        // The panel's compositor-level shadow is unaffected.
+        contentView.layer?.masksToBounds = true
+
+        // NSVisualEffectView — frosted blur behind the pill.
+        let vev = NSVisualEffectView(frame: contentView.bounds)
+        vev.autoresizingMask = [.width, .height]
+        vev.material = .hudWindow
+        vev.blendingMode = .behindWindow
+        vev.state = .active
+        // Force dark appearance so the glass always looks dark regardless of
+        // what's behind the pill (light windows, bright desktops, etc.).
+        vev.appearance = NSAppearance(named: .darkAqua)
+        vev.isHidden = true
+        contentView.addSubview(vev, positioned: .below, relativeTo: iconLabel)
+        glassView = vev
+
+        // Dark Catppuccin Mocha tint over the blur — gives the pill a defined
+        // dark glass presence rather than showing everything underneath.
+        let tint = CALayer()
+        tint.backgroundColor = NSColor.colorWith(hex: 0x1e1e2e, alpha: 0.44).cgColor
+        tint.isHidden = true
+        contentView.layer?.addSublayer(tint)
+        tintLayer = tint
+
+        // waveform.badge.microphone — idle (static) and recording (animated).
+        let symConfig = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        let micImage = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
+            .withSymbolConfiguration(symConfig)
+        let micView = NSImageView(image: micImage ?? NSImage())
+        micView.contentTintColor = .white
+        micView.imageScaling = .scaleProportionallyDown
+        micView.isHidden = true
+        contentView.addSubview(micView)
+        micIconView = micView
+
+        // wand.and.sparkles — transcribing (animated).
+        let wandConfig = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+        let wandImage = NSImage(systemSymbolName: "wand.and.sparkles", accessibilityDescription: nil)?
+            .withSymbolConfiguration(wandConfig)
+        let wandView = NSImageView(image: wandImage ?? NSImage())
+        wandView.contentTintColor = .white
+        wandView.imageScaling = .scaleProportionallyDown
+        wandView.isHidden = true
+        contentView.addSubview(wandView)
+        wandIconView = wandView
+
+    }
+
+    static func defaultIndicatorCenter(in visibleFrame: NSRect, idleSize: NSSize = NSSize(width: 44, height: 28)) -> CGPoint {
+        CGPoint(
+            x: visibleFrame.maxX - idleSize.width / 2 - 8,
+            y: visibleFrame.midY
+        )
+    }
+
+    static func isUsableIndicatorCenter(
+        _ center: CGPoint,
+        in visibleFrame: NSRect,
+        size: NSSize
+    ) -> Bool {
+        let allowedRect = visibleFrame.insetBy(dx: size.width / 2, dy: size.height / 2)
+        return allowedRect.contains(center)
     }
 
     private func frameForState(_ state: DictationState, config: AppConfig) -> NSRect {
@@ -521,14 +708,11 @@ final class FloatingIndicatorController {
         let center: CGPoint
         if let currentFrame = panel?.frame, currentFrame.width > 0 {
             center = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
-        } else if let saved = config.indicatorOrigin {
+        } else if let saved = config.indicatorOrigin,
+                  Self.isUsableIndicatorCenter(CGPoint(x: saved.x, y: saved.y), in: screen, size: size) {
             center = CGPoint(x: saved.x, y: saved.y)
         } else {
-            let defaultSize = NSSize(width: 44, height: 28)
-            center = CGPoint(
-                x: screen.maxX - defaultSize.width / 2 - 8,
-                y: screen.minY + (screen.height * 0.56)
-            )
+            center = Self.defaultIndicatorCenter(in: screen)
         }
 
         let x = min(max(center.x - size.width / 2, screen.minX), screen.maxX - size.width)
@@ -540,43 +724,28 @@ final class FloatingIndicatorController {
         switch state {
         case .idle:
             return (
-                .colorWith(hex: 0x000000, alpha: isHovered ? 0.96 : 0.66),
-                .colorWith(hex: 0xFFFFFF, alpha: 0.18),
-                "🎤",
+                .clear,
+                .colorWith(hex: 0xFFFFFF, alpha: isHovered ? 0.14 : 0.22),
+                "",
                 isHovered ? "Hold \(hotkeyLabel) to dictate" : "",
-                .colorWith(hex: 0xFFFFFF, alpha: 0.92),
-                .colorWith(hex: 0xFFFFFF, alpha: 0.92),
-                isHovered ? 1.0 : 0.82
+                .colorWith(hex: 0xFFFFFF, alpha: 0.75),
+                .colorWith(hex: 0xFFFFFF, alpha: 0.75),
+                isHovered ? 1.0 : 0.85
             )
         case .preparing:
-            return (
-                .colorWith(hex: 0x3B4757, alpha: 0.94),
-                .colorWith(hex: 0xFFFFFF, alpha: 0.24),
-                "🎤",
-                "",
-                .white,
-                .white,
-                1.0
-            )
+            return (.clear, .colorWith(hex: 0xFFFFFF, alpha: 0.16), "", "", .white, .white, 1.0)
         case .recording:
             return (
-                .colorWith(hex: 0xD32F2F, alpha: 0.72),
-                .colorWith(hex: 0xFFFFFF, alpha: 0.24),
-                isMeetingRecording ? "⏹" : "🎤",
-                isMeetingRecording ? "" : "Listening",
-                .white,
-                .white,
-                1.0
+                .clear, .colorWith(hex: 0xFFFFFF, alpha: 0.16),
+                isMeetingRecording ? "⏹" : "",
+                isMeetingRecording ? "" : "",
+                .white, .white, 1.0
             )
         case .transcribing:
             return (
-                .colorWith(hex: 0xD99A11, alpha: 0.72),
-                .colorWith(hex: 0xFFFFFF, alpha: 0.24),
-                "✍️",
-                "Transcribing",
-                .colorWith(hex: 0x1A140D, alpha: 0.95),
-                .black,
-                1.0
+                .clear, .colorWith(hex: 0xFFFFFF, alpha: 0.16),
+                "", transcribingTitle,
+                .white, .colorWith(hex: 0xFFFFFF, alpha: 0.82), 1.0
             )
         }
     }
@@ -663,5 +832,14 @@ private extension NSColor {
             blue: CGFloat(hex & 0xFF) / 255.0,
             alpha: alpha
         )
+    }
+
+    static func colorWith(hexString: String, alpha: CGFloat = 1.0) -> NSColor {
+        var h = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
+        h = h.hasPrefix("#") ? String(h.dropFirst()) : h
+        guard h.count == 6, let value = UInt64(h, radix: 16) else {
+            return .colorWith(hex: 0x1e1e2e, alpha: alpha)
+        }
+        return .colorWith(hex: Int(value), alpha: alpha)
     }
 }

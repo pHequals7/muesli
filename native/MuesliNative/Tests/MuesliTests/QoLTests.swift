@@ -68,6 +68,35 @@ struct IndicatorFrameSizeTests {
         // The frame sizes are hardcoded in FloatingIndicatorController.frameForState
         // We test that the config round-trips correctly (the visual test is manual)
     }
+
+    @Test("default indicator center is right-middle of the screen")
+    @MainActor
+    func defaultIndicatorCenterUsesScreenMidpoint() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1200, height: 800)
+        let center = FloatingIndicatorController.defaultIndicatorCenter(in: visibleFrame)
+        #expect(center.x == 1270)
+        #expect(center.y == 450)
+    }
+
+    @Test("off-screen saved indicator center falls back to right-middle default")
+    @MainActor
+    func offscreenSavedIndicatorCenterFallsBack() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1200, height: 800)
+        let size = NSSize(width: 76, height: 22)
+        let offscreen = CGPoint(x: 1708, y: 1491)
+
+        #expect(
+            !FloatingIndicatorController.isUsableIndicatorCenter(
+                offscreen,
+                in: visibleFrame,
+                size: size
+            )
+        )
+        #expect(
+            FloatingIndicatorController.defaultIndicatorCenter(in: visibleFrame) ==
+            CGPoint(x: 1270, y: 450)
+        )
+    }
 }
 
 // MARK: - OpenAI Logo Shape
@@ -134,19 +163,19 @@ struct MeetingChunkCollectorTests {
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(30))
-                return SpeechSegment(start: 30, end: 31, text: "later")
+                return [SpeechSegment(start: 30, end: 31, text: "later")]
             }
         )
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(5))
-                return nil
+                return []
             }
         )
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(10))
-                return SpeechSegment(start: 10, end: 11, text: "earlier")
+                return [SpeechSegment(start: 10, end: 11, text: "earlier")]
             }
         )
 
@@ -159,18 +188,62 @@ struct MeetingChunkCollectorTests {
     @Test("collector rejects tasks after closing")
     func collectorRejectsLateTasks() async {
         let collector = MeetingChunkCollector()
-        let initialTask = Task<SpeechSegment?, Never> {
-            SpeechSegment(start: 1, end: 2, text: "first")
+        let initialTask = Task<[SpeechSegment], Never> {
+            [SpeechSegment(start: 1, end: 2, text: "first")]
         }
         #expect(collector.add(initialTask))
 
         let initial = await collector.closeAndDrainSortedSegments()
         #expect(initial.map(\.text) == ["first"])
 
-        let lateTask = Task<SpeechSegment?, Never> {
-            SpeechSegment(start: 3, end: 4, text: "late")
+        let lateTask = Task<[SpeechSegment], Never> {
+            [SpeechSegment(start: 3, end: 4, text: "late")]
         }
         #expect(!collector.add(lateTask))
         lateTask.cancel()
+    }
+
+    @Test("collector flattens timed segments from a single chunk and sorts them")
+    func collectorFlattensChunkSegments() async {
+        let collector = MeetingChunkCollector()
+
+        _ = collector.add(
+            Task {
+                [
+                    SpeechSegment(start: 12, end: 12.5, text: "second"),
+                    SpeechSegment(start: 11, end: 11.5, text: "first")
+                ]
+            }
+        )
+
+        let segments = await collector.closeAndDrainSortedSegments()
+
+        #expect(segments.map(\.text) == ["first", "second"])
+        #expect(segments.map(\.start) == [11, 12])
+    }
+}
+
+@Suite("Meeting chunk timing")
+struct MeetingChunkTimingTrackerTests {
+
+    @Test("tracks chunk offsets from processed sample counts")
+    func tracksChunkOffsets() {
+        var tracker = MeetingChunkTimingTracker()
+        tracker.start()
+        tracker.append(sampleCount: 1600)
+
+        let first = tracker.rotate()
+        tracker.append(sampleCount: 800)
+        let second = tracker.finish()
+
+        #expect(first?.startSampleIndex == 0)
+        #expect(first?.sampleCount == 1600)
+        #expect(first?.startTimeSeconds == 0)
+        #expect(first?.durationSeconds == 0.1)
+
+        #expect(second?.startSampleIndex == 1600)
+        #expect(second?.sampleCount == 800)
+        #expect(second?.startTimeSeconds == 0.1)
+        #expect(second?.durationSeconds == 0.05)
     }
 }

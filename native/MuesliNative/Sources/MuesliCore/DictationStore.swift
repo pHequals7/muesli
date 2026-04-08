@@ -215,38 +215,58 @@ public final class DictationStore {
         )
     }
 
-    public func recentMeetings(limit: Int = 10, folderID: Int64? = nil) throws -> [MeetingRecord] {
+    public func meetingCounts() throws -> (total: Int, byFolder: [Int64: Int]) {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
 
-        let sql: String
-        if folderID == nil {
-            sql = """
-            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
-            FROM meetings
-            ORDER BY id DESC
-            LIMIT ?
-            """
+        var total = 0
+        var stmt: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM meetings", -1, &stmt, nil) == SQLITE_OK {
+            if sqlite3_step(stmt) == SQLITE_ROW { total = Int(sqlite3_column_int(stmt, 0)) }
+            sqlite3_finalize(stmt)
         } else {
-            sql = """
-            SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
-            FROM meetings
-            WHERE folder_id = ?
-            ORDER BY id DESC
-            LIMIT ?
-            """
+            fputs("[muesli-store] meetingCounts: failed to prepare total count query\n", stderr)
         }
+
+        var byFolder: [Int64: Int] = [:]
+        var stmt2: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT folder_id, COUNT(*) FROM meetings WHERE folder_id IS NOT NULL GROUP BY folder_id", -1, &stmt2, nil) == SQLITE_OK {
+            while sqlite3_step(stmt2) == SQLITE_ROW {
+                byFolder[sqlite3_column_int64(stmt2, 0)] = Int(sqlite3_column_int(stmt2, 1))
+            }
+            sqlite3_finalize(stmt2)
+        } else {
+            fputs("[muesli-store] meetingCounts: failed to prepare folder count query\n", stderr)
+        }
+
+        return (total, byFolder)
+    }
+
+    public func recentMeetings(limit: Int? = nil, folderID: Int64? = nil) throws -> [MeetingRecord] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+
+        let columns = "id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt"
+        var sql: String
+        if let folderID {
+            sql = "SELECT \(columns) FROM meetings WHERE folder_id = ? ORDER BY id DESC"
+        } else {
+            sql = "SELECT \(columns) FROM meetings ORDER BY id DESC"
+        }
+        if limit != nil { sql += " LIMIT ?" }
 
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
         }
         defer { sqlite3_finalize(statement) }
+        var bindIndex: Int32 = 1
         if let folderID {
-            sqlite3_bind_int64(statement, 1, folderID)
-            sqlite3_bind_int(statement, 2, Int32(limit))
-        } else {
-            sqlite3_bind_int(statement, 1, Int32(limit))
+            sqlite3_bind_int64(statement, bindIndex, folderID)
+            bindIndex += 1
+        }
+        if let limit {
+            sqlite3_bind_int(statement, bindIndex, Int32(limit))
         }
 
         var rows: [MeetingRecord] = []
@@ -612,7 +632,7 @@ public final class DictationStore {
     public func listFolders() throws -> [MeetingFolder] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        let sql = "SELECT id, name, created_at FROM meeting_folders ORDER BY sort_order ASC, id ASC"
+        let sql = "SELECT id, name, created_at FROM meeting_folders ORDER BY id ASC"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)

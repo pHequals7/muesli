@@ -35,8 +35,16 @@ enum MuesliTheme {
 
     // MARK: - Accent
 
-    static let accent           = Color.adaptive(dark: 0x6BA3F7, light: 0x2563EB)
-    static let accentSubtle     = Color.adaptive(dark: 0x6BA3F7, light: 0x2563EB).opacity(0.15)
+    static let defaultAccent    = Color.adaptive(dark: 0x6BA3F7, light: 0x2563EB)
+    static var accentOverrideHex: String?
+    static var accent: Color {
+        if let hex = accentOverrideHex, !hex.isEmpty,
+           let val = UInt64(hex.replacingOccurrences(of: "#", with: ""), radix: 16) {
+            return Color(hex: Int(val))
+        }
+        return defaultAccent
+    }
+    static var accentSubtle: Color { accent.opacity(0.15) }
 
     // MARK: - Semantic
 

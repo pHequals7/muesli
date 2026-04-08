@@ -8,6 +8,7 @@ struct ModelsView: View {
     @State private var downloadingModels: Set<String> = []
     @State private var downloadProgress: [String: Double] = [:]
     @State private var downloadedModels: Set<String> = []
+    @State private var downloadTasks: [String: Task<Void, Never>] = [:]
     @State private var modelToDelete: BackendOption?
     @State private var selectedParakeetModel: String
     @State private var selectedWhisperModel: String
@@ -266,7 +267,16 @@ struct ModelsView: View {
     private func actionButtons(for option: BackendOption, isActive: Bool, isDownloaded: Bool, isDownloading: Bool) -> some View {
         HStack(spacing: MuesliTheme.spacing8) {
             if isDownloading {
-                EmptyView()
+                Button("Cancel") {
+                    cancelDownload(option)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .padding(.horizontal, MuesliTheme.spacing12)
+                .padding(.vertical, 4)
+                .background(MuesliTheme.surfacePrimary)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
             } else if isDownloaded {
                 if !isActive {
                     Button("Set Active") {
@@ -429,11 +439,21 @@ struct ModelsView: View {
         downloadProgress[option.model] = 0.05  // Show initial progress immediately
 
         let startTime = Date()
-        Task {
+        let task = Task {
             await controller.transcriptionCoordinator.preload(backend: option) { progress, _ in
                 DispatchQueue.main.async {
                     downloadProgress[option.model] = max(progress, 0.05)
                 }
+            }
+            guard !Task.isCancelled else {
+                await MainActor.run {
+                    withAnimation {
+                        downloadingModels.remove(option.model)
+                        downloadProgress.removeValue(forKey: option.model)
+                        downloadTasks.removeValue(forKey: option.model)
+                    }
+                }
+                return
             }
             // Ensure the downloading state is visible for at least 1.5s
             let elapsed = Date().timeIntervalSince(startTime)
@@ -445,8 +465,19 @@ struct ModelsView: View {
                     downloadingModels.remove(option.model)
                     downloadedModels.insert(option.model)
                     downloadProgress.removeValue(forKey: option.model)
+                    downloadTasks.removeValue(forKey: option.model)
                 }
             }
+        }
+        downloadTasks[option.model] = task
+    }
+
+    private func cancelDownload(_ option: BackendOption) {
+        downloadTasks[option.model]?.cancel()
+        withAnimation {
+            downloadingModels.remove(option.model)
+            downloadProgress.removeValue(forKey: option.model)
+            downloadTasks.removeValue(forKey: option.model)
         }
     }
 

@@ -14,6 +14,8 @@ struct SidebarView: View {
     @State private var renamingFolderName = ""
     @State private var folderToDelete: MeetingFolder?
     @State private var showDeleteConfirmation = false
+    @State private var draggingFolderID: Int64?
+    @State private var dragOrderedFolders: [MeetingFolder]?
 
     private var userName: String {
         appState.config.userName
@@ -33,6 +35,7 @@ struct SidebarView: View {
 
             sidebarItem(tab: .settings, icon: "gearshape", label: "Settings")
             sidebarItem(tab: .about, icon: "info.circle", label: "About")
+            darkModeToggle
                 .padding(.bottom, MuesliTheme.spacing16)
         }
         .frame(maxHeight: .infinity)
@@ -40,6 +43,11 @@ struct SidebarView: View {
         .onChange(of: appState.selectedTab) { _, tab in
             if tab == .meetings {
                 meetingsExpanded = true
+            }
+            // Reset drag state if user navigates away during a drag
+            if draggingFolderID != nil {
+                draggingFolderID = nil
+                dragOrderedFolders = nil
             }
         }
         .alert(
@@ -58,7 +66,7 @@ struct SidebarView: View {
             }
         } message: {
             let count = folderToDelete.map { folder in
-                appState.meetingRows.filter { $0.folderID == folder.id }.count
+                appState.meetingCountsByFolder[folder.id] ?? 0
             } ?? 0
             if count > 0 {
                 Text("\(count) meeting\(count == 1 ? "" : "s") in this folder will be moved to Unfiled.")
@@ -72,9 +80,18 @@ struct SidebarView: View {
     private var sidebarHeader: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
             HStack(spacing: MuesliTheme.spacing12) {
-                MWaveformIcon(barCount: 9, spacing: 2)
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(MuesliTheme.accent)
+                Group {
+                    if appState.config.menuBarIcon == "muesli",
+                       let img = MenuBarIconRenderer.make(choice: "muesli") {
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFit()
+                    } else {
+                        Image(systemName: appState.config.menuBarIcon)
+                    }
+                }
+                .frame(width: 22, height: 22)
+                .foregroundStyle(MuesliTheme.accent)
                 Text("muesli")
                     .font(MuesliTheme.title2())
                     .foregroundStyle(MuesliTheme.textPrimary)
@@ -150,24 +167,36 @@ struct SidebarView: View {
                     meetingFilterRow(
                         icon: "tray.2",
                         label: "All Meetings",
-                        count: appState.meetingRows.count,
+                        count: appState.totalMeetingCount,
                         isSelected: appState.selectedTab == .meetings && appState.selectedFolderID == nil
                     ) {
                         controller.showMeetingsHome()
                     }
 
-                    ForEach(appState.folders) { folder in
+                    ForEach(dragOrderedFolders ?? appState.folders) { folder in
                         if renamingFolderID == folder.id {
                             folderRenameField(folder: folder)
                         } else {
                             meetingFilterRow(
                                 icon: "folder",
                                 label: folder.name,
-                                count: appState.meetingRows.filter { $0.folderID == folder.id }.count,
+                                count: appState.meetingCountsByFolder[folder.id] ?? 0,
                                 isSelected: appState.selectedTab == .meetings && appState.selectedFolderID == folder.id
                             ) {
                                 controller.showMeetingsHome(folderID: folder.id)
                             }
+                            .opacity(draggingFolderID == folder.id ? 0.1 : 1)
+                            .onDrag {
+                                draggingFolderID = folder.id
+                                dragOrderedFolders = appState.folders
+                                return NSItemProvider(object: "\(folder.id)" as NSString)
+                            }
+                            .onDrop(of: [.text], delegate: FolderDropDelegate(
+                                folderID: folder.id,
+                                dragOrderedFolders: $dragOrderedFolders,
+                                draggingFolderID: $draggingFolderID,
+                                commitOrder: { ids in controller.reorderFolders(ids: ids) }
+                            ))
                             .contextMenu {
                                 Button("Rename") {
                                     renamingFolderID = folder.id
@@ -217,6 +246,52 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
+    private var darkModeToggle: some View {
+        let isDark = appState.config.darkMode
+        HStack(spacing: 2) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    controller.updateConfig { $0.darkMode = false }
+                }
+            } label: {
+                Image(systemName: "sun.max.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(!isDark ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 28, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(!isDark ? MuesliTheme.surfaceSelected : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    controller.updateConfig { $0.darkMode = true }
+                }
+            } label: {
+                Image(systemName: "moon.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isDark ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 28, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(isDark ? MuesliTheme.surfaceSelected : Color.clear)
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .fill(MuesliTheme.backgroundRaised)
+        )
+        .padding(.horizontal, sidebarRowOuterPadding)
+        .padding(.leading, sidebarRowHorizontalPadding)
+        .padding(.bottom, MuesliTheme.spacing4)
+    }
+
+    @ViewBuilder
     private func meetingFilterRow(
         icon: String,
         label: String,
@@ -234,11 +309,11 @@ struct SidebarView: View {
                 .foregroundStyle(isSelected ? MuesliTheme.textPrimary : MuesliTheme.textSecondary)
                 .lineLimit(1)
             Spacer()
-            Text("\(count)")
+            Text(formattedCount(count))
                 .font(MuesliTheme.caption())
                 .monospacedDigit()
                 .foregroundStyle(MuesliTheme.textTertiary)
-                .frame(width: meetingsTrailingColumnWidth, alignment: .center)
+                .frame(minWidth: meetingsTrailingColumnWidth, alignment: .center)
         }
         .padding(.horizontal, sidebarRowHorizontalPadding)
         .padding(.vertical, 6)
@@ -276,6 +351,15 @@ struct SidebarView: View {
         )
     }
 
+    private func formattedCount(_ count: Int) -> String {
+        if count < 1000 { return "\(count)" }
+        if count < 10000 {
+            let k = Double(count) / 1000.0
+            return String(format: "%.1fk", Double(Int(k * 10)) / 10.0)
+        }
+        return "\(count / 1000)k"
+    }
+
     private func createNewFolder() {
         if let id = controller.createFolder(name: "New Folder") {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -285,5 +369,36 @@ struct SidebarView: View {
             renamingFolderName = "New Folder"
             controller.showMeetingsHome(folderID: id)
         }
+    }
+}
+
+private struct FolderDropDelegate: DropDelegate {
+    let folderID: Int64
+    @Binding var dragOrderedFolders: [MeetingFolder]?
+    @Binding var draggingFolderID: Int64?
+    let commitOrder: ([Int64]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let dragID = draggingFolderID, dragID != folderID,
+              var folders = dragOrderedFolders else { return }
+        guard let fromIndex = folders.firstIndex(where: { $0.id == dragID }),
+              let toIndex = folders.firstIndex(where: { $0.id == folderID }) else { return }
+        withAnimation(.easeInOut(duration: 0.15)) {
+            folders.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: toIndex > fromIndex ? toIndex + 1 : toIndex)
+            dragOrderedFolders = folders
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        if let folders = dragOrderedFolders {
+            commitOrder(folders.map(\.id))
+        }
+        draggingFolderID = nil
+        dragOrderedFolders = nil
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }

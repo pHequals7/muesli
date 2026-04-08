@@ -22,7 +22,7 @@ struct RunningAppInfo {
 }
 
 /// Result when a meeting is detected.
-struct MeetingDetection {
+struct MeetingDetection: Equatable {
     let appName: String
     let meetingTitle: String?
 }
@@ -69,6 +69,41 @@ final class MeetingDetector {
     private var consecutiveIdleCount = 0
 
     // MARK: - Evaluate
+
+    /// Returns the current meeting candidate based on system state without
+    /// applying deduplication. This is useful for UI that should be derived
+    /// from the latest detector state rather than edge-triggered callbacks.
+    func currentDetection(_ signals: MeetingSignals, now: Date = Date()) -> MeetingDetection? {
+        if let until = suppressUntil, now < until { return nil }
+        guard signals.micActive || signals.cameraActive else { return nil }
+
+        if signals.cameraActive {
+            let (appName, _) = bestApp(from: signals.runningApps)
+            let title = signals.calendarEvent?.title
+            return MeetingDetection(appName: appName ?? "Meeting", meetingTitle: title)
+        }
+
+        guard signals.micActive else { return nil }
+
+        if let cal = signals.calendarEvent {
+            let (appName, _) = bestApp(from: signals.runningApps)
+            return MeetingDetection(appName: appName ?? "Meeting", meetingTitle: cal.title)
+        }
+
+        for app in signals.runningApps where app.bundleID != selfBundleID {
+            if let name = Self.dedicatedApps[app.bundleID] {
+                return MeetingDetection(appName: name, meetingTitle: nil)
+            }
+        }
+
+        for app in signals.runningApps where app.bundleID != selfBundleID {
+            if let name = Self.browserApps[app.bundleID], app.isActive {
+                return MeetingDetection(appName: name, meetingTitle: nil)
+            }
+        }
+
+        return nil
+    }
 
     /// Evaluate signals and return a detection if a meeting should be flagged.
     /// Returns nil if no meeting detected or already notified.

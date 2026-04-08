@@ -195,7 +195,7 @@ final class StreamingMicRecorder {
             ])
         }
         // Write placeholder WAV header (will be finalized on close)
-        handle.write(Self.wavHeader(dataSize: 0))
+        handle.write(WavWriter.header(dataSize: 0))
         return FileState(fileHandle: handle, fileURL: url, bytesWritten: 0)
     }
 
@@ -204,7 +204,7 @@ final class StreamingMicRecorder {
 
         // Rewrite WAV header with correct data size
         handle.seek(toFileOffset: 0)
-        handle.write(Self.wavHeader(dataSize: UInt32(state.bytesWritten)))
+        handle.write(WavWriter.header(dataSize: UInt32(state.bytesWritten)))
         handle.closeFile()
 
         if state.bytesWritten == 0 {
@@ -214,28 +214,4 @@ final class StreamingMicRecorder {
         return url
     }
 
-    private static func wavHeader(dataSize: UInt32) -> Data {
-        let sampleRate = UInt32(Self.sampleRate)
-        let channels: UInt16 = 1
-        let bitsPerSample: UInt16 = 16
-        let byteRate = sampleRate * UInt32(channels) * UInt32(bitsPerSample / 8)
-        let blockAlign = channels * (bitsPerSample / 8)
-        let chunkSize = 36 + dataSize
-
-        var header = Data()
-        header.append(contentsOf: "RIFF".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: chunkSize.littleEndian) { Array($0) })
-        header.append(contentsOf: "WAVE".utf8)
-        header.append(contentsOf: "fmt ".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: UInt32(16).littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: UInt16(1).littleEndian) { Array($0) }) // PCM
-        header.append(contentsOf: withUnsafeBytes(of: channels.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: sampleRate.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: byteRate.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: blockAlign.littleEndian) { Array($0) })
-        header.append(contentsOf: withUnsafeBytes(of: bitsPerSample.littleEndian) { Array($0) })
-        header.append(contentsOf: "data".utf8)
-        header.append(contentsOf: withUnsafeBytes(of: dataSize.littleEndian) { Array($0) })
-        return header
-    }
 }
