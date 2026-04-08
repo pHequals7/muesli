@@ -244,73 +244,53 @@ struct SettingsView: View {
                 }
 
                 settingsSection("Appearance") {
+                    settingsRow("Menu bar icon") {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 4) {
+                                ForEach(MenuBarIconRenderer.options, id: \.id) { option in
+                                    let isSelected = appState.config.menuBarIcon == option.id
+                                    Button {
+                                        controller.updateConfig { $0.menuBarIcon = option.id }
+                                    } label: {
+                                        Group {
+                                            if option.id == "muesli",
+                                               let img = MenuBarIconRenderer.make(choice: "muesli") {
+                                                Image(nsImage: img)
+                                                    .resizable()
+                                                    .scaledToFit()
+                                                    .frame(width: 14, height: 14)
+                                            } else {
+                                                Image(systemName: option.id)
+                                                    .font(.system(size: 12))
+                                            }
+                                        }
+                                        .foregroundStyle(isSelected ? MuesliTheme.accent : MuesliTheme.textSecondary)
+                                        .frame(width: 26, height: 26)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 5)
+                                                .fill(isSelected ? MuesliTheme.surfaceSelected : Color.clear)
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 5)
+                                                .strokeBorder(Color.white.opacity(isSelected ? 0.3 : 0.08), lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help(option.label)
+                                }
+                            }
+                        }
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Accent color") {
+                        glassTintPicker
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Play sound effects") {
                         settingsSwitch(isOn: appState.config.soundEnabled) { newValue in
                             controller.updateConfig { $0.soundEnabled = newValue }
                         }
                     }
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-                        Text("Recording color")
-                            .font(MuesliTheme.body())
-                            .foregroundStyle(MuesliTheme.textPrimary)
-                        HStack(spacing: MuesliTheme.spacing8) {
-                            ForEach(AppearancePreset.all, id: \.hex) { preset in
-                                let isSelected = appState.config.recordingColorHex.lowercased() == preset.hex
-                                Button {
-                                    controller.updateConfig { $0.recordingColorHex = preset.hex }
-                                    recordingColorInput = preset.hex
-                                } label: {
-                                    Circle()
-                                        .fill(preset.swatchColor)
-                                        .frame(width: 22, height: 22)
-                                        .overlay(
-                                            Circle().strokeBorder(Color.white.opacity(isSelected ? 0.85 : 0), lineWidth: 2)
-                                        )
-                                        .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
-                                }
-                                .buttonStyle(.plain)
-                                .help(preset.name)
-                            }
-                            TextField("#1e1e2e", text: Binding(
-                                get: { recordingColorInput.isEmpty ? appState.config.recordingColorHex : recordingColorInput },
-                                set: { recordingColorInput = $0 }
-                            ))
-                            .font(.system(size: 12, design: .monospaced))
-                            .frame(width: 80)
-                            .textFieldStyle(.roundedBorder)
-                            .onSubmit {
-                                let cleaned = recordingColorInput
-                                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                                    .replacingOccurrences(of: "#", with: "")
-                                    .lowercased()
-                                guard cleaned.count == 6, UInt64(cleaned, radix: 16) != nil else { return }
-                                controller.updateConfig { $0.recordingColorHex = cleaned }
-                                recordingColorInput = cleaned
-                            }
-                            ColorPicker("", selection: Binding(
-                                get: { Color(hex: appState.config.recordingColorHex) },
-                                set: { newColor in
-                                    if let hex = NSColor(newColor).toHexString() {
-                                        controller.updateConfig { $0.recordingColorHex = hex }
-                                        recordingColorInput = hex
-                                    }
-                                }
-                            ))
-                            .labelsHidden()
-                            .frame(width: 28, height: 28)
-                        }
-                        HStack(spacing: MuesliTheme.spacing8) {
-                            Text("Preview")
-                                .font(.system(size: 11))
-                                .foregroundStyle(MuesliTheme.textTertiary)
-                            Capsule()
-                                .fill(Color(hex: appState.config.recordingColorHex))
-                                .frame(width: 80, height: 22)
-                                .overlay(Capsule().strokeBorder(Color.white.opacity(0.2), lineWidth: 1))
-                        }
-                    }
-                    .frame(minHeight: 32)
                 }
 
                 settingsSection("Data") {
@@ -352,6 +332,39 @@ struct SettingsView: View {
             }
         } message: {
             Text(pendingDataDestruction?.message ?? "")
+        }
+    }
+
+    private static let accentPresets: [(hex: String, name: String)] = [
+        ("2563eb", "Blue"),
+        ("ef4444", "Red"),
+        ("f59e0b", "Amber"),
+        ("10b981", "Green"),
+        ("8b5cf6", "Purple"),
+        ("ec4899", "Pink"),
+        ("1e1e2e", "Dark"),
+    ]
+
+    private var glassTintPicker: some View {
+        HStack(spacing: 6) {
+            ForEach(Self.accentPresets, id: \.hex) { preset in
+                let isSelected = appState.config.recordingColorHex.lowercased() == preset.hex
+                Button {
+                    controller.updateConfig { $0.recordingColorHex = preset.hex }
+                } label: {
+                    Circle()
+                        .fill(Color(hex: preset.hex))
+                        .frame(width: 22, height: 22)
+                        .overlay(
+                            Circle().strokeBorder(Color.white.opacity(isSelected ? 0.9 : 0), lineWidth: 2)
+                        )
+                        .overlay(
+                            Circle().strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(preset.name)
+            }
         }
     }
 
@@ -616,3 +629,4 @@ private extension NSColor {
         return String(format: "%02x%02x%02x", r, g, b)
     }
 }
+

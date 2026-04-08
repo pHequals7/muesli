@@ -31,9 +31,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         rebuildMenu()
     }
 
+    func refreshIcon() {
+        statusItem.button?.image = MenuBarIconRenderer.make(choice: controller.config.menuBarIcon)
+    }
+
     private func build() {
         if let button = statusItem.button {
-            button.image = MenuBarIconRenderer.make()
+            button.image = MenuBarIconRenderer.make(choice: controller.config.menuBarIcon)
             button.imageScaling = .scaleProportionallyDown
             button.toolTip = AppIdentity.displayName
         }

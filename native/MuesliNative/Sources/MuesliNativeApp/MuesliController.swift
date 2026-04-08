@@ -115,6 +115,9 @@ final class MuesliController: NSObject {
             databaseURL: MuesliPaths.defaultDatabaseURL(appName: AppIdentity.supportDirectoryName)
         )
         self.config = loadedConfig
+        if loadedConfig.recordingColorHex != "1e1e2e" {
+            MuesliTheme.accentOverrideHex = loadedConfig.recordingColorHex
+        }
         self.selectedBackend = BackendOption.all.first(where: {
             $0.backend == loadedConfig.sttBackend && $0.model == loadedConfig.sttModel
         }) ?? .whisper
@@ -343,6 +346,7 @@ final class MuesliController: NSObject {
     func updateConfig(_ mutate: (inout AppConfig) -> Void) {
         mutate(&config)
         configStore.save(config)
+        MuesliTheme.accentOverrideHex = config.recordingColorHex == "1e1e2e" ? nil : config.recordingColorHex
         selectedBackend = BackendOption.all.first(where: {
             $0.backend == config.sttBackend && $0.model == config.sttModel
         }) ?? .whisper
@@ -350,6 +354,7 @@ final class MuesliController: NSObject {
             $0.backend == config.meetingSummaryBackend
         }) ?? .openAI
         statusBarController?.refresh()
+        statusBarController?.refreshIcon()
         historyWindowController?.updateBackendLabel()
         if config.showFloatingIndicator {
             indicator.ensureVisible(config: config)

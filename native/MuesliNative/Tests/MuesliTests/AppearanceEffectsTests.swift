@@ -30,21 +30,21 @@ struct SoundControllerTests {
 @Suite("MenuBarIconRenderer")
 struct MenuBarIconRendererTests {
 
-    @Test("make() returns a non-nil image")
+    @Test("make(choice:) returns a non-nil image for SF Symbol")
     func makeReturnsImage() {
-        let image = MenuBarIconRenderer.make()
+        let image = MenuBarIconRenderer.make(choice: "mic.fill")
         #expect(image != nil)
     }
 
-    @Test("make() returns a template image for menu bar adaptation")
+    @Test("make(choice:) returns a template image for menu bar adaptation")
     func makeIsTemplate() {
-        let image = MenuBarIconRenderer.make()
+        let image = MenuBarIconRenderer.make(choice: "mic.fill")
         #expect(image?.isTemplate == true)
     }
 
-    @Test("make() returns a non-zero size image")
+    @Test("make(choice:) returns a non-zero size image")
     func makeHasSize() {
-        let image = MenuBarIconRenderer.make()
+        let image = MenuBarIconRenderer.make(choice: "mic.fill")
         #expect((image?.size.width ?? 0) > 0)
         #expect((image?.size.height ?? 0) > 0)
     }

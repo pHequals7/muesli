@@ -87,6 +87,9 @@ final class FloatingIndicatorController {
     private var micIconView: NSImageView?
     private var wandIconView: NSImageView?
     private var specularLayer: CAGradientLayer?
+    private var barLayers: [CALayer] = []
+    private var amplitudeTimer: Timer?
+    private var smoothedAmplitude: CGFloat = 0
     fileprivate var isDragging = false
     var powerProvider: (() -> Float)?
     var onStopMeeting: (() -> Void)?
@@ -294,10 +297,8 @@ final class FloatingIndicatorController {
 
         switch state {
         case .recording:
-            micIconView?.addSymbolEffect(
-                .variableColor.iterative.dimInactiveLayers.reversing,
-                options: .repeating, animated: true
-            )
+            setupWaveformBars(in: targetFrame.size)
+            startWaveformAnimation()
             addStopLayer(in: targetFrame.size)
         case .transcribing:
             if #available(macOS 15, *) {
@@ -437,38 +438,98 @@ final class FloatingIndicatorController {
     }
 
     private func stopWaveformAnimation() {
+        amplitudeTimer?.invalidate()
+        amplitudeTimer = nil
+        barLayers.forEach { $0.removeFromSuperlayer() }
+        barLayers.removeAll()
+        smoothedAmplitude = 0
         powerProvider = nil
         contentView?.layer?.transform = CATransform3DIdentity
         removeStopLayer()
     }
 
+    private func setupWaveformBars(in frameSize: NSSize) {
+        barLayers.forEach { $0.removeFromSuperlayer() }
+        barLayers.removeAll()
+        guard let layer = contentView?.layer else { return }
+
+        let barCount = 5
+        let barWidth: CGFloat = 3
+        let barSpacing: CGFloat = 3
+        let totalWidth = CGFloat(barCount) * barWidth + CGFloat(barCount - 1) * barSpacing
+        let startX = (frameSize.width - totalWidth) / 2
+        let minHeight: CGFloat = 4
+
+        for i in 0..<barCount {
+            let bar = CALayer()
+            bar.backgroundColor = NSColor.white.withAlphaComponent(0.85).cgColor
+            bar.cornerRadius = barWidth / 2
+            let x = startX + CGFloat(i) * (barWidth + barSpacing)
+            bar.frame = CGRect(x: x, y: (frameSize.height - minHeight) / 2, width: barWidth, height: minHeight)
+            layer.addSublayer(bar)
+            barLayers.append(bar)
+        }
+    }
+
+    private func startWaveformAnimation() {
+        amplitudeTimer?.invalidate()
+        let multipliers: [CGFloat] = [0.6, 0.85, 1.0, 0.85, 0.6]
+        let minHeight: CGFloat = 3
+        let maxHeight: CGFloat = 14
+
+        amplitudeTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self, let contentView = self.contentView else { return }
+            let dB = CGFloat(self.powerProvider?() ?? -160)
+            let raw = max(0, min(1, (dB + 50) / 50))
+            self.smoothedAmplitude = 0.35 * raw + 0.65 * self.smoothedAmplitude
+            let pillHeight = contentView.frame.height
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (i, bar) in self.barLayers.enumerated() {
+                let m = i < multipliers.count ? multipliers[i] : 1.0
+                let h = minHeight + (maxHeight - minHeight) * self.smoothedAmplitude * m
+                bar.frame.size.height = h
+                bar.frame.origin.y = (pillHeight - h) / 2
+            }
+            CATransaction.commit()
+        }
+    }
+
     private func applyGlassState(_ state: DictationState, frameSize: NSSize) {
+        let config = configStore.load()
         let isIdle = (state == .idle)
         let radius = frameSize.height / 2
-        let themeHex = configStore.load().recordingColorHex
+        let themeHex = config.recordingColorHex
 
-        // Glass shown for every state — recording and transcribing are
-        // dark frosted glass just like the idle pill.
-        glassView?.isHidden = false
+        // During recording, hide frost and show solid accent. Otherwise frosted glass.
+        let isRecording = (state == .recording)
+        glassView?.isHidden = isRecording
         glassView?.layer?.cornerRadius = radius
 
-        // Tint alpha varies by state and hover.
         let tintAlpha: CGFloat
+        let tintHex: String
         switch state {
-        case .idle:       tintAlpha = isHovered ? 0.72 : 0.44
-        case .preparing:  tintAlpha = 0.62
-        case .recording:  tintAlpha = 0.62
-        case .transcribing: tintAlpha = 0.62
+        case .idle:
+            tintAlpha = isHovered ? 0.72 : 0.44
+            tintHex = "1e1e2e"
+        case .preparing:
+            tintAlpha = 0.62
+            tintHex = "1e1e2e"
+        case .recording:
+            tintAlpha = 0.85
+            tintHex = themeHex
+        case .transcribing:
+            tintAlpha = 0.62
+            tintHex = "1e1e2e"
         }
         tintLayer?.isHidden = false
-        tintLayer?.backgroundColor = NSColor.colorWith(hexString: themeHex, alpha: tintAlpha).cgColor
+        tintLayer?.backgroundColor = NSColor.colorWith(hexString: tintHex, alpha: tintAlpha).cgColor
         tintLayer?.frame = CGRect(origin: .zero, size: frameSize)
         tintLayer?.cornerRadius = radius
 
-        // Specular only on the compact non-hovered idle pill.
-        let showSpecular = isIdle && !isHovered
-        specularLayer?.isHidden = !showSpecular
-        if showSpecular {
+        specularLayer?.isHidden = true
+        if false {
             specularLayer?.frame = CGRect(
                 x: 0,
                 y: frameSize.height * 0.45,
@@ -498,17 +559,10 @@ final class FloatingIndicatorController {
             }
 
         case .recording:
-            // Animated mic symbol centred between ✕ (left) and stop (right).
+            // Waveform bars replace mic icon during recording.
             wandIconView?.isHidden = true
             iconLabel?.isHidden = false   // keeps the ✕ cancel label
-            micIconView?.isHidden = false
-            if let mic = micIconView {
-                // Centre in the region between the ✕ right-edge (~17pt) and stop left-edge (~74pt).
-                let midX = (17 + 74) / 2.0
-                mic.frame = NSRect(x: midX - iconSize.width / 2,
-                                   y: (frameSize.height - iconSize.height) / 2,
-                                   width: iconSize.width, height: iconSize.height)
-            }
+            micIconView?.isHidden = true
 
         case .transcribing:
             // Animated wand beside "Transcribing" label, the pair centred in the pill.
@@ -667,9 +721,9 @@ final class FloatingIndicatorController {
         let size: NSSize
         switch state {
         case .idle:
-            size = isHovered ? NSSize(width: 192, height: 32) : NSSize(width: 48, height: 30)
-        case .preparing: size = NSSize(width: 48, height: 30)
-        case .recording: size = NSSize(width: 90, height: 34)
+            size = isHovered ? NSSize(width: 220, height: 36) : NSSize(width: 44, height: 28)
+        case .preparing: size = NSSize(width: 44, height: 28)
+        case .recording: size = NSSize(width: 76, height: 22)
         case .transcribing: size = NSSize(width: 120, height: 32)
         }
 
@@ -704,28 +758,19 @@ final class FloatingIndicatorController {
                 isHovered ? 1.0 : 0.85
             )
         case .preparing:
-            return (
-                .clear,
-                .colorWith(hex: 0xFFFFFF, alpha: 0.16),
-                "", "", .white, .white, 1.0
-            )
+            return (.clear, .colorWith(hex: 0xFFFFFF, alpha: 0.16), "", "", .white, .white, 1.0)
         case .recording:
             return (
-                .clear,
-                .colorWith(hex: 0xFFFFFF, alpha: 0.16),
+                .clear, .colorWith(hex: 0xFFFFFF, alpha: 0.16),
                 isMeetingRecording ? "⏹" : "",
-                isMeetingRecording ? "" : "Listening",
+                isMeetingRecording ? "" : "",
                 .white, .white, 1.0
             )
         case .transcribing:
             return (
-                .clear,
-                .colorWith(hex: 0xFFFFFF, alpha: 0.16),
-                "",
-                transcribingTitle,
-                .white,
-                .colorWith(hex: 0xFFFFFF, alpha: 0.82),
-                1.0
+                .clear, .colorWith(hex: 0xFFFFFF, alpha: 0.16),
+                "", transcribingTitle,
+                .white, .colorWith(hex: 0xFFFFFF, alpha: 0.82), 1.0
             )
         }
     }
