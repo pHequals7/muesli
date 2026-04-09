@@ -188,6 +188,9 @@ actor NemotronStreamingTranscriber {
         let encodedPtr = encoded.dataPointer.bindMemory(to: Float.self, capacity: encoded.count)
 
         for t in 0..<numFrames {
+            // Yield between frames to let CoreML release intermediate GPU/ANE buffers
+            if t > 0 { await Task.yield() }
+
             var maxSteps = 10
             while maxSteps > 0 {
                 maxSteps -= 1

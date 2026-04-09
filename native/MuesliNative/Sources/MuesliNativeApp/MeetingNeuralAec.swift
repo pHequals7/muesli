@@ -6,7 +6,14 @@ final class MeetingNeuralAec {
     private var processor: DTLNAecEchoProcessor?
     private var isLoaded = false
 
-    /// Pre-load the DTLN-aec model so it's ready when the meeting stops.
+    // Streaming state — accessed only from MeetingSession's chunkRotationQueue
+    private let frameSize = 512
+    private var systemRingBuffer: [Float] = []
+    private var micFrameBuffer: [Float] = []
+    /// Cap system ring buffer at ~2s of audio to prevent unbounded growth
+    private let maxSystemBufferSize = 16_000 * 2
+
+    /// Pre-load the DTLN-aec model so it's ready for real-time processing.
     func preload() async {
         guard !isLoaded else { return }
         let proc = DTLNAecEchoProcessor(modelSize: .large)
@@ -20,60 +27,59 @@ final class MeetingNeuralAec {
         }
     }
 
-    /// Process full-session mic recording through DTLN-aec to remove system audio bleed.
-    /// Processes in batches with autorelease pools to prevent CoreML GPU memory exhaustion.
-    func cleanMicAudio(
-        micSamples: [Float],
-        systemSamples: [Float]
-    ) async -> [Float]? {
-        guard !micSamples.isEmpty, !systemSamples.isEmpty else { return nil }
+    /// Reset processor state and streaming buffers for a new meeting.
+    /// Call from chunkRotationQueue before starting real-time processing.
+    func resetForStreaming() {
+        processor?.resetStates()
+        systemRingBuffer.removeAll(keepingCapacity: true)
+        micFrameBuffer.removeAll(keepingCapacity: true)
+    }
 
-        if !isLoaded {
-            await preload()
+    /// Buffer system audio samples as far-end reference for AEC.
+    /// Call from chunkRotationQueue when system audio samples arrive.
+    func feedSystemSamples(_ samples: [Float]) {
+        systemRingBuffer.append(contentsOf: samples)
+        // Trim if buffer grows too large (system audio arriving faster than mic consumes it)
+        if systemRingBuffer.count > maxSystemBufferSize {
+            systemRingBuffer.removeFirst(systemRingBuffer.count - maxSystemBufferSize)
         }
-        guard let processor else { return nil }
+    }
 
-        // Reset state from any previous meeting
-        processor.resetStates()
+    /// Process mic samples through DTLN-aec in real-time, returning cleaned audio.
+    /// Accumulates samples into 512-frame chunks and processes each through the model.
+    /// Call from chunkRotationQueue when mic audio samples arrive.
+    func processStreamingMic(_ micSamples: [Float]) -> [Float] {
+        guard let processor else { return micSamples }
 
-        let micLength = micSamples.count
-        let systemLength = systemSamples.count
-        let frameSize = 512 // ~32ms at 16kHz
-        let batchSize = 500 // process 500 frames (~16s) per autorelease batch
-        var cleanedSamples: [Float] = []
-        cleanedSamples.reserveCapacity(micLength)
+        micFrameBuffer.append(contentsOf: micSamples)
+        var cleaned: [Float] = []
+        cleaned.reserveCapacity(micSamples.count)
 
-        var frameIndex = 0
-        for offset in stride(from: 0, to: micLength, by: frameSize) {
-            let end = min(offset + frameSize, micLength)
-            let micFrame = Array(micSamples[offset..<end])
-            // Feed system audio as reference; use silence if system recording is shorter
+        while micFrameBuffer.count >= frameSize {
+            let micFrame = Array(micFrameBuffer.prefix(frameSize))
+            micFrameBuffer.removeFirst(frameSize)
+
             let systemFrame: [Float]
-            if offset < systemLength {
-                let sysEnd = min(offset + frameSize, systemLength)
-                systemFrame = Array(systemSamples[offset..<sysEnd])
+            if systemRingBuffer.count >= frameSize {
+                systemFrame = Array(systemRingBuffer.prefix(frameSize))
+                systemRingBuffer.removeFirst(frameSize)
             } else {
-                systemFrame = [Float](repeating: 0, count: end - offset)
+                // No system audio available — feed silence as reference
+                systemFrame = [Float](repeating: 0, count: frameSize)
             }
 
+            // autoreleasepool prevents CoreML GPU/ANE buffer accumulation
+            // that causes MLE5BindEmptyMemoryObjectToPort crash in long meetings
             autoreleasepool {
                 processor.feedFarEnd(systemFrame)
-                let cleaned = processor.processNearEnd(micFrame)
-                cleanedSamples.append(contentsOf: cleaned)
-            }
-
-            frameIndex += 1
-
-            // Yield periodically to let CoreML release GPU buffers
-            if frameIndex % batchSize == 0 {
-                await Task.yield()
+                let cleanedFrame = processor.processNearEnd(micFrame)
+                cleaned.append(contentsOf: cleanedFrame)
             }
         }
 
-        let remaining = processor.flush()
-        cleanedSamples.append(contentsOf: remaining)
-
-        fputs("[meeting-aec] DTLN-aec processed \(micLength) mic samples (system=\(systemLength)) → \(cleanedSamples.count) cleaned samples\n", stderr)
-        return cleanedSamples
+        return cleaned
     }
+
+    /// Whether the model is loaded and ready for streaming.
+    var isReady: Bool { isLoaded && processor != nil }
 }

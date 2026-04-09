@@ -146,8 +146,8 @@ final class MeetingSession {
         let vadManager = await transcriptionCoordinator.getVadManager()
         let now = Date()
 
-        // Preload neural AEC model in background so it's ready at stop time
-        Task { await neuralAec.preload() }
+        // Load neural AEC model before starting audio pipeline so it's ready for real-time processing
+        await neuralAec.preload()
 
         chunkRotationQueue.sync {
             startTime = now
@@ -389,80 +389,8 @@ final class MeetingSession {
         fputs("[meeting] \(micSegments.count) mic chunks transcribed during meeting\n", stderr)
         fputs("[meeting] \(systemSegments.count) system chunks transcribed during meeting\n", stderr)
 
-        // Run neural AEC on full-session recordings to recover local speech
-        onProgress?(.cleaningAudio)
-        if let fullSessionMicURL, let systemAudioURL {
-            do {
-                let micSamples = try AudioConverter().resampleAudioFile(fullSessionMicURL)
-                let systemSamples = try AudioConverter().resampleAudioFile(systemAudioURL)
-                if let cleanedSamples = await neuralAec.cleanMicAudio(
-                    micSamples: micSamples,
-                    systemSamples: systemSamples
-                ) {
-                    // Use offline VAD on cleaned audio to find speech regions,
-                    // then transcribe each region individually for proper timestamps.
-                    var aecSegments: [SpeechSegment] = []
-                    let sampleRate = 16_000
-                    if let vadManager = await transcriptionCoordinator.getVadManager() {
-                        let speechRegions = try await vadManager.segmentSpeech(
-                            cleanedSamples,
-                            config: VadSegmentationConfig(maxSpeechDuration: 30.0, speechPadding: 0.15)
-                        )
-                        fputs("[meeting] neural AEC: \(speechRegions.count) speech regions detected in cleaned audio\n", stderr)
-
-                        for (i, region) in speechRegions.enumerated() {
-                            let startIdx = max(0, region.startSample(sampleRate: sampleRate))
-                            let endIdx = min(cleanedSamples.count, region.endSample(sampleRate: sampleRate))
-                            guard endIdx > startIdx else { continue }
-
-                            do {
-                                let regionSamples = Array(cleanedSamples[startIdx..<endIdx])
-                                let regionURL = try WavWriter.writeTemporaryWAV(samples: regionSamples)
-                                defer { try? FileManager.default.removeItem(at: regionURL) }
-
-                                fputs("[meeting] neural AEC: transcribing region \(i+1)/\(speechRegions.count) (\(String(format: "%.1f", region.startTime))-\(String(format: "%.1f", region.endTime))s, \(regionSamples.count) samples)\n", stderr)
-
-                                let regionResult = try await transcriptionCoordinator.transcribeMeetingChunk(
-                                    at: regionURL,
-                                    backend: backend,
-                                    customWords: serializedCustomWords
-                                )
-                                let normalized = MicTurnNormalizer.normalize(
-                                    result: regionResult,
-                                    startTime: region.startTime,
-                                    endTime: region.endTime
-                                )
-                                aecSegments.append(contentsOf: normalized)
-                            } catch {
-                                fputs("[meeting] neural AEC: region \(i+1) failed: \(error)\n", stderr)
-                            }
-                        }
-                    } else {
-                        // No VAD — fall back to full-session transcription
-                        let cleanedURL = try WavWriter.writeTemporaryWAV(samples: cleanedSamples)
-                        defer { try? FileManager.default.removeItem(at: cleanedURL) }
-                        let totalDuration = durationSeconds(from: meetingStart, to: endTime)
-                        let cleanedResult = try await transcriptionCoordinator.transcribeMeeting(
-                            at: cleanedURL,
-                            backend: backend,
-                            customWords: serializedCustomWords
-                        )
-                        aecSegments = MicTurnNormalizer.normalize(
-                            result: cleanedResult,
-                            startTime: 0,
-                            endTime: totalDuration
-                        )
-                    }
-
-                    if !aecSegments.isEmpty {
-                        fputs("[meeting] neural AEC produced \(aecSegments.count) cleaned mic segments\n", stderr)
-                        micSegments = aecSegments
-                    }
-                }
-            } catch {
-                fputs("[meeting] neural AEC skipped: \(error)\n", stderr)
-            }
-        }
+        // Neural AEC runs in real-time during the meeting (streaming mode).
+        // Mic chunks are already cleaned — no post-hoc re-transcription needed.
 
         let reconciledTranscriptInputs = TranscriptReconciler.reconcile(
             micTurns: micSegments,
@@ -661,6 +589,8 @@ final class MeetingSession {
             vadController = nil
             systemVadController = nil
         }
+        // Reset AEC state for this meeting (buffers + model hidden state)
+        neuralAec.resetForStreaming()
         streamingMicRecorder.onAudioBuffer = nil
 
         streamingMicRecorder.onPCMSamples = { [weak self] samples in
@@ -677,13 +607,29 @@ final class MeetingSession {
         chunkRotationQueue.async { [weak self] in
             guard let self, self.isRecording else { return }
 
+            // Keep raw mic in retained recording (backup/fallback)
             self.retainedRecordingWriter?.appendMic(rawSamples)
-            self.rawMicChunkRecorder?.append(rawSamples)
+
+            // Timing tracks raw input samples (wall-clock time), not AEC output
             self.chunkTimingTracker.append(sampleCount: rawSamples.count)
 
+            let floatSamples = rawSamples.map { Float($0) / 32767.0 }
+
+            // Run real-time AEC: clean mic audio using buffered system reference
+            let cleanedFloat = self.neuralAec.processStreamingMic(floatSamples)
+
+            guard !cleanedFloat.isEmpty else { return }
+
+            // Convert cleaned audio back to Int16 for chunk recorder
+            let cleanedInt16 = cleanedFloat.map { sample -> Int16 in
+                Int16(max(-1.0, min(1.0, sample)) * 32767)
+            }
+
+            self.rawMicChunkRecorder?.append(cleanedInt16)
+
+            // Feed cleaned audio to VAD (speech detection on bleed-free signal)
             if let vadController = self.vadController {
-                let floatSamples = rawSamples.map { Float($0) / 32767.0 }
-                vadController.processAudio(floatSamples)
+                vadController.processAudio(cleanedFloat)
             }
         }
     }
@@ -698,8 +644,12 @@ final class MeetingSession {
             self.systemChunkRecorder?.append(samples)
             self.systemChunkTimingTracker.append(sampleCount: samples.count)
 
+            let floatSamples = samples.map { Float($0) / 32767.0 }
+
+            // Feed system audio to AEC as far-end reference
+            self.neuralAec.feedSystemSamples(floatSamples)
+
             if let systemVadController = self.systemVadController {
-                let floatSamples = samples.map { Float($0) / 32767.0 }
                 systemVadController.processAudio(floatSamples)
             }
         }

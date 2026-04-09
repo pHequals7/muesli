@@ -898,53 +898,55 @@ private final class CohereTranscribeManager {
             let updateMask = try updateMask(for: currentPosition)
             let validMask = try validMask(for: currentPosition)
 
-            tokenIdPtr[0] = Int32(nextToken)
-            let decodeInput = try MLDictionaryFeatureProvider(dictionary: [
-                "input_ids": MLFeatureValue(multiArray: tokenIdArray),
-                "cache_update_mask": MLFeatureValue(multiArray: updateMask),
-                "cache_valid_mask": MLFeatureValue(multiArray: validMask),
-                "encoder_mask": MLFeatureValue(multiArray: encoderMask),
-            ])
-            let decodeOutput = try models.decodeDecoder.prediction(from: decodeInput, using: state)
-            guard let logits = decodeOutput.featureValue(for: "logits")?.multiArrayValue else {
-                throw NSError(domain: "CohereTranscribe", code: 16, userInfo: [
-                    NSLocalizedDescriptionKey: "Missing logits from decode decoder",
+            // autoreleasepool prevents CoreML GPU/ANE buffer accumulation in long decode loops
+            try autoreleasepool {
+                tokenIdPtr[0] = Int32(nextToken)
+                let decodeInput = try MLDictionaryFeatureProvider(dictionary: [
+                    "input_ids": MLFeatureValue(multiArray: tokenIdArray),
+                    "cache_update_mask": MLFeatureValue(multiArray: updateMask),
+                    "cache_valid_mask": MLFeatureValue(multiArray: validMask),
+                    "encoder_mask": MLFeatureValue(multiArray: encoderMask),
                 ])
-            }
-
-            // Copy logits to a local buffer — CoreML output MLMultiArray may be read-only
-            let vocabSize = CohereTranscribeConfig.vocabSize
-            let srcPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: vocabSize)
-            var localLogits = [Float](unsafeUninitializedCapacity: vocabSize) { buf, count in
-                buf.baseAddress!.initialize(from: srcPtr, count: vocabSize)
-                count = vocabSize
-            }
-
-            if !models.encoderUsesDynamicLength {
-                // EOS promotion: if EOS is in the top-3 logits, the model is "trying to stop"
-                // but the contaminated encoder isn't giving a strong enough signal. Treat as EOS.
-                // This uses the model's own confidence rather than external heuristics.
-                let eosLogit = localLogits[CohereTranscribeConfig.eosTokenId]
-                var countAboveEos = 0
-                for i in 0..<vocabSize {
-                    if localLogits[i] > eosLogit { countAboveEos += 1 }
-                    if countAboveEos >= 3 { break }
+                let decodeOutput = try models.decodeDecoder.prediction(from: decodeInput, using: state)
+                guard let logits = decodeOutput.featureValue(for: "logits")?.multiArrayValue else {
+                    throw NSError(domain: "CohereTranscribe", code: 16, userInfo: [
+                        NSLocalizedDescriptionKey: "Missing logits from decode decoder",
+                    ])
                 }
-                if countAboveEos < 3 { break } // EOS in top-3 → stop
 
-                // No-repeat n-gram: ban any token that would complete a repeated 4-gram.
-                let noRepeatNgram = 4
-                if generatedIds.count >= noRepeatNgram {
-                    let prefix = Array(generatedIds.suffix(noRepeatNgram - 1))
-                    for i in 0...(generatedIds.count - noRepeatNgram) {
-                        if Array(generatedIds[i..<(i + noRepeatNgram - 1)]) == prefix {
-                            localLogits[generatedIds[i + noRepeatNgram - 1]] = -.greatestFiniteMagnitude
+                // Copy logits to a local buffer — CoreML output MLMultiArray may be read-only
+                let vocabSize = CohereTranscribeConfig.vocabSize
+                let srcPtr = logits.dataPointer.bindMemory(to: Float.self, capacity: vocabSize)
+                var localLogits = [Float](unsafeUninitializedCapacity: vocabSize) { buf, count in
+                    buf.baseAddress!.initialize(from: srcPtr, count: vocabSize)
+                    count = vocabSize
+                }
+
+                if !models.encoderUsesDynamicLength {
+                    let eosLogit = localLogits[CohereTranscribeConfig.eosTokenId]
+                    var countAboveEos = 0
+                    for i in 0..<vocabSize {
+                        if localLogits[i] > eosLogit { countAboveEos += 1 }
+                        if countAboveEos >= 3 { break }
+                    }
+                    if countAboveEos < 3 {
+                        nextToken = CohereTranscribeConfig.eosTokenId
+                        return
+                    }
+
+                    let noRepeatNgram = 4
+                    if generatedIds.count >= noRepeatNgram {
+                        let prefix = Array(generatedIds.suffix(noRepeatNgram - 1))
+                        for i in 0...(generatedIds.count - noRepeatNgram) {
+                            if Array(generatedIds[i..<(i + noRepeatNgram - 1)]) == prefix {
+                                localLogits[generatedIds[i + noRepeatNgram - 1]] = -.greatestFiniteMagnitude
+                            }
                         }
                     }
                 }
-            }
 
-            nextToken = argmaxLocal(logits: localLogits)
+                nextToken = argmaxLocal(logits: localLogits)
+            }
             currentPosition += 1
         }
         timing.decodeMs = (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000
