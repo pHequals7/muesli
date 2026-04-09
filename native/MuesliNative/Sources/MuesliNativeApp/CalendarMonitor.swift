@@ -37,6 +37,7 @@ final class CalendarMonitor {
         let predicate = store.predicateForEvents(withStart: now.addingTimeInterval(-3600), end: now.addingTimeInterval(60), calendars: nil)
         let events = store.events(matching: predicate)
         for event in events {
+            guard !event.isAllDay else { continue }
             guard let startDate = event.startDate, let endDate = event.endDate else { continue }
             if startDate <= now && endDate > now {
                 return UpcomingMeetingEvent(
@@ -60,6 +61,7 @@ final class CalendarMonitor {
 
         var nearby: CalendarEventContext?
         for event in events {
+            guard !event.isAllDay else { continue }
             guard let startDate = event.startDate, let endDate = event.endDate else { continue }
             let ctx = CalendarEventContext(
                 id: event.eventIdentifier ?? UUID().uuidString,
@@ -77,7 +79,8 @@ final class CalendarMonitor {
         return nearby
     }
 
-    /// Returns upcoming events from the local macOS calendar (EventKit) for the next N days.
+    /// Returns upcoming timed events from the local macOS calendar (EventKit) for the next N days.
+    /// All-day events are excluded — they're not useful for meeting recording.
     func upcomingEvents(daysAhead: Int = 7) -> [UnifiedCalendarEvent] {
         let now = Date()
         guard let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now) else { return [] }
@@ -85,12 +88,13 @@ final class CalendarMonitor {
         let events = store.events(matching: predicate)
         return events.compactMap { event in
             guard let startDate = event.startDate, let endDate = event.endDate else { return nil }
+            guard !event.isAllDay else { return nil }
             return UnifiedCalendarEvent(
                 id: event.eventIdentifier ?? UUID().uuidString,
                 title: event.title ?? "Meeting",
                 startDate: startDate,
                 endDate: endDate,
-                isAllDay: event.isAllDay,
+                isAllDay: false,
                 source: .eventKit
             )
         }.sorted { $0.startDate < $1.startDate }
@@ -102,6 +106,8 @@ final class CalendarMonitor {
         let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
         let events = store.events(matching: predicate)
         for event in events {
+            // Skip all-day events — they shouldn't trigger meeting recording
+            guard !event.isAllDay else { continue }
             guard let eventID = event.eventIdentifier, !notifiedEvents.contains(eventID) else {
                 continue
             }

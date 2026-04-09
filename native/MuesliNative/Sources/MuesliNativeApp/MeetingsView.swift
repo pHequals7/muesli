@@ -247,7 +247,9 @@ struct MeetingsView: View {
     private var groupedUpcomingEvents: [UpcomingEventGroup] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let grouped = Dictionary(grouping: appState.upcomingCalendarEvents) { event in
+        // Filter out all-day events — not useful for meeting recording
+        let timedEvents = appState.upcomingCalendarEvents.filter { !$0.isAllDay }
+        let grouped = Dictionary(grouping: timedEvents) { event in
             calendar.startOfDay(for: event.startDate)
         }
         let dayFormatter = DateFormatter()
@@ -318,16 +320,38 @@ struct MeetingsView: View {
                                         .foregroundStyle(MuesliTheme.textPrimary)
                                         .lineLimit(1)
 
-                                    if event.isAllDay {
-                                        Text("All day")
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(MuesliTheme.textSecondary)
-                                    } else {
-                                        Text(formatTimeRange(event))
-                                            .font(.system(size: 11))
-                                            .foregroundStyle(MuesliTheme.textSecondary)
-                                    }
+                                    Text(formatTimeRange(event))
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(MuesliTheme.textSecondary)
                                 }
+
+                                Spacer()
+
+                                Menu {
+                                    Button("All Meetings") {
+                                        controller.createMeetingFromCalendarEvent(event, folderID: nil)
+                                    }
+                                    Divider()
+                                    ForEach(appState.folders) { folder in
+                                        Button(folder.name) {
+                                            controller.createMeetingFromCalendarEvent(event, folderID: folder.id)
+                                        }
+                                    }
+                                } label: {
+                                    Text("Add to folder")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(MuesliTheme.textSecondary)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(MuesliTheme.surfacePrimary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 0.5)
+                                        )
+                                }
+                                .menuStyle(.borderlessButton)
+                                .fixedSize()
                             }
                         }
                     }

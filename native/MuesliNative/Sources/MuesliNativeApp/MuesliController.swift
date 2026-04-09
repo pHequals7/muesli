@@ -766,6 +766,28 @@ final class MuesliController: NSObject {
         syncAppState()
     }
 
+    func createMeetingFromCalendarEvent(_ event: UnifiedCalendarEvent, folderID: Int64?) {
+        do {
+            let meetingID = try dictationStore.insertMeeting(
+                title: event.title,
+                calendarEventID: event.id,
+                startTime: event.startDate,
+                endTime: event.endDate,
+                rawTranscript: "",
+                formattedNotes: "",
+                micAudioPath: nil,
+                systemAudioPath: nil
+            )
+            if let folderID {
+                try? dictationStore.moveMeeting(id: meetingID, toFolder: folderID)
+            }
+            syncAppState()
+            fputs("[muesli-native] created meeting from calendar event: \(event.title) (folder=\(folderID.map(String.init) ?? "none"))\n", stderr)
+        } catch {
+            fputs("[muesli-native] failed to create meeting from calendar event: \(error)\n", stderr)
+        }
+    }
+
     func moveMeeting(id: Int64, toFolder folderID: Int64?) {
         try? dictationStore.moveMeeting(id: id, toFolder: folderID)
         syncAppState()
