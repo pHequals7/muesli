@@ -146,10 +146,8 @@ final class MeetingSession {
         let vadManager = await transcriptionCoordinator.getVadManager()
         let now = Date()
 
-        // Load neural AEC model before starting audio pipeline so it's ready for real-time
-        // processing. First meeting after launch blocks here for ~2-5s (model load); subsequent
-        // meetings return immediately (guarded on isLoaded).
-        await neuralAec.preload()
+        // Preload neural AEC model in background (used by post-stop repair paths if needed)
+        Task { await neuralAec.preload() }
 
         chunkRotationQueue.sync {
             startTime = now
@@ -251,16 +249,6 @@ final class MeetingSession {
         systemAudioRecorder.onPCMSamples = nil
         let (meetingStart, lastChunkTiming, lastRawMicURL, lastSystemChunkTiming, lastSystemChunkURL) = chunkRotationQueue.sync { () -> (Date, MeetingChunkTimingSnapshot?, URL?, MeetingChunkTimingSnapshot?, URL?) in
             isRecording = false
-
-            // Flush any partial AEC frame before stopping the chunk recorder,
-            // so the last ~32ms of mic audio isn't silently dropped.
-            let flushed = self.neuralAec.flushStreamingMic()
-            if !flushed.isEmpty {
-                let flushedInt16 = flushed.map { sample -> Int16 in
-                    Int16(max(-1.0, min(1.0, sample)) * 32767)
-                }
-                self.rawMicChunkRecorder?.append(flushedInt16)
-            }
 
             let meetingStart = self.startTime ?? Date()
             let lastRawMicURL = rawMicChunkRecorder?.stop()
@@ -602,8 +590,6 @@ final class MeetingSession {
             vadController = nil
             systemVadController = nil
         }
-        // Reset AEC state for this meeting (buffers + model hidden state)
-        neuralAec.resetForStreaming()
         streamingMicRecorder.onAudioBuffer = nil
 
         streamingMicRecorder.onPCMSamples = { [weak self] samples in
@@ -620,36 +606,16 @@ final class MeetingSession {
         chunkRotationQueue.async { [weak self] in
             guard let self, self.isRecording else { return }
 
-            // Keep raw mic in retained recording (backup/fallback)
+            // Write raw mic audio to all destinations — streaming AEC is too aggressive
+            // for real-time transcription (suppresses user voice 20-40dB when system audio
+            // is playing). Raw mic with bleed is handled by TranscriptReconciler instead.
             self.retainedRecordingWriter?.appendMic(rawSamples)
-
-            // Timing tracks raw input samples (wall-clock time), not AEC output
+            self.rawMicChunkRecorder?.append(rawSamples)
             self.chunkTimingTracker.append(sampleCount: rawSamples.count)
 
-            let floatSamples = rawSamples.map { Float($0) / 32767.0 }
-
-            // Run real-time AEC: clean mic audio using buffered system reference.
-            // Returns empty when < 512 samples have accumulated (partial frame buffered).
-            let cleanedFloat = self.neuralAec.processStreamingMic(floatSamples)
-
-            if !cleanedFloat.isEmpty {
-                // Convert cleaned audio back to Int16 for chunk recorder
-                let cleanedInt16 = cleanedFloat.map { sample -> Int16 in
-                    Int16(max(-1.0, min(1.0, sample)) * 32767)
-                }
-                self.rawMicChunkRecorder?.append(cleanedInt16)
-
-                // Feed cleaned audio to VAD (speech detection on bleed-free signal)
-                if let vadController = self.vadController {
-                    vadController.processAudio(cleanedFloat)
-                }
-            } else {
-                // Partial frame buffered in AEC — feed raw samples to VAD so speech
-                // boundary detection doesn't have a blind spot at meeting start or
-                // after chunk rotations while the first full frame accumulates.
-                if let vadController = self.vadController {
-                    vadController.processAudio(floatSamples)
-                }
+            if let vadController = self.vadController {
+                let floatSamples = rawSamples.map { Float($0) / 32767.0 }
+                vadController.processAudio(floatSamples)
             }
         }
     }
@@ -664,12 +630,8 @@ final class MeetingSession {
             self.systemChunkRecorder?.append(samples)
             self.systemChunkTimingTracker.append(sampleCount: samples.count)
 
-            let floatSamples = samples.map { Float($0) / 32767.0 }
-
-            // Feed system audio to AEC as far-end reference
-            self.neuralAec.feedSystemSamples(floatSamples)
-
             if let systemVadController = self.systemVadController {
+                let floatSamples = samples.map { Float($0) / 32767.0 }
                 systemVadController.processAudio(floatSamples)
             }
         }
