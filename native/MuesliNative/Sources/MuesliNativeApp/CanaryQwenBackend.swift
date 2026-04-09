@@ -683,34 +683,37 @@ private final class CanaryQwenManager {
                 break
             }
 
-            let decodeInput = try MLDictionaryFeatureProvider(dictionary: [
-                "hidden_states": MLFeatureValue(multiArray: decodeHidden),
-                "cache_update_mask": MLFeatureValue(multiArray: decodeUpdateMask),
-                "cache_valid_mask": MLFeatureValue(multiArray: decodeValidMask),
-            ])
-
-            let decodeStart = CFAbsoluteTimeGetCurrent()
-            let decodeOutput = try models.decodeDecoder.prediction(from: decodeInput, using: state)
-            guard let decodeHiddenOut = decodeOutput.featureValue(for: "output_hidden")?.multiArrayValue else {
-                throw NSError(domain: "CanaryQwen", code: 18, userInfo: [
-                    NSLocalizedDescriptionKey: "Missing decode output_hidden from Canary decode model",
+            // autoreleasepool prevents CoreML GPU/ANE buffer accumulation in long decode loops
+            try autoreleasepool {
+                let decodeInput = try MLDictionaryFeatureProvider(dictionary: [
+                    "hidden_states": MLFeatureValue(multiArray: decodeHidden),
+                    "cache_update_mask": MLFeatureValue(multiArray: decodeUpdateMask),
+                    "cache_valid_mask": MLFeatureValue(multiArray: decodeValidMask),
                 ])
-            }
-            timing.decoderDecodeMs += (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000
 
-            let lmStart = CFAbsoluteTimeGetCurrent()
-            let lmInput = try MLDictionaryFeatureProvider(dictionary: [
-                "hidden_states": MLFeatureValue(multiArray: decodeHiddenOut)
-            ])
-            let lmOutput = try models.lmHead.prediction(from: lmInput)
-            guard let logits = lmOutput.featureValue(for: "logits")?.multiArrayValue else {
-                throw NSError(domain: "CanaryQwen", code: 19, userInfo: [
-                    NSLocalizedDescriptionKey: "Missing decode logits from Canary lm head",
+                let decodeStart = CFAbsoluteTimeGetCurrent()
+                let decodeOutput = try models.decodeDecoder.prediction(from: decodeInput, using: state)
+                guard let decodeHiddenOut = decodeOutput.featureValue(for: "output_hidden")?.multiArrayValue else {
+                    throw NSError(domain: "CanaryQwen", code: 18, userInfo: [
+                        NSLocalizedDescriptionKey: "Missing decode output_hidden from Canary decode model",
+                    ])
+                }
+                timing.decoderDecodeMs += (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000
+
+                let lmStart = CFAbsoluteTimeGetCurrent()
+                let lmInput = try MLDictionaryFeatureProvider(dictionary: [
+                    "hidden_states": MLFeatureValue(multiArray: decodeHiddenOut)
                 ])
-            }
-            timing.lmHeadDecodeMs += (CFAbsoluteTimeGetCurrent() - lmStart) * 1000
+                let lmOutput = try models.lmHead.prediction(from: lmInput)
+                guard let logits = lmOutput.featureValue(for: "logits")?.multiArrayValue else {
+                    throw NSError(domain: "CanaryQwen", code: 19, userInfo: [
+                        NSLocalizedDescriptionKey: "Missing decode logits from Canary lm head",
+                    ])
+                }
+                timing.lmHeadDecodeMs += (CFAbsoluteTimeGetCurrent() - lmStart) * 1000
 
-            nextToken = argmax(logits: logits)
+                nextToken = argmax(logits: logits)
+            }
             currentPosition += 1
         }
 

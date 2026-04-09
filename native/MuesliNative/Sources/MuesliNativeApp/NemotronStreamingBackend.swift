@@ -188,6 +188,13 @@ actor NemotronStreamingTranscriber {
         let encodedPtr = encoded.dataPointer.bindMemory(to: Float.self, capacity: encoded.count)
 
         for t in 0..<numFrames {
+            // Yield periodically to let CoreML release intermediate GPU/ANE buffers.
+            // Note: Task.yield() is a cooperative scheduling hint, not an autoreleasepool
+            // drain. The async predictions (decoder, joint) inside the inner loop can't be
+            // wrapped in autoreleasepool. This mitigates but doesn't fully prevent buffer
+            // accumulation in very long sessions — a known limitation of async CoreML.
+            if t > 0 && t % 10 == 0 { await Task.yield() }
+
             var maxSteps = 10
             while maxSteps > 0 {
                 maxSteps -= 1

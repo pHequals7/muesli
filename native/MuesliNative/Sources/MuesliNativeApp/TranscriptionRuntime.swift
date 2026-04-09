@@ -218,6 +218,10 @@ actor TranscriptionCoordinator {
         vadManager
     }
 
+    func getDiarizerManager() -> DiarizerManager? {
+        diarizerManager
+    }
+
     func shutdown() {
         Task {
             await fluidTranscriber.shutdown()
