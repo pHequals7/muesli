@@ -631,8 +631,6 @@ final class MeetingSession {
         }
     }
 
-    private var micAecDiagCounter = 0
-
     private func enqueueRealtimeMicSamples(_ rawSamples: [Int16]) {
         guard !rawSamples.isEmpty else { return }
 

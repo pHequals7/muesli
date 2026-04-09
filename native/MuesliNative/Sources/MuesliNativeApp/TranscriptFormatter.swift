@@ -175,71 +175,6 @@ enum TranscriptFormatter {
         return "Others"
     }
 
-    private static func prepareMicSegmentsForDisplay(
-        micSegments: [SpeechSegment],
-        systemSegments: [SpeechSegment]
-    ) -> [SpeechSegment] {
-        micSegments.compactMap { micSegment in
-            cleanedMicSegmentForDisplay(micSegment, systemSegments: systemSegments)
-        }
-    }
-
-    private static func cleanedMicSegmentForDisplay(
-        _ micSegment: SpeechSegment,
-        systemSegments: [SpeechSegment]
-    ) -> SpeechSegment? {
-        let overlappingSystemSegments = systemSegments.filter {
-            overlapDuration(between: micSegment, and: $0) > 0
-        }
-        guard !overlappingSystemSegments.isEmpty else { return micSegment }
-
-        let normalizedMic = normalizedText(micSegment.text)
-        guard !normalizedMic.isEmpty else { return nil }
-
-        let combinedSystemText = normalizedText(overlappingSystemSegments.map(\.text).joined(separator: " "))
-        guard !combinedSystemText.isEmpty else { return micSegment }
-
-        let overlapCoverage = overlapCoverage(of: micSegment, across: overlappingSystemSegments)
-        let micTokens = tokenSet(from: normalizedMic)
-        let systemTokens = tokenSet(from: combinedSystemText)
-        let tokenContainment = tokenContainmentRatio(source: micTokens, target: systemTokens)
-        let isSubstringDuplicate =
-            combinedSystemText.contains(normalizedMic) || normalizedMic.contains(combinedSystemText)
-
-        guard overlapCoverage >= 0.65, tokenContainment >= 0.9 || isSubstringDuplicate else {
-            return micSegment
-        }
-
-        let firstOverlapStart = overlappingSystemSegments.map(\.start).min() ?? micSegment.start
-        let leadInDuration = max(0, firstOverlapStart - micSegment.start)
-        let micDuration = max(micSegment.end - micSegment.start, 0.1)
-        let leadInRatio = min(max(leadInDuration / micDuration, 0), 1)
-
-        guard leadInDuration >= 0.75 else {
-            return nil
-        }
-
-        let trimmedText = leadingPortion(of: micSegment.text, keepRatio: leadInRatio)
-        guard visibleLength(of: trimmedText) >= 8 else { return nil }
-
-        return SpeechSegment(
-            start: micSegment.start,
-            end: max(firstOverlapStart, micSegment.start + 0.1),
-            text: trimmedText
-        )
-    }
-
-    private static func leadingPortion(of text: String, keepRatio: Double) -> String {
-        let words = text.split(whereSeparator: \.isWhitespace)
-        guard !words.isEmpty else { return text }
-
-        let clampedRatio = min(max(keepRatio, 0), 1)
-        let keepCount = min(
-            words.count,
-            max(1, Int(ceil(Double(words.count) * clampedRatio)))
-        )
-        return words.prefix(keepCount).joined(separator: " ")
-    }
 
     private static func nearestSpeaker(
         for segment: SpeechSegment,
@@ -403,14 +338,6 @@ enum TranscriptFormatter {
         }
     }
 
-    private static func tokenSet(from text: String) -> Set<String> {
-        Set(text.split(separator: " ").map(String.init))
-    }
-
-    private static func tokenContainmentRatio(source: Set<String>, target: Set<String>) -> Double {
-        guard !source.isEmpty else { return 0 }
-        return Double(source.intersection(target).count) / Double(source.count)
-    }
 }
 
 private struct TaggedSegment {
