@@ -39,6 +39,8 @@ struct SettingsView: View {
 
     @State private var chatGPTSignInError: String?
     @State private var isSigningInChatGPT = false
+    @State private var googleCalSignInError: String?
+    @State private var isSigningInGoogleCal = false
     @State private var pendingDataDestruction: PendingDataDestruction?
     @State private var recordingColorInput: String = ""
 
@@ -239,6 +241,75 @@ struct SettingsView: View {
                         ) { label in
                             guard let policy = recordingSavePolicy(for: label) else { return }
                             controller.updateConfig { $0.meetingRecordingSavePolicy = policy }
+                        }
+                    }
+                }
+
+                if appState.isGoogleCalendarAvailable {
+                    settingsSection("Calendar") {
+                        settingsRow("Google Calendar") {
+                            if appState.isGoogleCalendarAuthenticated {
+                                Button {
+                                    controller.signOutGoogleCalendar()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "calendar")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.white)
+                                        Text("Connected · Disconnect")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(MuesliTheme.success)
+                                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                                }
+                                .buttonStyle(.plain)
+                            } else if isSigningInGoogleCal {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Connecting...")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(MuesliTheme.textSecondary)
+                                }
+                            } else {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Button {
+                                        isSigningInGoogleCal = true
+                                        googleCalSignInError = nil
+                                        Task {
+                                            let error = await controller.signInWithGoogleCalendar()
+                                            isSigningInGoogleCal = false
+                                            googleCalSignInError = error
+                                        }
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: "calendar.badge.plus")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.white)
+                                            Text("Connect Google Calendar")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(MuesliTheme.accent)
+                                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if let googleCalSignInError {
+                                        Text(googleCalSignInError)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.red)
+                                            .lineLimit(2)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

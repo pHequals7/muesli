@@ -28,7 +28,12 @@ struct OnboardingView: View {
     @State private var isRecordingHotkey = false
     @State private var hotkeyEventMonitor: Any?
 
-    private let totalSteps = 5
+    // Google Calendar
+    @State private var isSigningInGoogleCal = false
+    @State private var googleCalSignInDone = false
+    @State private var googleCalSignInError: String?
+
+    private let totalSteps = 6
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,6 +44,7 @@ struct OnboardingView: View {
                 case 2: permissionsStep
                 case 3: hotkeyStep
                 case 4: meetingSummaryStep
+                case 5: googleCalendarStep
                 default: EmptyView()
                 }
             }
@@ -112,6 +118,27 @@ struct OnboardingView: View {
         case 4:
             HStack(spacing: MuesliTheme.spacing12) {
                 Button("Skip") {
+                    withAnimation(.easeInOut(duration: 0.2)) { currentStep = 5 }
+                }
+                .buttonStyle(.plain)
+                .font(MuesliTheme.body())
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .padding(.horizontal, MuesliTheme.spacing16)
+                .padding(.vertical, MuesliTheme.spacing8)
+                .background(MuesliTheme.surfacePrimary)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                .overlay(
+                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                        .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                )
+
+                onboardingButton("Continue", enabled: true) {
+                    withAnimation(.easeInOut(duration: 0.2)) { currentStep = 5 }
+                }
+            }
+        case 5:
+            HStack(spacing: MuesliTheme.spacing12) {
+                Button("Skip") {
                     finishOnboarding(withKey: false)
                 }
                 .buttonStyle(.plain)
@@ -127,7 +154,7 @@ struct OnboardingView: View {
                 )
 
                 onboardingButton("Finish", enabled: true) {
-                    finishOnboarding(withKey: true)
+                    finishOnboarding(withKey: false)
                 }
             }
         default:
@@ -664,6 +691,84 @@ struct OnboardingView: View {
             }
         }
         withAnimation(.easeInOut(duration: 0.2)) { currentStep = 2 }
+    }
+
+    private var googleCalendarStep: some View {
+        VStack(spacing: MuesliTheme.spacing24) {
+            Spacer()
+
+            VStack(spacing: MuesliTheme.spacing8) {
+                Text("Google Calendar")
+                    .font(MuesliTheme.title1())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+
+                Text("Connect Google Calendar to see upcoming meetings.\nYou can set this up later in Settings.")
+                    .font(MuesliTheme.body())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: MuesliTheme.spacing12) {
+                if googleCalSignInDone {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(MuesliTheme.success)
+                        Text("Google Calendar connected")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+                    }
+                } else if isSigningInGoogleCal {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Connecting...")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textSecondary)
+                    }
+                } else if appState.isGoogleCalendarAvailable {
+                    Button {
+                        isSigningInGoogleCal = true
+                        googleCalSignInError = nil
+                        Task {
+                            let error = await controller.signInWithGoogleCalendar()
+                            isSigningInGoogleCal = false
+                            if let error {
+                                googleCalSignInError = error
+                            } else {
+                                googleCalSignInDone = true
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar.badge.plus")
+                                .font(.system(size: 14))
+                            Text("Connect Google Calendar")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, MuesliTheme.spacing16)
+                        .padding(.vertical, MuesliTheme.spacing8)
+                        .background(MuesliTheme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    }
+                    .buttonStyle(.plain)
+
+                    if let googleCalSignInError {
+                        Text(googleCalSignInError)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                    }
+                } else {
+                    Text("Google Calendar credentials not configured.")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, MuesliTheme.spacing32)
     }
 
     private func finishOnboarding(withKey: Bool) {

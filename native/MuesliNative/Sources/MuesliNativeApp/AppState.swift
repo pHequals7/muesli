@@ -45,6 +45,9 @@ final class AppState {
     // Live status
     var isMeetingRecording: Bool = false
     var isChatGPTAuthenticated: Bool = false
+    var isGoogleCalendarAvailable: Bool = false
+    var isGoogleCalendarAuthenticated: Bool = false
+    var upcomingCalendarEvents: [UnifiedCalendarEvent] = []
 
     // Dictation pagination & filtering
     var dictationPageSize: Int = 50

@@ -83,6 +83,9 @@ final class MuesliController: NSObject {
     private let meetingNotification = MeetingNotificationController()
 
     private let chatGPTAuth = ChatGPTAuthManager.shared
+    private let googleCalAuth = GoogleCalendarAuthManager.shared
+    private let googleCalClient = GoogleCalendarClient()
+    private var calendarRefreshTimer: Timer?
 
     private var statusBarController: StatusBarController?
     private var historyWindowController: RecentHistoryWindowController?
@@ -204,6 +207,7 @@ final class MuesliController: NSObject {
             self?.handleUpcomingMeeting(event)
         }
         calendarMonitor.start()
+        startCalendarRefreshTimer()
 
         micActivityMonitor.calendarEventProvider = { [weak self] in
             self?.calendarMonitor.currentOrNearbyEvent()
@@ -341,6 +345,8 @@ final class MuesliController: NSObject {
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
+        appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
+        appState.isGoogleCalendarAuthenticated = googleCalAuth.isAuthenticated
     }
 
     func updateConfig(_ mutate: (inout AppConfig) -> Void) {
@@ -474,6 +480,52 @@ final class MuesliController: NSObject {
             selectMeetingSummaryBackend(.openAI)
         }
         syncAppState()
+    }
+
+    // MARK: - Google Calendar
+
+    func signInWithGoogleCalendar() async -> String? {
+        do {
+            try await googleCalAuth.signIn()
+            syncAppState()
+            Task { await refreshUpcomingCalendarEvents() }
+            return nil
+        } catch {
+            fputs("[muesli-native] Google Calendar sign-in failed: \(error)\n", stderr)
+            return error.localizedDescription
+        }
+    }
+
+    func signOutGoogleCalendar() {
+        googleCalAuth.signOut()
+        syncAppState()
+        Task { await refreshUpcomingCalendarEvents() }
+    }
+
+    func refreshUpcomingCalendarEvents() async {
+        var ekEvents = calendarMonitor.upcomingEvents(daysAhead: 7)
+
+        if googleCalAuth.isAuthenticated {
+            do {
+                let googleEvents = try await googleCalClient.fetchUpcomingEvents(daysAhead: 7)
+                ekEvents = GoogleCalendarClient.mergeEvents(eventKit: ekEvents, google: googleEvents)
+            } catch {
+                fputs("[muesli-native] Google Calendar fetch failed: \(error)\n", stderr)
+            }
+        }
+
+        appState.upcomingCalendarEvents = ekEvents
+    }
+
+    func startCalendarRefreshTimer() {
+        calendarRefreshTimer?.invalidate()
+        calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.refreshUpcomingCalendarEvents()
+            }
+        }
+        Task { await refreshUpcomingCalendarEvents() }
     }
 
     func addCustomWord(_ word: CustomWord) {

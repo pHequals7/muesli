@@ -77,6 +77,25 @@ final class CalendarMonitor {
         return nearby
     }
 
+    /// Returns upcoming events from the local macOS calendar (EventKit) for the next N days.
+    func upcomingEvents(daysAhead: Int = 7) -> [UnifiedCalendarEvent] {
+        let now = Date()
+        guard let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now) else { return [] }
+        let predicate = store.predicateForEvents(withStart: now, end: future, calendars: nil)
+        let events = store.events(matching: predicate)
+        return events.compactMap { event in
+            guard let startDate = event.startDate, let endDate = event.endDate else { return nil }
+            return UnifiedCalendarEvent(
+                id: event.eventIdentifier ?? UUID().uuidString,
+                title: event.title ?? "Meeting",
+                startDate: startDate,
+                endDate: endDate,
+                isAllDay: event.isAllDay,
+                source: .eventKit
+            )
+        }.sorted { $0.startDate < $1.startDate }
+    }
+
     private func checkMeetings() {
         let now = Date()
         let end = now.addingTimeInterval(5 * 60)

@@ -195,6 +195,10 @@ struct MeetingsView: View {
     private var browserView: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
+                if !appState.upcomingCalendarEvents.isEmpty {
+                    comingUpSection
+                }
+
                 browserHeader
 
                 if filteredMeetings.isEmpty {
@@ -226,6 +230,128 @@ struct MeetingsView: View {
             .padding(.vertical, 32)
             .frame(maxWidth: .infinity, alignment: .center)
         }
+    }
+
+    // MARK: - Coming Up
+
+    private struct UpcomingEventGroup: Identifiable {
+        let id: String
+        let date: Date
+        let dayLabel: String
+        let dayNumber: String
+        let dayOfWeek: String
+        let isToday: Bool
+        let events: [UnifiedCalendarEvent]
+    }
+
+    private var groupedUpcomingEvents: [UpcomingEventGroup] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let grouped = Dictionary(grouping: appState.upcomingCalendarEvents) { event in
+            calendar.startOfDay(for: event.startDate)
+        }
+        let dayFormatter = DateFormatter()
+        dayFormatter.dateFormat = "d"
+        let monthFormatter = DateFormatter()
+        monthFormatter.dateFormat = "MMM"
+        let weekdayFormatter = DateFormatter()
+        weekdayFormatter.dateFormat = "EEE"
+
+        return grouped.keys.sorted().map { date in
+            let isToday = calendar.isDate(date, inSameDayAs: today)
+            let isTomorrow = calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: 1, to: today)!)
+            let dayLabel: String
+            if isToday {
+                dayLabel = "Today"
+            } else if isTomorrow {
+                dayLabel = "Tomorrow"
+            } else {
+                dayLabel = monthFormatter.string(from: date)
+            }
+            return UpcomingEventGroup(
+                id: date.description,
+                date: date,
+                dayLabel: dayLabel,
+                dayNumber: dayFormatter.string(from: date),
+                dayOfWeek: weekdayFormatter.string(from: date),
+                isToday: isToday,
+                events: grouped[date]!.sorted { $0.startDate < $1.startDate }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var comingUpSection: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing16) {
+            Text("Coming Up")
+                .font(.custom("Cormorant Garamond", size: 22).weight(.medium))
+                .foregroundStyle(MuesliTheme.textPrimary)
+                .padding(.bottom, 4)
+
+            ForEach(groupedUpcomingEvents) { group in
+                HStack(alignment: .top, spacing: 20) {
+                    // Date column
+                    VStack(alignment: .center, spacing: 2) {
+                        Text(group.dayNumber)
+                            .font(.system(size: 24, weight: .light, design: .default))
+                            .foregroundStyle(group.isToday ? MuesliTheme.accent : MuesliTheme.textPrimary)
+                        Text(group.dayLabel)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(group.isToday ? MuesliTheme.accent : MuesliTheme.textSecondary)
+                        Text(group.dayOfWeek)
+                            .font(.system(size: 10))
+                            .foregroundStyle(MuesliTheme.textSecondary)
+                    }
+                    .frame(width: 60)
+
+                    // Events column
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(group.events) { event in
+                            HStack(spacing: 8) {
+                                RoundedRectangle(cornerRadius: 1.5)
+                                    .fill(group.isToday ? MuesliTheme.accent : MuesliTheme.textSecondary.opacity(0.4))
+                                    .frame(width: 3, height: 36)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(event.title)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(MuesliTheme.textPrimary)
+                                        .lineLimit(1)
+
+                                    if event.isAllDay {
+                                        Text("All day")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(MuesliTheme.textSecondary)
+                                    } else {
+                                        Text(formatTimeRange(event))
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(MuesliTheme.textSecondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if group.id != groupedUpcomingEvents.last?.id {
+                    Divider()
+                        .foregroundStyle(MuesliTheme.surfaceBorder)
+                }
+            }
+        }
+        .padding(20)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private func formatTimeRange(_ event: UnifiedCalendarEvent) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return "\(formatter.string(from: event.startDate)) – \(formatter.string(from: event.endDate))"
     }
 
     @ViewBuilder
