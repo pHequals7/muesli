@@ -6,16 +6,17 @@ final class MeetingNeuralAec {
     private var processor: DTLNAecEchoProcessor?
     private var isLoaded = false
 
-    // Streaming state — accessed only from MeetingSession's chunkRotationQueue
     private let frameSize = 512
-    private var systemRingBuffer: [Float] = []
-    private var micFrameBuffer: [Float] = []
-    /// Cap system ring buffer at ~2s of audio to prevent unbounded growth
-    private let maxSystemBufferSize = 16_000 * 2
 
-    /// Pre-load the DTLN-aec model so it's ready for real-time processing.
-    /// On first meeting start this blocks until the model is loaded (~2-5s).
-    /// Subsequent meetings return immediately (guard on isLoaded).
+    // Position-indexed streaming state — both streams track absolute sample position
+    // so mic frame at position P is always paired with system frame at position P.
+    // Accessed only from MeetingSession's chunkRotationQueue.
+    private var systemSampleBuffer: [Float] = []
+    private var systemSamplesReceived: Int = 0
+    private var micSamplesReceived: Int = 0
+    private var micFrameBuffer: [Float] = []
+
+    /// Pre-load the DTLN-aec model so it's ready for processing.
     func preload() async {
         guard !isLoaded else { return }
         let proc = DTLNAecEchoProcessor(modelSize: .large)
@@ -30,27 +31,22 @@ final class MeetingNeuralAec {
     }
 
     /// Reset processor state and streaming buffers for a new meeting.
-    /// Call from chunkRotationQueue before starting real-time processing.
     func resetForStreaming() {
         processor?.resetStates()
-        systemRingBuffer.removeAll(keepingCapacity: true)
+        systemSampleBuffer.removeAll(keepingCapacity: true)
+        systemSamplesReceived = 0
+        micSamplesReceived = 0
         micFrameBuffer.removeAll(keepingCapacity: true)
     }
 
-    /// Buffer system audio samples as far-end reference for AEC.
-    /// Call from chunkRotationQueue when system audio samples arrive.
+    /// Buffer system audio samples indexed by absolute position.
     func feedSystemSamples(_ samples: [Float]) {
-        systemRingBuffer.append(contentsOf: samples)
-        // Trim if buffer grows too large (system audio arriving faster than mic consumes it)
-        if systemRingBuffer.count > maxSystemBufferSize {
-            systemRingBuffer.removeFirst(systemRingBuffer.count - maxSystemBufferSize)
-        }
+        systemSampleBuffer.append(contentsOf: samples)
+        systemSamplesReceived += samples.count
     }
 
-    /// Process mic samples through DTLN-aec in real-time, returning cleaned audio.
-    /// Accumulates samples into 512-frame chunks and processes each through the model.
-    /// Returns empty when fewer than 512 samples have accumulated (partial frame buffered).
-    /// Call from chunkRotationQueue when mic audio samples arrive.
+    /// Process mic samples through DTLN-aec, using position-aligned system reference.
+    /// Mic position P is always paired with system position P — no drift.
     func processStreamingMic(_ micSamples: [Float]) -> [Float] {
         guard let processor else {
             fputs("[meeting-aec] processor not loaded, passing through raw mic audio\n", stderr)
@@ -65,31 +61,46 @@ final class MeetingNeuralAec {
             let micFrame = Array(micFrameBuffer.prefix(frameSize))
             micFrameBuffer.removeFirst(frameSize)
 
+            // The system buffer stores samples starting from position 0.
+            // micSamplesReceived tracks how many mic samples we've consumed so far.
+            // We need system samples at the same absolute position.
+            let systemPos = micSamplesReceived
             let systemFrame: [Float]
-            if systemRingBuffer.count >= frameSize {
-                systemFrame = Array(systemRingBuffer.prefix(frameSize))
-                systemRingBuffer.removeFirst(frameSize)
+            if systemPos + frameSize <= systemSamplesReceived {
+                // System samples available at this position
+                systemFrame = Array(systemSampleBuffer[systemPos..<(systemPos + frameSize)])
+            } else if systemPos < systemSamplesReceived {
+                // Partial system samples available — pad remainder with silence
+                let available = systemSamplesReceived - systemPos
+                systemFrame = Array(systemSampleBuffer[systemPos..<systemSamplesReceived])
+                    + [Float](repeating: 0, count: frameSize - available)
             } else {
-                // No system audio available — feed silence as reference
+                // System audio hasn't arrived yet for this position — use silence
                 systemFrame = [Float](repeating: 0, count: frameSize)
             }
 
-            // autoreleasepool prevents CoreML GPU/ANE buffer accumulation
-            // that causes MLE5BindEmptyMemoryObjectToPort crash in long meetings
             autoreleasepool {
                 processor.feedFarEnd(systemFrame)
                 let cleanedFrame = processor.processNearEnd(micFrame)
                 cleaned.append(contentsOf: cleanedFrame)
             }
+
+            micSamplesReceived += frameSize
+        }
+
+        // Trim consumed system samples to prevent unbounded memory growth.
+        // Keep only samples from micSamplesReceived onward (not yet consumed).
+        let consumed = min(micSamplesReceived, systemSampleBuffer.count)
+        if consumed > 16_000 { // trim every ~1s worth
+            systemSampleBuffer.removeFirst(consumed)
+            systemSamplesReceived -= consumed
+            micSamplesReceived -= consumed
         }
 
         return cleaned
     }
 
-    /// Flush any remaining buffered mic samples at meeting stop.
-    /// Zero-pads to a full 512-sample frame and returns the cleaned output
-    /// (trimmed to the actual sample count, excluding padding).
-    /// Call from chunkRotationQueue before stopping the chunk recorder.
+    /// Flush remaining buffered mic samples (zero-padded to frame boundary).
     func flushStreamingMic() -> [Float] {
         guard let processor, !micFrameBuffer.isEmpty else { return [] }
 
@@ -97,10 +108,10 @@ final class MeetingNeuralAec {
         let padded = micFrameBuffer + [Float](repeating: 0, count: frameSize - actualCount)
         micFrameBuffer.removeAll(keepingCapacity: true)
 
+        let systemPos = micSamplesReceived
         let systemFrame: [Float]
-        if systemRingBuffer.count >= frameSize {
-            systemFrame = Array(systemRingBuffer.prefix(frameSize))
-            systemRingBuffer.removeFirst(frameSize)
+        if systemPos + frameSize <= systemSamplesReceived {
+            systemFrame = Array(systemSampleBuffer[systemPos..<(systemPos + frameSize)])
         } else {
             systemFrame = [Float](repeating: 0, count: frameSize)
         }
@@ -111,10 +122,9 @@ final class MeetingNeuralAec {
             result = processor.processNearEnd(padded)
         }
 
-        // Trim to actual sample count (remove zero-pad artifact)
         return Array(result.prefix(actualCount))
     }
 
-    /// Whether the model is loaded and ready for streaming.
+    /// Whether the model is loaded and ready.
     var isReady: Bool { isLoaded && processor != nil }
 }

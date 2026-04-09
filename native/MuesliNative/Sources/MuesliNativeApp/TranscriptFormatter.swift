@@ -58,8 +58,13 @@ enum TranscriptFormatter {
         }.joined(separator: "\n")
     }
 
-    /// Merge consecutive segments from the same speaker into single entries.
-    /// Prevents token-level fragmentation (e.g., each token as a separate line).
+    /// Merge consecutive segments from the same speaker into single entries,
+    /// but only when they're temporally close (within 2s). This prevents
+    /// token-level fragmentation while preserving chronological ordering —
+    /// segments from the same speaker that are far apart in time stay separate
+    /// so they interleave correctly with other speakers.
+    private static let consolidationGapThreshold: TimeInterval = 2.0
+
     private static func consolidate(_ segments: [TaggedSegment]) -> [TaggedSegment] {
         guard !segments.isEmpty else { return [] }
 
@@ -70,13 +75,13 @@ enum TranscriptFormatter {
         var currentText = segments[0].segment.text
 
         for seg in segments.dropFirst() {
-            if seg.speaker == currentSpeaker {
-                // Same speaker — accumulate text
-                let gap = max(0, seg.segment.start - currentEnd)
+            let gap = max(0, seg.segment.start - currentEnd)
+            if seg.speaker == currentSpeaker && gap <= consolidationGapThreshold {
+                // Same speaker, temporally close — accumulate text
                 currentText = appendText(currentText, seg.segment.text, gap: gap)
                 currentEnd = max(currentEnd, seg.segment.end)
             } else {
-                // Speaker changed — emit accumulated segment
+                // Different speaker or too far apart — emit and start new segment
                 result.append(TaggedSegment(
                     segment: SpeechSegment(start: currentStart, end: currentEnd, text: currentText),
                     speaker: currentSpeaker
@@ -202,7 +207,7 @@ enum TranscriptFormatter {
         let isSubstringDuplicate =
             combinedSystemText.contains(normalizedMic) || normalizedMic.contains(combinedSystemText)
 
-        guard overlapCoverage >= 0.65, tokenContainment >= 0.7 || isSubstringDuplicate else {
+        guard overlapCoverage >= 0.65, tokenContainment >= 0.9 || isSubstringDuplicate else {
             return micSegment
         }
 
