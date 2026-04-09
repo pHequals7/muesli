@@ -15,10 +15,9 @@ enum TranscriptFormatter {
         diarizationSegments: [TimedSpeakerSegment]?,
         meetingStart: Date
     ) -> String {
-        let displayMicSegments = prepareMicSegmentsForDisplay(
-            micSegments: micSegments,
-            systemSegments: systemSegments
-        )
+        // Bleed filtering is now handled upstream by MeetingBleedDetector
+        // (speaker-embedding comparison), not text-based heuristics.
+        let displayMicSegments = micSegments
         let taggedMic = displayMicSegments.map { TaggedSegment(segment: $0, speaker: "You") }
 
         let taggedSystem: [TaggedSegment]

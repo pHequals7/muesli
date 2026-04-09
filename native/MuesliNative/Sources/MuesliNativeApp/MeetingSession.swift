@@ -399,8 +399,29 @@ final class MeetingSession {
         fputs("[meeting] \(micSegments.count) mic chunks transcribed during meeting\n", stderr)
         fputs("[meeting] \(systemSegments.count) system chunks transcribed during meeting\n", stderr)
 
-        // Streaming AEC processes mic audio in real-time during the meeting.
-        // No post-hoc re-transcription needed.
+        // Speaker-embedding bleed detection: compare mic chunk embeddings against
+        // system speaker embeddings from diarization. Drop mic segments that match
+        // a system speaker (bleed) and keep segments that don't match (user speech).
+        if let diarizationSegments, !diarizationSegments.isEmpty, let fullSessionMicURL {
+            if let diarizerManager = await transcriptionCoordinator.getDiarizerManager() {
+                do {
+                    let micSamples = try AudioConverter().resampleAudioFile(fullSessionMicURL)
+                    let centroids = MeetingBleedDetector.systemSpeakerCentroids(from: diarizationSegments)
+                    if !centroids.isEmpty {
+                        let bleedResult = MeetingBleedDetector.filterBleed(
+                            micSegments: micSegments,
+                            fullMicSamples: micSamples,
+                            systemSpeakerCentroids: centroids,
+                            diarizerManager: diarizerManager
+                        )
+                        fputs("[meeting] bleed detection: kept \(bleedResult.keptSegments.count), dropped \(bleedResult.droppedCount) mic segments\n", stderr)
+                        micSegments = bleedResult.keptSegments
+                    }
+                } catch {
+                    fputs("[meeting] bleed detection failed, keeping all mic segments: \(error)\n", stderr)
+                }
+            }
+        }
 
         let reconciledTranscriptInputs = TranscriptReconciler.reconcile(
             micTurns: micSegments,
@@ -630,17 +651,6 @@ final class MeetingSession {
 
             // AEC: clean mic using position-aligned system reference
             let cleanedFloat = self.neuralAec.processStreamingMic(floatSamples)
-
-            // Diagnostic: log levels every ~5s
-            self.micAecDiagCounter += 1
-            if self.micAecDiagCounter % 20 == 0 {
-                let rawRMS = sqrt(floatSamples.reduce(0) { $0 + $1 * $1 } / Float(floatSamples.count))
-                let cleanedRMS = cleanedFloat.isEmpty ? 0 : sqrt(cleanedFloat.reduce(0) { $0 + $1 * $1 } / Float(cleanedFloat.count))
-                let rawDB = rawRMS > 0.000_001 ? 20 * log10(rawRMS) : -160
-                let cleanedDB = cleanedRMS > 0.000_001 ? 20 * log10(cleanedRMS) : -160
-                fputs("[meeting-aec-diag] raw=\(String(format: "%.1f", rawDB))dB cleaned=\(String(format: "%.1f", cleanedDB))dB ratio=\(String(format: "%.2f", cleanedFloat.isEmpty ? 0 : cleanedRMS / max(rawRMS, 0.000_001)))\n", stderr)
-            }
-
             if !cleanedFloat.isEmpty {
                 let cleanedInt16 = cleanedFloat.map { sample -> Int16 in
                     Int16(max(-1.0, min(1.0, sample)) * 32767)
