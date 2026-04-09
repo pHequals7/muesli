@@ -216,6 +216,7 @@ struct MeetingDetailView: View {
             Text("Transcript").tag(MeetingDocumentMode.transcript)
         }
         .pickerStyle(.segmented)
+        .tint(MuesliTheme.accent)
         .frame(width: 220)
         .disabled(isEditingNotes)
     }
