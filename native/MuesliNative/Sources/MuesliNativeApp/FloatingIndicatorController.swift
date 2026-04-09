@@ -320,7 +320,9 @@ final class FloatingIndicatorController {
     /// Refresh the idle icon to match the user's selected menu bar icon.
     func refreshIcon() {
         let config = configStore.load()
-        let newImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? NSImage()
+        let fallback = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)) ?? NSImage()
+        let newImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? fallback
         newImage.isTemplate = false
         micIconView?.image = newImage
     }
@@ -657,9 +659,12 @@ final class FloatingIndicatorController {
         contentView.layer?.addSublayer(tint)
         tintLayer = tint
 
-        // Idle icon — uses the user's selected menu bar icon from config
+        // Idle icon — uses the user's selected menu bar icon from config.
+        // Falls back to waveform.badge.microphone if the configured icon can't be loaded.
         let config = configStore.load()
-        let idleImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? NSImage()
+        let fallbackImage = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)) ?? NSImage()
+        let idleImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? fallbackImage
         idleImage.isTemplate = false // we tint manually via contentTintColor
         let micView = NSImageView(image: idleImage)
         micView.contentTintColor = .white
