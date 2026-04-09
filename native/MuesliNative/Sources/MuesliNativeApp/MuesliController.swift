@@ -361,6 +361,7 @@ final class MuesliController: NSObject {
         }) ?? .openAI
         statusBarController?.refresh()
         statusBarController?.refreshIcon()
+        indicator.refreshIcon()
         historyWindowController?.updateBackendLabel()
         if config.showFloatingIndicator {
             indicator.ensureVisible(config: config)
