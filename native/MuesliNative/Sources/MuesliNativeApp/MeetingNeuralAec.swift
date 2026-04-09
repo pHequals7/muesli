@@ -14,6 +14,8 @@ final class MeetingNeuralAec {
     private let maxSystemBufferSize = 16_000 * 2
 
     /// Pre-load the DTLN-aec model so it's ready for real-time processing.
+    /// On first meeting start this blocks until the model is loaded (~2-5s).
+    /// Subsequent meetings return immediately (guard on isLoaded).
     func preload() async {
         guard !isLoaded else { return }
         let proc = DTLNAecEchoProcessor(modelSize: .large)
@@ -47,9 +49,13 @@ final class MeetingNeuralAec {
 
     /// Process mic samples through DTLN-aec in real-time, returning cleaned audio.
     /// Accumulates samples into 512-frame chunks and processes each through the model.
+    /// Returns empty when fewer than 512 samples have accumulated (partial frame buffered).
     /// Call from chunkRotationQueue when mic audio samples arrive.
     func processStreamingMic(_ micSamples: [Float]) -> [Float] {
-        guard let processor else { return micSamples }
+        guard let processor else {
+            fputs("[meeting-aec] processor not loaded, passing through raw mic audio\n", stderr)
+            return micSamples
+        }
 
         micFrameBuffer.append(contentsOf: micSamples)
         var cleaned: [Float] = []
@@ -78,6 +84,35 @@ final class MeetingNeuralAec {
         }
 
         return cleaned
+    }
+
+    /// Flush any remaining buffered mic samples at meeting stop.
+    /// Zero-pads to a full 512-sample frame and returns the cleaned output
+    /// (trimmed to the actual sample count, excluding padding).
+    /// Call from chunkRotationQueue before stopping the chunk recorder.
+    func flushStreamingMic() -> [Float] {
+        guard let processor, !micFrameBuffer.isEmpty else { return [] }
+
+        let actualCount = micFrameBuffer.count
+        let padded = micFrameBuffer + [Float](repeating: 0, count: frameSize - actualCount)
+        micFrameBuffer.removeAll(keepingCapacity: true)
+
+        let systemFrame: [Float]
+        if systemRingBuffer.count >= frameSize {
+            systemFrame = Array(systemRingBuffer.prefix(frameSize))
+            systemRingBuffer.removeFirst(frameSize)
+        } else {
+            systemFrame = [Float](repeating: 0, count: frameSize)
+        }
+
+        var result: [Float] = []
+        autoreleasepool {
+            processor.feedFarEnd(systemFrame)
+            result = processor.processNearEnd(padded)
+        }
+
+        // Trim to actual sample count (remove zero-pad artifact)
+        return Array(result.prefix(actualCount))
     }
 
     /// Whether the model is loaded and ready for streaming.

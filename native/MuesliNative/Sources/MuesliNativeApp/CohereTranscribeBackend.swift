@@ -891,6 +891,7 @@ private final class CohereTranscribeManager {
         let tokenIdArray = try MLMultiArray(shape: [1, 1], dataType: .int32)
         let tokenIdPtr = tokenIdArray.dataPointer.bindMemory(to: Int32.self, capacity: 1)
 
+        var shouldStop = false
         for _ in 0..<maxNewTokens {
             if nextToken == CohereTranscribeConfig.eosTokenId { break }
             generatedIds.append(nextToken)
@@ -930,7 +931,7 @@ private final class CohereTranscribeManager {
                         if countAboveEos >= 3 { break }
                     }
                     if countAboveEos < 3 {
-                        nextToken = CohereTranscribeConfig.eosTokenId
+                        shouldStop = true
                         return
                     }
 
@@ -947,6 +948,7 @@ private final class CohereTranscribeManager {
 
                 nextToken = argmaxLocal(logits: localLogits)
             }
+            if shouldStop { break }
             currentPosition += 1
         }
         timing.decodeMs = (CFAbsoluteTimeGetCurrent() - decodeStart) * 1000

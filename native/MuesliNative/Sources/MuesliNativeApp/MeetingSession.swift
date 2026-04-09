@@ -146,7 +146,9 @@ final class MeetingSession {
         let vadManager = await transcriptionCoordinator.getVadManager()
         let now = Date()
 
-        // Load neural AEC model before starting audio pipeline so it's ready for real-time processing
+        // Load neural AEC model before starting audio pipeline so it's ready for real-time
+        // processing. First meeting after launch blocks here for ~2-5s (model load); subsequent
+        // meetings return immediately (guarded on isLoaded).
         await neuralAec.preload()
 
         chunkRotationQueue.sync {
@@ -249,6 +251,17 @@ final class MeetingSession {
         systemAudioRecorder.onPCMSamples = nil
         let (meetingStart, lastChunkTiming, lastRawMicURL, lastSystemChunkTiming, lastSystemChunkURL) = chunkRotationQueue.sync { () -> (Date, MeetingChunkTimingSnapshot?, URL?, MeetingChunkTimingSnapshot?, URL?) in
             isRecording = false
+
+            // Flush any partial AEC frame before stopping the chunk recorder,
+            // so the last ~32ms of mic audio isn't silently dropped.
+            let flushed = self.neuralAec.flushStreamingMic()
+            if !flushed.isEmpty {
+                let flushedInt16 = flushed.map { sample -> Int16 in
+                    Int16(max(-1.0, min(1.0, sample)) * 32767)
+                }
+                self.rawMicChunkRecorder?.append(flushedInt16)
+            }
+
             let meetingStart = self.startTime ?? Date()
             let lastRawMicURL = rawMicChunkRecorder?.stop()
             let lastSystemChunkURL = systemChunkRecorder?.stop()
@@ -615,21 +628,28 @@ final class MeetingSession {
 
             let floatSamples = rawSamples.map { Float($0) / 32767.0 }
 
-            // Run real-time AEC: clean mic audio using buffered system reference
+            // Run real-time AEC: clean mic audio using buffered system reference.
+            // Returns empty when < 512 samples have accumulated (partial frame buffered).
             let cleanedFloat = self.neuralAec.processStreamingMic(floatSamples)
 
-            guard !cleanedFloat.isEmpty else { return }
+            if !cleanedFloat.isEmpty {
+                // Convert cleaned audio back to Int16 for chunk recorder
+                let cleanedInt16 = cleanedFloat.map { sample -> Int16 in
+                    Int16(max(-1.0, min(1.0, sample)) * 32767)
+                }
+                self.rawMicChunkRecorder?.append(cleanedInt16)
 
-            // Convert cleaned audio back to Int16 for chunk recorder
-            let cleanedInt16 = cleanedFloat.map { sample -> Int16 in
-                Int16(max(-1.0, min(1.0, sample)) * 32767)
-            }
-
-            self.rawMicChunkRecorder?.append(cleanedInt16)
-
-            // Feed cleaned audio to VAD (speech detection on bleed-free signal)
-            if let vadController = self.vadController {
-                vadController.processAudio(cleanedFloat)
+                // Feed cleaned audio to VAD (speech detection on bleed-free signal)
+                if let vadController = self.vadController {
+                    vadController.processAudio(cleanedFloat)
+                }
+            } else {
+                // Partial frame buffered in AEC — feed raw samples to VAD so speech
+                // boundary detection doesn't have a blind spot at meeting start or
+                // after chunk rotations while the first full frame accumulates.
+                if let vadController = self.vadController {
+                    vadController.processAudio(floatSamples)
+                }
             }
         }
     }
