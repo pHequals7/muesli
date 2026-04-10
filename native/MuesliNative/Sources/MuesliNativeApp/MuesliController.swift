@@ -818,6 +818,11 @@ final class MuesliController: NSObject {
         syncAppState()
     }
 
+    func hideCalendarEvent(_ eventID: String) {
+        appState.hiddenCalendarEventIDs.insert(eventID)
+        statusBarController?.refresh()
+    }
+
     func createMeetingFromCalendarEvent(_ event: UnifiedCalendarEvent, folderID: Int64?) {
         // Check ALL folders for existing meeting with this calendar event ID
         if let existing = try? dictationStore.meetingByCalendarEventID(event.id) {
