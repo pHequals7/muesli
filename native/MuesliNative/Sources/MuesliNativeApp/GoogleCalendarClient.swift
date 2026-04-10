@@ -125,6 +125,18 @@ final class GoogleCalendarClient {
         cachedEvents.removeAll()
     }
 
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+    private static let dateOnlyFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = .current
+        return f
+    }()
+
     private func parseEvent(_ item: [String: Any]) -> UnifiedCalendarEvent? {
         guard let id = item["id"] as? String,
               let summary = item["summary"] as? String else { return nil }
@@ -132,12 +144,8 @@ final class GoogleCalendarClient {
         let startDict = item["start"] as? [String: Any] ?? [:]
         let endDict = item["end"] as? [String: Any] ?? [:]
 
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime]
-
-        let dateOnlyFormatter = DateFormatter()
-        dateOnlyFormatter.dateFormat = "yyyy-MM-dd"
-        dateOnlyFormatter.timeZone = .current
+        let isoFormatter = Self.isoFormatter
+        let dateOnlyFormatter = Self.dateOnlyFormatter
 
         let startDate: Date
         let endDate: Date

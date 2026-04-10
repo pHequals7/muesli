@@ -139,7 +139,7 @@ struct OnboardingView: View {
         case 5:
             HStack(spacing: MuesliTheme.spacing12) {
                 Button("Skip") {
-                    finishOnboarding(withKey: false)
+                    finishOnboarding(withKey: true)
                 }
                 .buttonStyle(.plain)
                 .font(MuesliTheme.body())
