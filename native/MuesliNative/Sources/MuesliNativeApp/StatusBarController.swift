@@ -74,30 +74,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.setSubmenu(recentMenu, for: recentItem)
         menu.addItem(recentItem)
 
-        let meetingItem = NSMenuItem(title: "Meeting Transcripts", action: nil, keyEquivalent: "")
-        let meetingMenu = NSMenu()
-        let meetingRows = controller.recentMeetings()
-        if meetingRows.isEmpty {
-            let empty = NSMenuItem(title: "No meetings yet", action: nil, keyEquivalent: "")
-            empty.isEnabled = false
-            meetingMenu.addItem(empty)
-        } else {
-            for row in meetingRows {
-                let title = controller.truncate(row.title, limit: 18)
-                let transcript = controller.truncate(row.rawTranscript, limit: 30)
-                let item = NSMenuItem(
-                    title: "\(title): \(transcript)",
-                    action: #selector(MuesliController.copyRecentMeeting(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = controller
-                item.representedObject = row.rawTranscript
-                meetingMenu.addItem(item)
-            }
-        }
-        menu.setSubmenu(meetingMenu, for: meetingItem)
-        menu.addItem(meetingItem)
-
         let backendItem = NSMenuItem(title: "Transcription Backend", action: nil, keyEquivalent: "")
         let backendMenu = NSMenu()
         for option in BackendOption.downloaded {
