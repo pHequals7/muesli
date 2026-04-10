@@ -29,7 +29,7 @@ final class GoogleCalendarClient {
         let token = try await auth.validAccessToken()
 
         let now = Date()
-        let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now)!
+        guard let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now) else { return [] }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
 

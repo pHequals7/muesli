@@ -296,7 +296,9 @@ struct MeetingsView: View {
                 .foregroundStyle(MuesliTheme.textPrimary)
                 .padding(.bottom, 4)
 
-            ForEach(groupedUpcomingEvents) { group in
+            let groups = groupedUpcomingEvents
+            let lastGroupId = groups.last?.id
+            ForEach(groups) { group in
                 HStack(alignment: .top, spacing: 20) {
                     // Date column
                     VStack(alignment: .center, spacing: 2) {
@@ -363,7 +365,7 @@ struct MeetingsView: View {
                     }
                 }
 
-                if group.id != groupedUpcomingEvents.last?.id {
+                if group.id != lastGroupId {
                     Divider()
                         .foregroundStyle(MuesliTheme.surfaceBorder)
                 }
@@ -378,10 +380,13 @@ struct MeetingsView: View {
         )
     }
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"; return f
+    }()
+
     private func formatTimeRange(_ event: UnifiedCalendarEvent) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return "\(formatter.string(from: event.startDate)) – \(formatter.string(from: event.endDate))"
+        let f = Self.timeFormatter
+        return "\(f.string(from: event.startDate)) – \(f.string(from: event.endDate))"
     }
 
     @ViewBuilder
