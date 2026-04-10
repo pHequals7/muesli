@@ -244,24 +244,30 @@ struct MeetingsView: View {
         let events: [UnifiedCalendarEvent]
     }
 
+    private static let dayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "d"; return f
+    }()
+    private static let monthFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "MMM"; return f
+    }()
+    private static let weekdayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "EEE"; return f
+    }()
+
     private var groupedUpcomingEvents: [UpcomingEventGroup] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        // Filter out all-day events — not useful for meeting recording
         let timedEvents = appState.upcomingCalendarEvents.filter { !$0.isAllDay }
         let grouped = Dictionary(grouping: timedEvents) { event in
             calendar.startOfDay(for: event.startDate)
         }
-        let dayFormatter = DateFormatter()
-        dayFormatter.dateFormat = "d"
-        let monthFormatter = DateFormatter()
-        monthFormatter.dateFormat = "MMM"
-        let weekdayFormatter = DateFormatter()
-        weekdayFormatter.dateFormat = "EEE"
+        let dayFormatter = Self.dayFormatter
+        let monthFormatter = Self.monthFormatter
+        let weekdayFormatter = Self.weekdayFormatter
 
         return grouped.keys.sorted().map { date in
             let isToday = calendar.isDate(date, inSameDayAs: today)
-            let isTomorrow = calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: 1, to: today)!)
+            let isTomorrow = calendar.date(byAdding: .day, value: 1, to: today).map { calendar.isDate(date, inSameDayAs: $0) } ?? false
             let dayLabel: String
             if isToday {
                 dayLabel = "Today"

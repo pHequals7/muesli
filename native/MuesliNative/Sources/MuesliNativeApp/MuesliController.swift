@@ -768,6 +768,17 @@ final class MuesliController: NSObject {
     }
 
     func createMeetingFromCalendarEvent(_ event: UnifiedCalendarEvent, folderID: Int64?) {
+        // Check for existing meeting with this calendar event ID to prevent duplicates
+        if let existing = appState.meetingRows.first(where: { $0.calendarEventID == event.id }) {
+            // Already exists — just move to the requested folder
+            if let folderID {
+                try? dictationStore.moveMeeting(id: existing.id, toFolder: folderID)
+            }
+            syncAppState()
+            fputs("[muesli-native] calendar event already exists as meeting \(existing.id), moved to folder\n", stderr)
+            return
+        }
+
         do {
             let meetingID = try dictationStore.insertMeeting(
                 title: event.title,

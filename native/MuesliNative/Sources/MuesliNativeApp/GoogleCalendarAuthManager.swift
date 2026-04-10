@@ -227,21 +227,31 @@ final class GoogleCalendarAuthManager {
                         return
                     }
 
-                    let html = """
-                    HTTP/1.1 200 OK\r
-                    Content-Type: text/html\r
-                    Connection: close\r
-                    \r
-                    <!DOCTYPE html><html><body style="font-family:-apple-system,system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#1a1a1a;color:#fff"><div style="text-align:center"><h2>Google Calendar connected</h2><p>You can close this window and return to Muesli.</p></div></body></html>
-                    """
-                    connection.send(
-                        content: html.data(using: .utf8),
-                        completion: .contentProcessed { _ in connection.cancel() }
-                    )
-
                     if let code {
+                        let successHtml = """
+                        HTTP/1.1 200 OK\r
+                        Content-Type: text/html\r
+                        Connection: close\r
+                        \r
+                        <!DOCTYPE html><html><body style="font-family:-apple-system,system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#1a1a1a;color:#fff"><div style="text-align:center"><h2>Google Calendar connected</h2><p>You can close this window and return to Muesli.</p></div></body></html>
+                        """
+                        connection.send(
+                            content: successHtml.data(using: .utf8),
+                            completion: .contentProcessed { _ in connection.cancel() }
+                        )
                         continuation.resume(returning: code)
                     } else {
+                        let deniedHtml = """
+                        HTTP/1.1 400 Bad Request\r
+                        Content-Type: text/html\r
+                        Connection: close\r
+                        \r
+                        <!DOCTYPE html><html><body style="font-family:-apple-system,system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#1a1a1a;color:#fff"><div style="text-align:center"><h2>Sign-in failed</h2><p>Access was denied or no authorization code received.</p></div></body></html>
+                        """
+                        connection.send(
+                            content: deniedHtml.data(using: .utf8),
+                            completion: .contentProcessed { _ in connection.cancel() }
+                        )
                         continuation.resume(throwing: GoogleCalendarAuthError.callbackMissingCode)
                     }
                 }
@@ -300,7 +310,12 @@ final class GoogleCalendarAuthManager {
             throw GoogleCalendarAuthError.tokenExchangeFailed("missing access_token in response")
         }
 
-        let refreshToken = json["refresh_token"] as? String ?? ""
+        guard let refreshToken = json["refresh_token"] as? String, !refreshToken.isEmpty else {
+            throw GoogleCalendarAuthError.tokenExchangeFailed(
+                "No refresh token received. Ensure access_type=offline and prompt=consent are set, " +
+                "or revoke access at https://myaccount.google.com/permissions and try again."
+            )
+        }
         let expiresIn = json["expires_in"] as? Double ?? 3600
         let expiresAtMs = (Date().timeIntervalSince1970 + expiresIn) * 1000.0
 

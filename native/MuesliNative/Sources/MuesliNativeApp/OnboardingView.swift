@@ -154,7 +154,7 @@ struct OnboardingView: View {
                 )
 
                 onboardingButton("Finish", enabled: true) {
-                    finishOnboarding(withKey: false)
+                    finishOnboarding(withKey: true)
                 }
             }
         default:
