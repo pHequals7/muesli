@@ -3,6 +3,9 @@ import Foundation
 struct GoogleCalendarCredentials {
     let clientId: String
     let clientSecret: String
+    /// Whether the OAuth app has passed Google's verification review.
+    /// When false, only test users can connect. UI shows "verification pending".
+    let verified: Bool
 
     /// Load credentials from app bundle (production) or ~/.config/muesli/ (dev).
     /// Returns nil if no credentials found — Google Calendar feature is disabled.
@@ -34,6 +37,7 @@ struct GoogleCalendarCredentials {
               !clientId.isEmpty, !clientSecret.isEmpty else {
             return nil
         }
-        return GoogleCalendarCredentials(clientId: clientId, clientSecret: clientSecret)
+        let verified = json["verified"] as? Bool ?? false
+        return GoogleCalendarCredentials(clientId: clientId, clientSecret: clientSecret, verified: verified)
     }
 }

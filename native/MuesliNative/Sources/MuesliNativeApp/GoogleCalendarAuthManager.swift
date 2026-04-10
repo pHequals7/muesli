@@ -52,6 +52,9 @@ final class GoogleCalendarAuthManager {
     /// Whether Google Calendar credentials are configured (feature available)
     var isAvailable: Bool { credentials != nil }
 
+    /// Whether the Google OAuth app has passed verification review
+    var isVerified: Bool { credentials?.verified ?? false }
+
     /// Whether the user has completed OAuth and has tokens
     var isAuthenticated: Bool {
         tokenRead(key: "access_token") != nil

@@ -350,6 +350,7 @@ final class MuesliController: NSObject {
         appState.isMeetingRecording = isMeetingRecording()
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
         appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
+        appState.isGoogleCalendarVerified = googleCalAuth.isVerified
         appState.isGoogleCalendarAuthenticated = googleCalAuth.isAuthenticated
     }
 

@@ -725,6 +725,24 @@ struct OnboardingView: View {
                             .font(MuesliTheme.body())
                             .foregroundStyle(MuesliTheme.textSecondary)
                     }
+                } else if appState.isGoogleCalendarAvailable && !appState.isGoogleCalendarVerified {
+                    VStack(spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar.badge.plus")
+                                .font(.system(size: 14))
+                            Text("Connect Google Calendar")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(.white.opacity(0.4))
+                        .padding(.horizontal, MuesliTheme.spacing16)
+                        .padding(.vertical, MuesliTheme.spacing8)
+                        .background(MuesliTheme.textTertiary.opacity(0.3))
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+
+                        Text("Google OAuth verification pending")
+                            .font(MuesliTheme.caption())
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                    }
                 } else if appState.isGoogleCalendarAvailable {
                     Button {
                         isSigningInGoogleCal = true

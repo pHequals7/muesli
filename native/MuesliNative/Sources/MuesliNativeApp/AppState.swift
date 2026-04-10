@@ -46,6 +46,7 @@ final class AppState {
     var isMeetingRecording: Bool = false
     var isChatGPTAuthenticated: Bool = false
     var isGoogleCalendarAvailable: Bool = false
+    var isGoogleCalendarVerified: Bool = false
     var isGoogleCalendarAuthenticated: Bool = false
     var upcomingCalendarEvents: [UnifiedCalendarEvent] = []
 

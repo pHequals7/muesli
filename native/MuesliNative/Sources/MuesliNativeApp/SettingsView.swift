@@ -278,6 +278,27 @@ struct SettingsView: View {
                                         .font(.system(size: 11))
                                         .foregroundStyle(MuesliTheme.textSecondary)
                                 }
+                            } else if !appState.isGoogleCalendarVerified {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "calendar.badge.plus")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.white.opacity(0.4))
+                                        Text("Connect Google Calendar")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.white.opacity(0.4))
+                                            .lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(MuesliTheme.textTertiary.opacity(0.3))
+                                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+
+                                    Text("Google OAuth verification pending")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(MuesliTheme.textTertiary)
+                                }
                             } else {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Button {
