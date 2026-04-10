@@ -112,6 +112,8 @@ final class MuesliController: NSObject {
     private var isStartingMeetingRecording = false
     private var currentMeetingDetection: MeetingDetection?
     private var presentedMeetingDetection: MeetingDetection?
+    private var meetingEndTimer: Timer?
+    private var activeMeetingCalendarEndDate: Date?
 
     init(runtime: RuntimePaths, dictationStore: DictationStore? = nil) {
         let loadedConfig = configStore.load()
@@ -1040,6 +1042,9 @@ final class MuesliController: NSObject {
 
     func stopMeetingRecording() {
         guard let activeMeetingSession else { return }
+        meetingEndTimer?.invalidate()
+        meetingEndTimer = nil
+        meetingNotification.close()
         indicator.setMeetingRecording(false, config: config)
         indicator.setTranscribingTitle("Transcribing", config: config)
         setState(.transcribing)
@@ -1577,8 +1582,14 @@ final class MuesliController: NSObject {
 
     private func handleUpcomingMeeting(_ event: UpcomingMeetingEvent) {
         fputs("[muesli-native] meeting soon: \(event.title)\n", stderr)
+
+        // Look up end date from unified calendar events
+        let calendarEndDate = appState.upcomingCalendarEvents
+            .first(where: { $0.id == event.id || $0.title == event.title })?.endDate
+
         if config.autoRecordMeetings, !isMeetingRecording() {
             startMeetingRecording(title: event.title)
+            scheduleMeetingEndNotification(endDate: calendarEndDate, title: event.title)
             return
         }
 
@@ -1603,6 +1614,7 @@ final class MuesliController: NSObject {
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 self.startMeetingRecording(title: event.title)
+                self.scheduleMeetingEndNotification(endDate: calendarEndDate, title: event.title)
             },
             onDismiss: { [weak self] in
                 guard let self else { return }
@@ -1610,6 +1622,33 @@ final class MuesliController: NSObject {
                 self.micActivityMonitor.refreshState()
             }
         )
+    }
+
+    private func scheduleMeetingEndNotification(endDate: Date?, title: String) {
+        meetingEndTimer?.invalidate()
+        meetingEndTimer = nil
+
+        guard let endDate else { return }
+
+        let delay = endDate.timeIntervalSinceNow
+        guard delay > 0 else { return }
+
+        fputs("[muesli-native] meeting end notification scheduled in \(Int(delay))s for \"\(title)\"\n", stderr)
+        meetingEndTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self, self.isMeetingRecording() else { return }
+            DispatchQueue.main.async {
+                self.meetingNotification.show(
+                    title: "Meeting ended",
+                    subtitle: "\(title) · scheduled time is over",
+                    actionLabel: "Stop Recording",
+                    dismissAfter: 45,
+                    onStartRecording: { [weak self] in
+                        self?.stopMeetingRecording()
+                    },
+                    onDismiss: nil
+                )
+            }
+        }
     }
 
     func serializedCustomWords() -> [[String: Any]] {
