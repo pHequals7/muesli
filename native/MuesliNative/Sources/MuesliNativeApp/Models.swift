@@ -280,6 +280,7 @@ struct AppConfig: Codable {
     var soundEnabled: Bool = true
     var recordingColorHex: String = "1e1e2e"   // Catppuccin Mocha base, without #
     var menuBarIcon: String = "muesli"
+    var showNextMeetingInMenuBar: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case dictationHotkey = "dictation_hotkey"
@@ -314,6 +315,7 @@ struct AppConfig: Codable {
         case soundEnabled = "sound_enabled"
         case recordingColorHex = "recording_color_hex"
         case menuBarIcon = "menu_bar_icon"
+        case showNextMeetingInMenuBar = "show_next_meeting_in_menu_bar"
     }
 
     init() {}
@@ -353,6 +355,7 @@ struct AppConfig: Codable {
         soundEnabled = (try? c.decode(Bool.self, forKey: .soundEnabled)) ?? defaults.soundEnabled
         recordingColorHex = (try? c.decode(String.self, forKey: .recordingColorHex)) ?? defaults.recordingColorHex
         menuBarIcon = (try? c.decode(String.self, forKey: .menuBarIcon)) ?? defaults.menuBarIcon
+        showNextMeetingInMenuBar = (try? c.decode(Bool.self, forKey: .showNextMeetingInMenuBar)) ?? defaults.showNextMeetingInMenuBar
     }
 }
 

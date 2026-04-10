@@ -523,6 +523,7 @@ final class MuesliController: NSObject {
         }
 
         appState.upcomingCalendarEvents = ekEvents
+        statusBarController?.updateMenuBarTitle()
     }
 
     func startCalendarRefreshTimer() {

@@ -366,6 +366,12 @@ struct SettingsView: View {
                             controller.updateConfig { $0.soundEnabled = newValue }
                         }
                     }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Show next meeting in menu bar") {
+                        settingsSwitch(isOn: appState.config.showNextMeetingInMenuBar) { newValue in
+                            controller.updateConfig { $0.showNextMeetingInMenuBar = newValue }
+                        }
+                    }
                 }
 
                 settingsSection("Data") {

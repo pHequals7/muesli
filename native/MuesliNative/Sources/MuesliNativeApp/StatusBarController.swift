@@ -25,6 +25,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func refresh() {
         rebuildMenu()
+        updateMenuBarTitle()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -33,6 +34,33 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func refreshIcon() {
         statusItem.button?.image = MenuBarIconRenderer.make(choice: controller.config.menuBarIcon)
+        updateMenuBarTitle()
+    }
+
+    func updateMenuBarTitle() {
+        guard controller.config.showNextMeetingInMenuBar else {
+            statusItem.button?.title = ""
+            return
+        }
+
+        let now = Date()
+        let nextEvent = controller.appState.upcomingCalendarEvents
+            .filter { !$0.isAllDay && $0.startDate > now }
+            .first
+
+        if let event = nextEvent {
+            let minutesUntil = Int(ceil(event.startDate.timeIntervalSince(now) / 60))
+            let truncatedTitle = event.title.count > 20
+                ? String(event.title.prefix(18)) + "…"
+                : event.title
+            if minutesUntil <= 60 {
+                statusItem.button?.title = " \(truncatedTitle) · \(formatTimeUntil(minutesUntil))"
+            } else {
+                statusItem.button?.title = " \(truncatedTitle)"
+            }
+        } else {
+            statusItem.button?.title = ""
+        }
     }
 
     private func build() {
@@ -42,6 +70,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             button.toolTip = AppIdentity.displayName
         }
         rebuildMenu()
+        updateMenuBarTitle()
         statusItem.menu = menu
     }
 
