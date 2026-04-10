@@ -80,7 +80,7 @@ final class GoogleCalendarClient {
                 return try await fetchUpcomingEvents(daysAhead: daysAhead, isRetry: true)
             }
 
-            // 401 mid-pagination — refresh token and retry this page once
+            // 401 on any page (first or mid-pagination) — refresh token and retry once
             if statusCode == 401 && !tokenRetried {
                 tokenRetried = true
                 token = try await auth.validAccessToken()
