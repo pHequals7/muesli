@@ -72,6 +72,9 @@ cp "$ROOT/assets/muesli.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
 if [[ -d "$ROOT/assets/fonts" ]]; then
   ditto "$ROOT/assets/fonts" "$STAGED_APP_DIR/Contents/Resources/fonts"
 fi
+if [[ -d "$ROOT/assets/audio" ]]; then
+  ditto "$ROOT/assets/audio" "$STAGED_APP_DIR/Contents/Resources/audio"
+fi
 
 cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

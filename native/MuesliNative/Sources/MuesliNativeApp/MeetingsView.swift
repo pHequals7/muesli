@@ -257,7 +257,7 @@ struct MeetingsView: View {
     private var groupedUpcomingEvents: [UpcomingEventGroup] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let timedEvents = appState.upcomingCalendarEvents.filter { !$0.isAllDay }
+        let timedEvents = appState.upcomingCalendarEvents.filter { !$0.isAllDay && !appState.hiddenCalendarEventIDs.contains($0.id) }
         let grouped = Dictionary(grouping: timedEvents) { event in
             calendar.startOfDay(for: event.startDate)
         }
@@ -360,6 +360,8 @@ struct MeetingsView: View {
                                 }
                                 .menuStyle(.borderlessButton)
                                 .fixedSize()
+
+                                hideEventButton(event)
                             }
                         }
                     }
@@ -387,6 +389,21 @@ struct MeetingsView: View {
     private func formatTimeRange(_ event: UnifiedCalendarEvent) -> String {
         let f = Self.timeFormatter
         return "\(f.string(from: event.startDate)) – \(f.string(from: event.endDate))"
+    }
+
+    private func hideEventButton(_ event: UnifiedCalendarEvent) -> some View {
+        Button {
+            _ = withAnimation(.easeOut(duration: 0.2)) {
+                appState.hiddenCalendarEventIDs.insert(event.id)
+            }
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(MuesliTheme.textSecondary.opacity(0.6))
+                .frame(width: 20, height: 20)
+        }
+        .buttonStyle(.plain)
+        .help("Hide from Coming Up")
     }
 
     @ViewBuilder

@@ -41,6 +41,7 @@ final class MeetingDetector {
         "com.tinyspeck.slackmacgap": "Slack",
         "com.webex.meetingmanager": "Webex",
         "com.cisco.webexmeetingsapp": "Webex",
+        "net.whatsapp.WhatsApp": "WhatsApp",
     ]
 
     /// Browsers: always running, so require an extra signal
@@ -77,10 +78,12 @@ final class MeetingDetector {
         if let until = suppressUntil, now < until { return nil }
         guard signals.micActive || signals.cameraActive else { return nil }
 
-        if signals.cameraActive {
+        if signals.cameraActive, signals.micActive {
             let (appName, _) = bestApp(from: signals.runningApps)
-            let title = signals.calendarEvent?.title
-            return MeetingDetection(appName: appName ?? "Meeting", meetingTitle: title)
+            if let appName {
+                let title = signals.calendarEvent?.title
+                return MeetingDetection(appName: appName, meetingTitle: title)
+            }
         }
 
         guard signals.micActive else { return nil }
@@ -125,15 +128,17 @@ final class MeetingDetector {
         let runningIDs = Set(signals.runningApps.map(\.bundleID))
         detectedKeys = detectedKeys.filter { $0.hasPrefix("cal:") || $0 == "camera" || runningIDs.contains($0) }
 
-        // Priority 0: Camera active = strong meeting signal (nobody turns on camera outside meetings)
-        if signals.cameraActive, !detectedKeys.contains("camera") {
-            detectedKeys.insert("camera")
+        // Priority 0: Camera + mic + meeting app/browser = strong meeting signal.
+        // Camera alone is not enough — apps like Photo Booth or scanning can trigger it.
+        if signals.cameraActive, signals.micActive, !detectedKeys.contains("camera") {
             let (appName, appBundleID) = bestApp(from: signals.runningApps)
-            if let bid = appBundleID { detectedKeys.insert(bid) }
-            // Also mark calendar event to prevent duplicate detection via Priority 1
-            if let cal = signals.calendarEvent { detectedKeys.insert("cal:\(cal.id)") }
-            let title = signals.calendarEvent?.title
-            return MeetingDetection(appName: appName ?? "Meeting", meetingTitle: title)
+            if appName != nil {
+                detectedKeys.insert("camera")
+                if let bid = appBundleID { detectedKeys.insert(bid) }
+                if let cal = signals.calendarEvent { detectedKeys.insert("cal:\(cal.id)") }
+                let title = signals.calendarEvent?.title
+                return MeetingDetection(appName: appName ?? "Meeting", meetingTitle: title)
+            }
         }
 
         // Remaining checks require mic to be active

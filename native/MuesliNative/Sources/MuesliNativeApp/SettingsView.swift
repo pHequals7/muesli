@@ -43,6 +43,7 @@ struct SettingsView: View {
     @State private var isSigningInGoogleCal = false
     @State private var pendingDataDestruction: PendingDataDestruction?
     @State private var recordingColorInput: String = ""
+    @State private var isPreviewingClip = false
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
@@ -395,6 +396,67 @@ struct SettingsView: View {
                     }
                 }
 
+                if appState.config.maraudersMapUnlocked {
+                    settingsSection("Marauder\u{2019}s Map") {
+                        settingsRow("Meeting countdown audio") {
+                            HStack(spacing: MuesliTheme.spacing8) {
+                                settingsMenu(
+                                    selection: SoundController.labelForClip(
+                                        id: appState.config.maraudersMapAudioClip,
+                                        customPath: appState.config.maraudersMapCustomAudioPath
+                                    ),
+                                    options: SoundController.maraudersMapClipLabels
+                                ) { label in
+                                    if label == "Custom\u{2026}" {
+                                        pickCustomAudioFile()
+                                    } else if let preset = SoundController.maraudersMapPresets
+                                        .first(where: { $0.label == label }) {
+                                        controller.updateConfig {
+                                            $0.maraudersMapAudioClip = preset.id
+                                            $0.maraudersMapCustomAudioPath = nil
+                                        }
+                                        controller.updateMaraudersMapAudioClip()
+                                    }
+                                }
+                                Button {
+                                    if isPreviewingClip {
+                                        SoundController.stopMaraudersMapClip()
+                                        isPreviewingClip = false
+                                    } else {
+                                        SoundController.playMaraudersMapClip(
+                                            id: appState.config.maraudersMapAudioClip,
+                                            customPath: appState.config.maraudersMapCustomAudioPath
+                                        ) {
+                                            isPreviewingClip = false
+                                        }
+                                        isPreviewingClip = true
+                                    }
+                                } label: {
+                                    Image(systemName: isPreviewingClip ? "stop.fill" : "play.fill")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(MuesliTheme.textSecondary)
+                                        .frame(width: 24, height: 24)
+                                }
+                                .buttonStyle(.plain)
+                                .contentShape(Rectangle())
+                            }
+                        }
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("") {
+                            Button {
+                                SoundController.stopMaraudersMapClip()
+                                isPreviewingClip = false
+                                controller.resetMaraudersMap()
+                            } label: {
+                                Text("Mischief Managed")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(MuesliTheme.textSecondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
                 settingsSection("Data") {
                     HStack(spacing: MuesliTheme.spacing12) {
                         actionButton("Clear dictation history", role: .destructive) {
@@ -467,6 +529,31 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .help(preset.name)
             }
+        }
+    }
+
+    // MARK: - Marauder's Map
+
+    private func pickCustomAudioFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an audio clip"
+        panel.allowedContentTypes = [.mp3, .mpeg4Audio, .wav, .aiff]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent(Bundle.main.infoDictionary?["MuesliSupportDirectoryName"] as? String ?? "Muesli")
+            let destPath = try SoundController.importCustomClip(from: url, supportDir: supportDir)
+            controller.updateConfig {
+                $0.maraudersMapAudioClip = SoundController.customClipID
+                $0.maraudersMapCustomAudioPath = destPath
+            }
+            controller.updateMaraudersMapAudioClip()
+        } catch {
+            fputs("[muesli-native] Failed to import custom audio: \(error)\n", stderr)
         }
     }
 

@@ -49,6 +49,7 @@ final class AppState {
     var isGoogleCalendarVerified: Bool = false
     var isGoogleCalendarAuthenticated: Bool = false
     var upcomingCalendarEvents: [UnifiedCalendarEvent] = []
+    var hiddenCalendarEventIDs: Set<String> = []
 
     // Dictation pagination & filtering
     var dictationPageSize: Int = 50
