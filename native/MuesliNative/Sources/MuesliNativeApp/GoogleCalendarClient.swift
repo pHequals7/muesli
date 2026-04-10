@@ -37,6 +37,7 @@ final class GoogleCalendarClient {
         let isoFormatter = Self.isoFormatter
 
         var pageToken: String? = nil
+        var tokenRetried = false
 
         repeat {
             var components = URLComponents(string: "\(Self.baseURL)/calendars/primary/events")!
@@ -80,7 +81,8 @@ final class GoogleCalendarClient {
             }
 
             // 401 mid-pagination — refresh token and retry this page once
-            if statusCode == 401 && !isRetry {
+            if statusCode == 401 && !tokenRetried {
+                tokenRetried = true
                 token = try await auth.validAccessToken()
                 continue
             }
