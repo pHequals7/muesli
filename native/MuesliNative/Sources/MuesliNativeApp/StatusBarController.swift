@@ -59,8 +59,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let now = Date()
         let hidden = controller.appState.hiddenCalendarEventIDs
+        let endOfToday = Calendar.current.startOfDay(for: now).addingTimeInterval(86400)
         let nextEvent = controller.appState.upcomingCalendarEvents
-            .filter { !$0.isAllDay && $0.startDate > now && !hidden.contains($0.id) }
+            .filter { !$0.isAllDay && $0.startDate > now && $0.startDate < endOfToday && !hidden.contains($0.id) }
             .first
 
         if let event = nextEvent {
