@@ -501,6 +501,7 @@ final class MuesliController: NSObject {
 
     func signOutGoogleCalendar() {
         googleCalAuth.signOut()
+        googleCalClient.resetSync()
         syncAppState()
         Task { await refreshUpcomingCalendarEvents() }
     }
@@ -528,7 +529,7 @@ final class MuesliController: NSObject {
 
     func startCalendarRefreshTimer() {
         calendarRefreshTimer?.invalidate()
-        calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+        calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
                 await self.refreshUpcomingCalendarEvents()
