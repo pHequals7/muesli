@@ -86,6 +86,8 @@ final class MuesliController: NSObject {
     private let googleCalAuth = GoogleCalendarAuthManager.shared
     private let googleCalClient = GoogleCalendarClient()
     private var calendarRefreshTimer: Timer?
+    private var calendarNotificationTimer: Timer?
+    private var notifiedUpcomingEventIDs = Set<String>()
 
     private var statusBarController: StatusBarController?
     private var historyWindowController: RecentHistoryWindowController?
@@ -532,6 +534,42 @@ final class MuesliController: NSObject {
             }
         }
         Task { await refreshUpcomingCalendarEvents() }
+
+        // Check every 60s for upcoming events that need notifications
+        // (covers Google Calendar events not in EventKit's CalendarMonitor)
+        calendarNotificationTimer?.invalidate()
+        calendarNotificationTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.checkUpcomingCalendarNotifications()
+            }
+        }
+    }
+
+    /// Check merged calendar events (EventKit + Google) for events starting within 5 minutes.
+    /// Fires the meeting notification for events not yet notified.
+    private func checkUpcomingCalendarNotifications() {
+        guard config.showMeetingDetectionNotification,
+              !config.autoRecordMeetings,
+              !isMeetingRecording(),
+              !isStartingMeetingRecording else { return }
+
+        let now = Date()
+        let fiveMinutesFromNow = now.addingTimeInterval(5 * 60)
+
+        for event in appState.upcomingCalendarEvents {
+            guard !event.isAllDay else { continue }
+            guard event.startDate > now && event.startDate <= fiveMinutesFromNow else { continue }
+            guard !notifiedUpcomingEventIDs.contains(event.id) else { continue }
+
+            notifiedUpcomingEventIDs.insert(event.id)
+            handleUpcomingMeeting(UpcomingMeetingEvent(
+                id: event.id,
+                title: event.title,
+                startDate: event.startDate
+            ))
+            return // Show one notification at a time
+        }
     }
 
     func addCustomWord(_ word: CustomWord) {
@@ -1534,7 +1572,37 @@ final class MuesliController: NSObject {
         fputs("[muesli-native] meeting soon: \(event.title)\n", stderr)
         if config.autoRecordMeetings, !isMeetingRecording() {
             startMeetingRecording(title: event.title)
+            return
         }
+
+        // Show notification panel for calendar events (if not auto-recording)
+        guard config.showMeetingDetectionNotification,
+              !isMeetingRecording(),
+              !isStartingMeetingRecording else { return }
+
+        let minutesUntil = Int(ceil(event.startDate.timeIntervalSinceNow / 60))
+        let timeLabel: String
+        if minutesUntil > 0 {
+            timeLabel = "starts in \(minutesUntil) min"
+        } else if minutesUntil == 0 {
+            timeLabel = "starting now"
+        } else {
+            timeLabel = "started \(abs(minutesUntil)) min ago"
+        }
+
+        meetingNotification.show(
+            title: "Upcoming meeting",
+            subtitle: "\(event.title) · \(timeLabel)",
+            onStartRecording: { [weak self] in
+                guard let self else { return }
+                self.startMeetingRecording(title: event.title)
+            },
+            onDismiss: { [weak self] in
+                guard let self else { return }
+                self.micActivityMonitor.suppress()
+                self.micActivityMonitor.refreshState()
+            }
+        )
     }
 
     func serializedCustomWords() -> [[String: Any]] {
