@@ -961,6 +961,11 @@ final class MuesliController: NSObject {
         }
     }
 
+    @objc func startMeetingFromCalendarMenuItem(_ sender: NSMenuItem) {
+        guard let title = sender.representedObject as? String else { return }
+        startMeetingRecording(title: title)
+    }
+
     func startMeetingRecording(title: String = "Meeting") {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         isStartingMeetingRecording = true
