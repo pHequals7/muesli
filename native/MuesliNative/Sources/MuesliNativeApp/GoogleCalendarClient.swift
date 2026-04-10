@@ -43,7 +43,12 @@ final class GoogleCalendarClient {
         repeat {
             var components = URLComponents(string: "\(Self.baseURL)/calendars/primary/events")!
 
-            if let syncToken {
+            // pageToken takes priority (mid-pagination); syncToken only when no page in progress
+            if let pageToken {
+                components.queryItems = [
+                    URLQueryItem(name: "pageToken", value: pageToken),
+                ]
+            } else if let syncToken {
                 components.queryItems = [
                     URLQueryItem(name: "syncToken", value: syncToken),
                 ]
@@ -57,10 +62,6 @@ final class GoogleCalendarClient {
                     URLQueryItem(name: "orderBy", value: "startTime"),
                     URLQueryItem(name: "maxResults", value: "50"),
                 ]
-            }
-
-            if let pageToken {
-                components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
             }
 
             var request = URLRequest(url: components.url!)
