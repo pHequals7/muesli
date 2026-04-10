@@ -31,19 +31,16 @@ final class GoogleCalendarClient {
 
     /// Fetch upcoming events from the user's primary Google Calendar.
     /// Uses sync tokens for incremental updates and handles pagination.
-    func fetchUpcomingEvents(daysAhead: Int = 7) async throws -> [UnifiedCalendarEvent] {
-        let token = try await auth.validAccessToken()
+    func fetchUpcomingEvents(daysAhead: Int = 7, isRetry: Bool = false) async throws -> [UnifiedCalendarEvent] {
+        var token = try await auth.validAccessToken()
 
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime]
+        let isoFormatter = Self.isoFormatter
 
         var pageToken: String? = nil
 
-        // Paginate through all results
         repeat {
             var components = URLComponents(string: "\(Self.baseURL)/calendars/primary/events")!
 
-            // pageToken takes priority (mid-pagination); syncToken only when no page in progress
             if let pageToken {
                 components.queryItems = [
                     URLQueryItem(name: "pageToken", value: pageToken),
@@ -70,11 +67,22 @@ final class GoogleCalendarClient {
             let (data, response) = try await URLSession.shared.data(for: request)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
 
+            // 410 = sync token expired — retry once with full fetch
             if statusCode == 410 {
+                guard !isRetry else {
+                    fputs("[google-cal] 410 on full re-fetch, giving up\n", stderr)
+                    return Array(cachedEvents.values).sorted { $0.startDate < $1.startDate }
+                }
                 fputs("[google-cal] sync token expired, performing full re-fetch\n", stderr)
                 syncToken = nil
                 cachedEvents.removeAll()
-                return try await fetchUpcomingEvents(daysAhead: daysAhead)
+                return try await fetchUpcomingEvents(daysAhead: daysAhead, isRetry: true)
+            }
+
+            // 401 mid-pagination — refresh token and retry this page once
+            if statusCode == 401 && !isRetry {
+                token = try await auth.validAccessToken()
+                continue
             }
 
             guard statusCode == 200 else {
