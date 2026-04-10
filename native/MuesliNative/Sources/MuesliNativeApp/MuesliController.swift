@@ -510,6 +510,11 @@ final class MuesliController: NSObject {
             do {
                 let googleEvents = try await googleCalClient.fetchUpcomingEvents(daysAhead: 7)
                 ekEvents = GoogleCalendarClient.mergeEvents(eventKit: ekEvents, google: googleEvents)
+            } catch GoogleCalendarAuthError.notAuthenticated {
+                // Token revoked externally or permanently invalid — sign out so UI shows "Connect"
+                googleCalAuth.signOut()
+                syncAppState()
+                fputs("[muesli-native] Google Calendar token invalid, signed out\n", stderr)
             } catch {
                 fputs("[muesli-native] Google Calendar fetch failed: \(error)\n", stderr)
             }

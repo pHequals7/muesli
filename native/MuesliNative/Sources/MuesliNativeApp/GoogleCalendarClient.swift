@@ -50,7 +50,11 @@ final class GoogleCalendarClient {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             let body = String(data: data, encoding: .utf8) ?? ""
             fputs("[google-cal] API error \(statusCode): \(body.prefix(200))\n", stderr)
-            throw GoogleCalendarAuthError.tokenExchangeFailed("API returned \(statusCode)")
+            // 401/403 = token revoked or invalid — surface as auth error for auto-signout
+            if statusCode == 401 || statusCode == 403 {
+                throw GoogleCalendarAuthError.notAuthenticated
+            }
+            throw GoogleCalendarAuthError.refreshFailed("Calendar API returned \(statusCode)")
         }
 
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
