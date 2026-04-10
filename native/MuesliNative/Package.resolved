@@ -28,6 +28,15 @@
       }
     },
     {
+      "identity" : "llm.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/eastriverlee/LLM.swift/",
+      "state" : {
+        "branch" : "main",
+        "revision" : "427f3b8957a40982500abc8d35ccff8b83ec56a4"
+      }
+    },
+    {
       "identity" : "sparkle",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sparkle-project/Sparkle",
@@ -106,6 +115,15 @@
       "state" : {
         "revision" : "558f24a4647193b5a0e2104031b71c55d31ff83a",
         "version" : "2.97.1"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-syntax.git",
+      "state" : {
+        "revision" : "4799286537280063c85a32f09884cfbca301b1a1",
+        "version" : "602.0.0"
       }
     },
     {

@@ -20,6 +20,8 @@ CANARY_APP="${MUESLI_CANARY_APP_PATH:-/Applications/MuesliCanary.app}"
 CANARY_MODEL_CACHE="${MUESLI_CANARY_CACHE_DIR:-$HOME/.cache/muesli/models/canary-qwen-2.5b-coreml-int8}"
 STT_ROOT_DEFAULT="$(cd "$ROOT/.." && pwd)/stt-quantize-coreml"
 STT_ROOT="${MUESLI_CANARY_STT_ROOT:-$STT_ROOT_DEFAULT}"
+POSTPROC_ROOT_DEFAULT="$(cd "$ROOT/.." && pwd)/qwen3-finetune-asr/export/gguf/20260410-050118-q4_k_m/qwen3-postproc-v2-q4_k_m.gguf"
+POSTPROC_ROOT="${MUESLI_CANARY_POSTPROC_ROOT:-$POSTPROC_ROOT_DEFAULT}"
 
 CLEAN=0
 RESET=0
@@ -101,6 +103,27 @@ seed_local_models() {
   log "Seeded Canary model cache at: $CANARY_MODEL_CACHE"
 }
 
+configure_postproc_override() {
+  local resolved="$POSTPROC_ROOT"
+  if [[ -d "$resolved" ]]; then
+    local first_gguf
+    first_gguf="$(find "$resolved" -type f -name '*.gguf' | head -n 1 || true)"
+    if [[ -n "$first_gguf" ]]; then
+      resolved="$first_gguf"
+    fi
+  fi
+
+  if [[ -f "$resolved" && "$resolved" == *.gguf ]]; then
+    launchctl setenv MUESLI_QWEN3_POSTPROC_GGUF "$resolved"
+    launchctl unsetenv MUESLI_QWEN3_POSTPROC_DIR 2>/dev/null || true
+    log "Set Qwen3 GGUF post-processor override: $resolved"
+  else
+    launchctl unsetenv MUESLI_QWEN3_POSTPROC_GGUF 2>/dev/null || true
+    launchctl unsetenv MUESLI_QWEN3_POSTPROC_DIR 2>/dev/null || true
+    log "Qwen3 GGUF post-processor asset not found at: $resolved"
+  fi
+}
+
 pkill -f "MuesliCanary.app" 2>/dev/null || true
 sleep 0.5
 
@@ -124,6 +147,8 @@ fi
 if [[ "$SEED" -eq 1 ]]; then
   seed_local_models
 fi
+
+configure_postproc_override
 
 log "Building MuesliCanary (debug, signed)..."
 MUESLI_APP_NAME=MuesliCanary \

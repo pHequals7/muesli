@@ -87,6 +87,13 @@ struct SettingsView: View {
                             }
                         }
                     }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("AI transcript cleanup") {
+                        settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
+                            controller.updateConfig { $0.enablePostProcessor = newValue }
+                            controller.preloadExperimentalTranscriptionFeatures()
+                        }
+                    }
                 }
 
                 settingsSection("Meetings") {
@@ -872,4 +879,3 @@ private extension NSColor {
         return String(format: "%02x%02x%02x", r, g, b)
     }
 }
-

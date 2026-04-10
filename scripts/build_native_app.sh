@@ -54,11 +54,11 @@ chmod +x "$STAGED_APP_DIR/Contents/MacOS/$APP_EXECUTABLE_NAME"
 cp "$CLI_BIN" "$STAGED_APP_DIR/Contents/MacOS/$CLI_BINARY"
 chmod +x "$STAGED_APP_DIR/Contents/MacOS/$CLI_BINARY"
 
-# Bundle Sparkle framework (rpath is @loader_path, so it goes next to the binary)
-SPARKLE_FW="$BIN_DIR/Sparkle.framework"
-if [[ -d "$SPARKLE_FW" ]]; then
-  ditto "$SPARKLE_FW" "$STAGED_APP_DIR/Contents/MacOS/Sparkle.framework"
-fi
+# Bundle SwiftPM-linked frameworks (rpath is @loader_path, so they go next to the binary)
+for framework in "$BIN_DIR"/*.framework; do
+  [[ -d "$framework" ]] || continue
+  ditto "$framework" "$STAGED_APP_DIR/Contents/MacOS/$(basename "$framework")"
+done
 
 # Bundle SPM resource bundles (CoreML models, privacy manifests, etc.)
 for bundle in "$BIN_DIR"/*.bundle; do
@@ -134,31 +134,29 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
     exit 1
   fi
 
-  # Sign all nested binaries inside Sparkle framework (required for notarization)
-  if [[ -d "$APP_DIR/Contents/MacOS/Sparkle.framework" ]]; then
-    # Deep-sign every executable inside Sparkle (Updater.app, Autoupdate, XPC services)
-    find "$APP_DIR/Contents/MacOS/Sparkle.framework" -type f -perm +111 | while read -r binary; do
-      # Skip non-Mach-O files (e.g., shell scripts, plists)
-      if file "$binary" | grep -q "Mach-O"; then
+  # Sign all bundled frameworks, including nested Sparkle executables.
+  find "$APP_DIR/Contents/MacOS" -maxdepth 1 -name "*.framework" -type d | while read -r framework; do
+    if [[ "$(basename "$framework")" == "Sparkle.framework" ]]; then
+      find "$framework" -type f -perm +111 | while read -r binary; do
+        if file "$binary" | grep -q "Mach-O"; then
+          codesign --force --options runtime --timestamp \
+            --sign "$SIGN_IDENTITY" "$binary"
+        fi
+      done
+      find "$framework" -name "*.xpc" -type d | while read -r xpc; do
         codesign --force --options runtime --timestamp \
-          --sign "$SIGN_IDENTITY" "$binary"
-      fi
-    done
-    # Sign the XPC bundles
-    find "$APP_DIR/Contents/MacOS/Sparkle.framework" -name "*.xpc" -type d | while read -r xpc; do
-      codesign --force --options runtime --timestamp \
-        --sign "$SIGN_IDENTITY" "$xpc"
-    done
-    # Sign the Updater.app bundle
-    find "$APP_DIR/Contents/MacOS/Sparkle.framework" -name "*.app" -type d | while read -r app; do
-      codesign --force --options runtime --timestamp \
-        --sign "$SIGN_IDENTITY" "$app"
-    done
-    # Sign the framework bundle itself
+          --sign "$SIGN_IDENTITY" "$xpc"
+      done
+      find "$framework" -name "*.app" -type d | while read -r app; do
+        codesign --force --options runtime --timestamp \
+          --sign "$SIGN_IDENTITY" "$app"
+      done
+    fi
+
     codesign --force --options runtime --timestamp \
       --sign "$SIGN_IDENTITY" \
-      "$APP_DIR/Contents/MacOS/Sparkle.framework"
-  fi
+      "$framework"
+  done
 
   codesign --force --options runtime --timestamp \
     --sign "$SIGN_IDENTITY" \

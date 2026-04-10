@@ -186,3 +186,43 @@ struct TranscriptionEngineArtifactsFilterTests {
         #expect(TranscriptionEngineArtifactsFilter.apply(text) == "")
     }
 }
+
+@Suite("Qwen3 post-processing heuristics")
+struct Qwen3PostProcessingHeuristicsTests {
+
+    @Test("runs when filler cleanup would change text")
+    func fillerTrigger() {
+        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "um I think we should go") == true)
+    }
+
+    @Test("runs when scratch-that cue is present")
+    func deletionTrigger() {
+        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "Call Sarah scratch that call James") == true)
+    }
+
+    @Test("runs when formatting cue is present")
+    func formattingTrigger() {
+        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "bullet point ship the fix") == true)
+    }
+
+    @Test("skips clean text with no cues")
+    func cleanTextSkips() {
+        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "The quarterly revenue grew twelve percent.") == false)
+    }
+}
+
+@Suite("Qwen3 post-processing output cleanup")
+struct Qwen3PostProcessingOutputCleanerTests {
+
+    @Test("removes think tags")
+    func stripsThinkTags() {
+        let raw = "<think>reasoning</think>Clean transcript"
+        #expect(Qwen3PostProcessorOutputCleaner.clean(raw) == "Clean transcript")
+    }
+
+    @Test("removes chat markup")
+    func stripsChatMarkup() {
+        let raw = "<|im_start|>assistant Hello world <|im_end|>"
+        #expect(Qwen3PostProcessorOutputCleaner.clean(raw) == "assistant Hello world")
+    }
+}

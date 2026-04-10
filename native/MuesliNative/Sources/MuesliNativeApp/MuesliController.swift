@@ -228,7 +228,10 @@ final class MuesliController: NSObject {
 
         Task { [weak self] in
             guard let self else { return }
-            await self.transcriptionCoordinator.preload(backend: self.selectedBackend)
+            await self.transcriptionCoordinator.preload(
+                backend: self.selectedBackend,
+                enablePostProcessor: self.config.enablePostProcessor
+            )
             await MainActor.run {
                 self.refreshUI()
             }
@@ -395,11 +398,26 @@ final class MuesliController: NSObject {
         }
         Task { [weak self] in
             guard let self else { return }
-            await self.transcriptionCoordinator.preload(backend: option)
+            await self.transcriptionCoordinator.preload(
+                backend: option,
+                enablePostProcessor: self.config.enablePostProcessor
+            )
             await MainActor.run {
                 self.statusBarController?.refresh()
                 self.historyWindowController?.updateBackendLabel()
             }
+        }
+    }
+
+    func preloadExperimentalTranscriptionFeatures() {
+        let backend = selectedBackend
+        let enabled = config.enablePostProcessor
+        Task { [weak self] in
+            guard let self else { return }
+            await self.transcriptionCoordinator.preload(
+                backend: backend,
+                enablePostProcessor: enabled
+            )
         }
     }
 
@@ -618,7 +636,11 @@ final class MuesliController: NSObject {
 
     func downloadModelForOnboarding(_ backend: BackendOption, progress: @escaping (Double, String?) -> Void) async throws -> Bool {
         progress(0.0, "Downloading \(backend.label)...")
-        await transcriptionCoordinator.preload(backend: backend, progress: progress)
+        await transcriptionCoordinator.preload(
+            backend: backend,
+            enablePostProcessor: config.enablePostProcessor,
+            progress: progress
+        )
         progress(1.0, nil)
         return false
     }
@@ -1568,6 +1590,7 @@ final class MuesliController: NSObject {
                 let result = try await self.transcriptionCoordinator.transcribeDictation(
                     at: wavURL,
                     backend: self.selectedBackend,
+                    enablePostProcessor: self.config.enablePostProcessor,
                     customWords: self.serializedCustomWords()
                 )
                 let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)

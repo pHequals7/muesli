@@ -51,6 +51,28 @@ struct FloatingIndicatorVisibilityTests {
         let config = try JSONDecoder().decode(AppConfig.self, from: json.data(using: .utf8)!)
         #expect(config.showFloatingIndicator == false)
     }
+
+    @Test("post processor defaults to disabled")
+    func postProcessorDisabledByDefault() {
+        let config = AppConfig()
+        #expect(config.enablePostProcessor == false)
+    }
+
+    @Test("post processor persists through JSON round-trip")
+    func postProcessorRoundTrip() throws {
+        var config = AppConfig()
+        config.enablePostProcessor = true
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+        #expect(decoded.enablePostProcessor == true)
+    }
+
+    @Test("post processor decodes from snake_case JSON")
+    func postProcessorSnakeCaseDecode() throws {
+        let json = #"{"enable_post_processor": true}"#
+        let config = try JSONDecoder().decode(AppConfig.self, from: json.data(using: .utf8)!)
+        #expect(config.enablePostProcessor == true)
+    }
 }
 
 // MARK: - Unified indicator frame sizes
