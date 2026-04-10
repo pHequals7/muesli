@@ -57,7 +57,7 @@ struct GoogleCalendarTests {
             "end": ["dateTime": "2026-04-10T15:00:00+05:30"],
         ]
 
-        let event = parseTestEvent(item)
+        let event = GoogleCalendarClient().parseEvent(item)
         #expect(event != nil)
         #expect(event?.id == "event123")
         #expect(event?.title == "Sprint Planning")
@@ -74,7 +74,7 @@ struct GoogleCalendarTests {
             "end": ["date": "2026-04-11"],
         ]
 
-        let event = parseTestEvent(item)
+        let event = GoogleCalendarClient().parseEvent(item)
         #expect(event != nil)
         #expect(event?.isAllDay == true)
         #expect(event?.title == "Company Holiday")
@@ -88,7 +88,7 @@ struct GoogleCalendarTests {
             "end": ["dateTime": "2026-04-10T15:00:00Z"],
         ]
 
-        #expect(parseTestEvent(item) == nil)
+        #expect(GoogleCalendarClient().parseEvent(item) == nil)
     }
 
     @Test("returns nil for event missing id")
@@ -99,7 +99,7 @@ struct GoogleCalendarTests {
             "end": ["dateTime": "2026-04-10T15:00:00Z"],
         ]
 
-        #expect(parseTestEvent(item) == nil)
+        #expect(GoogleCalendarClient().parseEvent(item) == nil)
     }
 
     // MARK: - Merge & dedup
@@ -168,46 +168,4 @@ struct GoogleCalendarTests {
         return f.date(from: iso)!
     }
 
-    /// Mirror of GoogleCalendarClient.parseEvent for testing without @MainActor
-    private func parseTestEvent(_ item: [String: Any]) -> UnifiedCalendarEvent? {
-        guard let id = item["id"] as? String,
-              let summary = item["summary"] as? String else { return nil }
-
-        let startDict = item["start"] as? [String: Any] ?? [:]
-        let endDict = item["end"] as? [String: Any] ?? [:]
-
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime]
-        let dateOnlyFormatter = DateFormatter()
-        dateOnlyFormatter.dateFormat = "yyyy-MM-dd"
-        dateOnlyFormatter.timeZone = .current
-
-        let startDate: Date
-        let endDate: Date
-        let isAllDay: Bool
-
-        if let dateTimeStr = startDict["dateTime"] as? String,
-           let start = isoFormatter.date(from: dateTimeStr) {
-            startDate = start
-            isAllDay = false
-            if let endStr = endDict["dateTime"] as? String, let end = isoFormatter.date(from: endStr) {
-                endDate = end
-            } else {
-                endDate = start.addingTimeInterval(3600)
-            }
-        } else if let dateStr = startDict["date"] as? String,
-                  let start = dateOnlyFormatter.date(from: dateStr) {
-            startDate = start
-            isAllDay = true
-            if let endStr = endDict["date"] as? String, let end = dateOnlyFormatter.date(from: endStr) {
-                endDate = end
-            } else {
-                endDate = start.addingTimeInterval(86400)
-            }
-        } else {
-            return nil
-        }
-
-        return UnifiedCalendarEvent(id: id, title: summary, startDate: startDate, endDate: endDate, isAllDay: isAllDay, source: .googleCalendar)
-    }
 }

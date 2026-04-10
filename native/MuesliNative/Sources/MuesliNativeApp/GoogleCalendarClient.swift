@@ -58,7 +58,7 @@ final class GoogleCalendarClient {
                     URLQueryItem(name: "timeMax", value: isoFormatter.string(from: future)),
                     URLQueryItem(name: "singleEvents", value: "true"),
                     URLQueryItem(name: "orderBy", value: "startTime"),
-                    URLQueryItem(name: "maxResults", value: "50"),
+                    URLQueryItem(name: "maxResults", value: "250"),
                 ]
             }
 
@@ -147,7 +147,7 @@ final class GoogleCalendarClient {
         return f
     }()
 
-    private func parseEvent(_ item: [String: Any]) -> UnifiedCalendarEvent? {
+    func parseEvent(_ item: [String: Any]) -> UnifiedCalendarEvent? {
         guard let id = item["id"] as? String,
               let summary = item["summary"] as? String else { return nil }
 
