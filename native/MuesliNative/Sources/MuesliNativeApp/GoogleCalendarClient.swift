@@ -30,84 +30,89 @@ final class GoogleCalendarClient {
     private var cachedEvents: [String: UnifiedCalendarEvent] = [:]
 
     /// Fetch upcoming events from the user's primary Google Calendar.
-    /// Uses sync tokens for incremental updates — first call does a full fetch,
-    /// subsequent calls return only changes since the last sync.
+    /// Uses sync tokens for incremental updates and handles pagination.
     func fetchUpcomingEvents(daysAhead: Int = 7) async throws -> [UnifiedCalendarEvent] {
         let token = try await auth.validAccessToken()
 
         let isoFormatter = ISO8601DateFormatter()
         isoFormatter.formatOptions = [.withInternetDateTime]
 
-        var components = URLComponents(string: "\(Self.baseURL)/calendars/primary/events")!
+        var pageToken: String? = nil
 
-        if let syncToken {
-            // Incremental sync — only get changes since last fetch
-            components.queryItems = [
-                URLQueryItem(name: "syncToken", value: syncToken),
-            ]
-        } else {
-            // Full fetch — get all upcoming events
-            let now = Date()
-            guard let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now) else { return [] }
-            components.queryItems = [
-                URLQueryItem(name: "timeMin", value: isoFormatter.string(from: now)),
-                URLQueryItem(name: "timeMax", value: isoFormatter.string(from: future)),
-                URLQueryItem(name: "singleEvents", value: "true"),
-                URLQueryItem(name: "orderBy", value: "startTime"),
-                URLQueryItem(name: "maxResults", value: "50"),
-            ]
-        }
+        // Paginate through all results
+        repeat {
+            var components = URLComponents(string: "\(Self.baseURL)/calendars/primary/events")!
 
-        var request = URLRequest(url: components.url!)
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-
-        // 410 Gone = sync token expired, do a full re-fetch
-        if statusCode == 410 {
-            fputs("[google-cal] sync token expired, performing full re-fetch\n", stderr)
-            syncToken = nil
-            cachedEvents.removeAll()
-            return try await fetchUpcomingEvents(daysAhead: daysAhead)
-        }
-
-        guard statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? ""
-            fputs("[google-cal] API error \(statusCode): \(body.prefix(200))\n", stderr)
-            if statusCode == 401 || statusCode == 403 {
-                throw GoogleCalendarAuthError.notAuthenticated
+            if let syncToken {
+                components.queryItems = [
+                    URLQueryItem(name: "syncToken", value: syncToken),
+                ]
+            } else {
+                let now = Date()
+                guard let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now) else { return [] }
+                components.queryItems = [
+                    URLQueryItem(name: "timeMin", value: isoFormatter.string(from: now)),
+                    URLQueryItem(name: "timeMax", value: isoFormatter.string(from: future)),
+                    URLQueryItem(name: "singleEvents", value: "true"),
+                    URLQueryItem(name: "orderBy", value: "startTime"),
+                    URLQueryItem(name: "maxResults", value: "50"),
+                ]
             }
-            throw GoogleCalendarAuthError.refreshFailed("Calendar API returned \(statusCode)")
-        }
 
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return Array(cachedEvents.values).sorted { $0.startDate < $1.startDate }
-        }
+            if let pageToken {
+                components.queryItems?.append(URLQueryItem(name: "pageToken", value: pageToken))
+            }
 
-        // Update cached events with changes
-        if let items = json["items"] as? [[String: Any]] {
-            for item in items {
-                guard let id = item["id"] as? String else { continue }
+            var request = URLRequest(url: components.url!)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 
-                // Cancelled events should be removed from cache
-                if item["status"] as? String == "cancelled" {
-                    cachedEvents.removeValue(forKey: id)
-                    continue
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+
+            if statusCode == 410 {
+                fputs("[google-cal] sync token expired, performing full re-fetch\n", stderr)
+                syncToken = nil
+                cachedEvents.removeAll()
+                return try await fetchUpcomingEvents(daysAhead: daysAhead)
+            }
+
+            guard statusCode == 200 else {
+                let body = String(data: data, encoding: .utf8) ?? ""
+                fputs("[google-cal] API error \(statusCode): \(body.prefix(200))\n", stderr)
+                if statusCode == 401 || statusCode == 403 {
+                    throw GoogleCalendarAuthError.notAuthenticated
                 }
+                throw GoogleCalendarAuthError.refreshFailed("Calendar API returned \(statusCode)")
+            }
 
-                if let event = parseEvent(item) {
-                    cachedEvents[id] = event
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                break
+            }
+
+            if let items = json["items"] as? [[String: Any]] {
+                for item in items {
+                    guard let id = item["id"] as? String else { continue }
+                    if item["status"] as? String == "cancelled" {
+                        cachedEvents.removeValue(forKey: id)
+                        continue
+                    }
+                    if let event = parseEvent(item) {
+                        cachedEvents[id] = event
+                    }
                 }
             }
-        }
 
-        // Store the new sync token for next incremental fetch
-        if let newSyncToken = json["nextSyncToken"] as? String {
-            syncToken = newSyncToken
-        }
+            // nextPageToken = more pages to fetch; nextSyncToken = done, use for incremental
+            if let nextPage = json["nextPageToken"] as? String {
+                pageToken = nextPage
+            } else {
+                pageToken = nil
+                if let newSyncToken = json["nextSyncToken"] as? String {
+                    syncToken = newSyncToken
+                }
+            }
+        } while pageToken != nil
 
-        // Filter to upcoming events only (past events may linger in cache)
         let now = Date()
         let events = cachedEvents.values.filter { $0.endDate > now }
         return events.sorted { $0.startDate < $1.startDate }

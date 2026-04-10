@@ -524,10 +524,9 @@ struct SettingsView: View {
         FixedWidthPopUp(
             selection: selectedLabel,
             options: allItems.map(\.label),
-            onChange: { label in
-                if let item = allItems.first(where: { $0.label == label }) {
-                    onChange(item.id)
-                }
+            onSelectIndex: { index in
+                guard index >= 0 && index < allItems.count else { return }
+                onChange(allItems[index].id)
             }
         )
         .frame(height: 24)
@@ -540,10 +539,10 @@ struct SettingsView: View {
         FixedWidthPopUp(
             selection: selectedLabel,
             options: presets.map(\.label),
-            onChange: { label in
-                if let preset = presets.first(where: { $0.label == label }) {
-                    onChange(preset.id == presets.first?.id ? "" : preset.id)
-                }
+            onSelectIndex: { index in
+                guard index >= 0 && index < presets.count else { return }
+                let selectedId = presets[index].id
+                onChange(selectedId == presets.first?.id ? "" : selectedId)
             }
         )
         .frame(height: 24)
@@ -635,7 +634,23 @@ class EditableNSSecureTextField: NSSecureTextField {
 struct FixedWidthPopUp: NSViewRepresentable {
     let selection: String
     let options: [String]
-    let onChange: (String) -> Void
+    /// Reports the selected index, avoiding label collision issues.
+    let onSelectionIndex: (Int) -> Void
+
+    init(selection: String, options: [String], onChange: @escaping (String) -> Void) {
+        self.selection = selection
+        self.options = options
+        self.onSelectionIndex = { index in
+            guard index >= 0 && index < options.count else { return }
+            onChange(options[index])
+        }
+    }
+
+    init(selection: String, options: [String], onSelectIndex: @escaping (Int) -> Void) {
+        self.selection = selection
+        self.options = options
+        self.onSelectionIndex = onSelectIndex
+    }
 
     func makeNSView(context: Context) -> NSPopUpButton {
         let button = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -658,16 +673,16 @@ struct FixedWidthPopUp: NSViewRepresentable {
         if button.titleOfSelectedItem != selection {
             button.selectItem(withTitle: selection)
         }
-        context.coordinator.onChange = onChange
+        context.coordinator.onSelectionIndex = onSelectionIndex
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
+    func makeCoordinator() -> Coordinator { Coordinator(onSelectionIndex: onSelectionIndex) }
 
     class Coordinator: NSObject {
-        var onChange: (String) -> Void
-        init(onChange: @escaping (String) -> Void) { self.onChange = onChange }
+        var onSelectionIndex: (Int) -> Void
+        init(onSelectionIndex: @escaping (Int) -> Void) { self.onSelectionIndex = onSelectionIndex }
         @objc func selectionChanged(_ sender: NSPopUpButton) {
-            if let title = sender.titleOfSelectedItem { onChange(title) }
+            onSelectionIndex(sender.indexOfSelectedItem)
         }
     }
 }

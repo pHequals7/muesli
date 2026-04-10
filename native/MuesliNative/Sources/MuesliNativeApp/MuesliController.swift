@@ -516,10 +516,15 @@ final class MuesliController: NSObject {
                 let googleEvents = try await googleCalClient.fetchUpcomingEvents(daysAhead: 7)
                 ekEvents = GoogleCalendarClient.mergeEvents(eventKit: ekEvents, google: googleEvents)
             } catch GoogleCalendarAuthError.notAuthenticated {
-                // Token revoked externally or permanently invalid — sign out so UI shows "Connect"
                 googleCalAuth.signOut()
+                googleCalClient.resetSync()
                 syncAppState()
                 fputs("[muesli-native] Google Calendar token invalid, signed out\n", stderr)
+            } catch GoogleCalendarAuthError.refreshFailed {
+                googleCalAuth.signOut()
+                googleCalClient.resetSync()
+                syncAppState()
+                fputs("[muesli-native] Google Calendar refresh token invalid, signed out\n", stderr)
             } catch {
                 fputs("[muesli-native] Google Calendar fetch failed: \(error)\n", stderr)
             }
@@ -552,16 +557,17 @@ final class MuesliController: NSObject {
 
     /// Check merged calendar events (EventKit + Google) for events starting within 5 minutes.
     /// Fires the meeting notification for events not yet notified.
+    /// Check Google Calendar events for upcoming meetings (EventKit events are handled
+    /// by CalendarMonitor.checkMeetings separately). Lets handleUpcomingMeeting decide
+    /// between notification vs auto-record.
     private func checkUpcomingCalendarNotifications() {
-        guard config.showMeetingDetectionNotification,
-              !config.autoRecordMeetings,
-              !isMeetingRecording(),
+        guard !isMeetingRecording(),
               !isStartingMeetingRecording else { return }
 
         let now = Date()
         let fiveMinutesFromNow = now.addingTimeInterval(5 * 60)
 
-        for event in appState.upcomingCalendarEvents {
+        for event in appState.upcomingCalendarEvents where event.source == .googleCalendar {
             guard !event.isAllDay else { continue }
             guard event.startDate > now && event.startDate <= fiveMinutesFromNow else { continue }
             guard !notifiedUpcomingEventIDs.contains(event.id) else { continue }
@@ -815,9 +821,8 @@ final class MuesliController: NSObject {
     }
 
     func createMeetingFromCalendarEvent(_ event: UnifiedCalendarEvent, folderID: Int64?) {
-        // Check for existing meeting with this calendar event ID to prevent duplicates
-        if let existing = appState.meetingRows.first(where: { $0.calendarEventID == event.id }) {
-            // Already exists — just move to the requested folder
+        // Check ALL folders for existing meeting with this calendar event ID
+        if let existing = try? dictationStore.meetingByCalendarEventID(event.id) {
             if let folderID {
                 try? dictationStore.moveMeeting(id: existing.id, toFolder: folderID)
             }
