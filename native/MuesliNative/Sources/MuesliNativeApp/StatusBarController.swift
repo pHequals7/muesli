@@ -58,8 +58,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         let now = Date()
+        let hidden = controller.appState.hiddenCalendarEventIDs
         let nextEvent = controller.appState.upcomingCalendarEvents
-            .filter { !$0.isAllDay && $0.startDate > now }
+            .filter { !$0.isAllDay && $0.startDate > now && !hidden.contains($0.id) }
             .first
 
         if let event = nextEvent {
@@ -92,7 +93,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         // Upcoming calendar events
-        let upcomingEvents = controller.appState.upcomingCalendarEvents.filter { !$0.isAllDay }
+        let hidden = controller.appState.hiddenCalendarEventIDs
+        let upcomingEvents = controller.appState.upcomingCalendarEvents.filter { !$0.isAllDay && !hidden.contains($0.id) }
         if !upcomingEvents.isEmpty {
             addUpcomingEventsSection(upcomingEvents)
             menu.addItem(.separator())

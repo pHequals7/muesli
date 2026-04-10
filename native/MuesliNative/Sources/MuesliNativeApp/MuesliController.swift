@@ -1611,8 +1611,9 @@ final class MuesliController: NSObject {
             eventProvider: { [weak self] in
                 guard let self else { return nil }
                 let now = Date()
+                let hidden = self.appState.hiddenCalendarEventIDs
                 guard let event = self.appState.upcomingCalendarEvents
-                    .filter({ !$0.isAllDay && $0.startDate > now })
+                    .filter({ !$0.isAllDay && $0.startDate > now && !hidden.contains($0.id) })
                     .first else { return nil }
                 return (id: event.id, title: event.title, startDate: event.startDate)
             },
