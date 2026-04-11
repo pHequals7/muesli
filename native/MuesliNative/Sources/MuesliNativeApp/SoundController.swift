@@ -88,11 +88,13 @@ enum SoundController {
         let audioDir = supportDir.appendingPathComponent("audio", isDirectory: true)
         try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
 
-        let dest = audioDir.appendingPathComponent(sourceURL.lastPathComponent)
-        if FileManager.default.fileExists(atPath: dest.path) {
-            try FileManager.default.removeItem(at: dest)
-        }
-        try FileManager.default.copyItem(at: sourceURL, to: dest)
+        // Use a stable filename ("custom.<ext>") to avoid accumulating old imports
+        let ext = sourceURL.pathExtension
+        let dest = audioDir.appendingPathComponent("custom.\(ext)")
+        // Atomic replacement: copy to temp, then move
+        let tmp = audioDir.appendingPathComponent("custom_import_\(UUID().uuidString).\(ext)")
+        try FileManager.default.copyItem(at: sourceURL, to: tmp)
+        _ = try FileManager.default.replaceItemAt(dest, withItemAt: tmp)
         return dest.path
     }
 
@@ -111,6 +113,6 @@ private class ClipSoundDelegate: NSObject, NSSoundDelegate {
     init(onFinished: @escaping () -> Void) { self.onFinished = onFinished }
 
     func sound(_ sound: NSSound, didFinishPlaying flag: Bool) {
-        DispatchQueue.main.async { self.onFinished() }
+        Task { @MainActor in self.onFinished() }
     }
 }

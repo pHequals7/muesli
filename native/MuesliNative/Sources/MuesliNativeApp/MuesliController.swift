@@ -355,9 +355,10 @@ final class MuesliController: NSObject {
         appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
         appState.isGoogleCalendarVerified = googleCalAuth.isVerified
         appState.isGoogleCalendarAuthenticated = googleCalAuth.isAuthenticated
-        // Seed hidden IDs from config on first sync; thereafter appState is authoritative
-        if appState.hiddenCalendarEventIDs.isEmpty && !config.hiddenCalendarEventIDs.isEmpty {
-            appState.hiddenCalendarEventIDs = Set(config.hiddenCalendarEventIDs)
+        // Keep appState in sync with persisted hidden event IDs
+        let persisted = Set(config.hiddenCalendarEventIDs)
+        if appState.hiddenCalendarEventIDs != persisted {
+            appState.hiddenCalendarEventIDs = persisted
         }
     }
 
