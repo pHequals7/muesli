@@ -546,7 +546,7 @@ final class MuesliController: NSObject {
         let staleIDs = appState.hiddenCalendarEventIDs.subtracting(currentEventIDs)
         if !staleIDs.isEmpty {
             appState.hiddenCalendarEventIDs.subtract(staleIDs)
-            updateConfig { $0.hiddenCalendarEventIDs = Array(self.appState.hiddenCalendarEventIDs) }
+            updateConfig { $0.hiddenCalendarEventIDs = self.appState.hiddenCalendarEventIDs.sorted() }
         }
 
         statusBarController?.updateMenuBarTitle()
@@ -834,7 +834,7 @@ final class MuesliController: NSObject {
 
     func hideCalendarEvent(_ eventID: String) {
         appState.hiddenCalendarEventIDs.insert(eventID)
-        updateConfig { $0.hiddenCalendarEventIDs = Array(self.appState.hiddenCalendarEventIDs) }
+        updateConfig { $0.hiddenCalendarEventIDs = self.appState.hiddenCalendarEventIDs.sorted() }
         statusBarController?.refresh()
     }
 
@@ -1634,7 +1634,7 @@ final class MuesliController: NSObject {
                 let hidden = self.appState.hiddenCalendarEventIDs
                 guard let event = self.appState.upcomingCalendarEvents
                     .filter({ !$0.isAllDay && $0.startDate > now && !hidden.contains($0.id) })
-                    .first else { return nil }
+                    .min(by: { $0.startDate < $1.startDate }) else { return nil }
                 return (id: event.id, title: event.title, startDate: event.startDate)
             },
             audioClipID: config.maraudersMapAudioClip,

@@ -52,6 +52,7 @@ final class MaraudersMapCountdownController {
                 self?.pollCheck()
             }
         }
+        pollCheck()
     }
 
     private func pollCheck() {

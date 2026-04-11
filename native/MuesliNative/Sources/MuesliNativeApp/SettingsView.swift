@@ -411,6 +411,8 @@ struct SettingsView: View {
                                         pickCustomAudioFile()
                                     } else if let preset = SoundController.maraudersMapPresets
                                         .first(where: { $0.label == label }) {
+                                        SoundController.stopMaraudersMapClip()
+                                        isPreviewingClip = false
                                         controller.updateConfig {
                                             $0.maraudersMapAudioClip = preset.id
                                             $0.maraudersMapCustomAudioPath = nil
@@ -547,8 +549,13 @@ struct SettingsView: View {
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
+        guard let appSupportBase = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fputs("[muesli-native] Could not resolve Application Support directory\n", stderr)
+            return
+        }
+
         do {
-            let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let supportDir = appSupportBase
                 .appendingPathComponent(Bundle.main.infoDictionary?["MuesliSupportDirectoryName"] as? String ?? "Muesli")
             let destPath = try SoundController.importCustomClip(from: url, supportDir: supportDir)
             controller.updateConfig {
