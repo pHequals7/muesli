@@ -355,6 +355,10 @@ final class MuesliController: NSObject {
         appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
         appState.isGoogleCalendarVerified = googleCalAuth.isVerified
         appState.isGoogleCalendarAuthenticated = googleCalAuth.isAuthenticated
+        // Seed hidden IDs from config on first sync; thereafter appState is authoritative
+        if appState.hiddenCalendarEventIDs.isEmpty && !config.hiddenCalendarEventIDs.isEmpty {
+            appState.hiddenCalendarEventIDs = Set(config.hiddenCalendarEventIDs)
+        }
     }
 
     func updateConfig(_ mutate: (inout AppConfig) -> Void) {
@@ -535,6 +539,15 @@ final class MuesliController: NSObject {
         }
 
         appState.upcomingCalendarEvents = ekEvents
+
+        // Prune hidden IDs for events that no longer exist in the calendar
+        let currentEventIDs = Set(ekEvents.map(\.id))
+        let staleIDs = appState.hiddenCalendarEventIDs.subtracting(currentEventIDs)
+        if !staleIDs.isEmpty {
+            appState.hiddenCalendarEventIDs.subtract(staleIDs)
+            updateConfig { $0.hiddenCalendarEventIDs = Array(self.appState.hiddenCalendarEventIDs) }
+        }
+
         statusBarController?.updateMenuBarTitle()
     }
 
@@ -820,6 +833,7 @@ final class MuesliController: NSObject {
 
     func hideCalendarEvent(_ eventID: String) {
         appState.hiddenCalendarEventIDs.insert(eventID)
+        updateConfig { $0.hiddenCalendarEventIDs = Array(self.appState.hiddenCalendarEventIDs) }
         statusBarController?.refresh()
     }
 

@@ -455,6 +455,10 @@ struct SettingsView: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    .onDisappear {
+                        SoundController.stopMaraudersMapClip()
+                        isPreviewingClip = false
+                    }
                 }
 
                 settingsSection("Data") {

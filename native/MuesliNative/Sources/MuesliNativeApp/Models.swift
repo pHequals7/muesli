@@ -284,6 +284,7 @@ struct AppConfig: Codable {
     var maraudersMapUnlocked: Bool = false
     var maraudersMapAudioClip: String = "bbc_world_news"
     var maraudersMapCustomAudioPath: String?
+    var hiddenCalendarEventIDs: [String] = []
 
     enum CodingKeys: String, CodingKey {
         case dictationHotkey = "dictation_hotkey"
@@ -322,6 +323,7 @@ struct AppConfig: Codable {
         case maraudersMapUnlocked = "marauders_map_unlocked"
         case maraudersMapAudioClip = "marauders_map_audio_clip"
         case maraudersMapCustomAudioPath = "marauders_map_custom_audio_path"
+        case hiddenCalendarEventIDs = "hidden_calendar_event_ids"
     }
 
     init() {}
@@ -365,6 +367,7 @@ struct AppConfig: Codable {
         maraudersMapUnlocked = (try? c.decode(Bool.self, forKey: .maraudersMapUnlocked)) ?? defaults.maraudersMapUnlocked
         maraudersMapAudioClip = (try? c.decode(String.self, forKey: .maraudersMapAudioClip)) ?? defaults.maraudersMapAudioClip
         maraudersMapCustomAudioPath = try? c.decode(String.self, forKey: .maraudersMapCustomAudioPath)
+        hiddenCalendarEventIDs = (try? c.decode([String].self, forKey: .hiddenCalendarEventIDs)) ?? defaults.hiddenCalendarEventIDs
     }
 }
 
