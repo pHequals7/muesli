@@ -242,9 +242,9 @@ struct PostProcessorOption: Identifiable, Equatable {
     static let qwen35_0_8b = PostProcessorOption(
         id: "qwen35-0.8b",
         label: "Qwen3.5 0.8B",
-        sizeLabel: "~510 MB",
+        sizeLabel: "~533 MB",
         description: "Vanilla Qwen3.5-0.8B. Good for typo correction and filler removal. Spoken list formatting is unreliable.",
-        downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen3.5-0.8B-Instruct-GGUF/resolve/main/Qwen3.5-0.8B-Instruct-Q4_K_M.gguf")!,
+        downloadURL: URL(string: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf")!,
         filename: "Qwen3.5-0.8B-Q4_K_M.gguf"
     )
 
