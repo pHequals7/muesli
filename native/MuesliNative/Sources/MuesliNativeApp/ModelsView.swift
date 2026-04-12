@@ -215,8 +215,8 @@ struct ModelsView: View {
     }
 
     private func postProcModelCard(_ option: PostProcessorOption) -> some View {
-        let isActive = appState.activePostProcessor.id == option.id
         let isDownloaded = downloadedPostProcModels.contains(option.id)
+        let isActive = appState.activePostProcessor.id == option.id && isDownloaded
         let isDownloading = downloadingPostProcModels.contains(option.id)
         let progress = downloadProgressPostProc[option.id] ?? 0
 
