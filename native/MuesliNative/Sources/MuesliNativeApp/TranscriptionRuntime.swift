@@ -57,6 +57,7 @@ actor TranscriptionCoordinator {
 
     private var postProcessorModelURL: URL = PostProcessorOption.finetunedV2.modelURL
     private var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
+    private var postProcessorModelId: String = PostProcessorOption.finetunedV2.id
 
     @available(macOS 15, *)
     private var qwen3PostProcessor: Qwen3PostProcessor {
@@ -73,8 +74,34 @@ actor TranscriptionCoordinator {
     func setActivePostProcessor(option: PostProcessorOption, systemPrompt: String) async {
         postProcessorModelURL = option.modelURL
         postProcessorSystemPrompt = systemPrompt
+        postProcessorModelId = option.id
         if let existing = _qwen3PostProcessor as? Qwen3PostProcessor {
             await existing.reconfigure(modelURL: option.modelURL, systemPrompt: systemPrompt)
+        }
+    }
+
+    private func logPostProcPair(raw: String, processed: String, asr: String) {
+        let logURL = AppIdentity.supportDirectoryURL.appendingPathComponent("postproc-pairs.jsonl")
+        let iso8601 = ISO8601DateFormatter()
+        iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let ts = iso8601.string(from: Date())
+        func jsonEscape(_ s: String) -> String {
+            s.replacingOccurrences(of: "\\", with: "\\\\")
+             .replacingOccurrences(of: "\"", with: "\\\"")
+             .replacingOccurrences(of: "\n", with: "\\n")
+             .replacingOccurrences(of: "\r", with: "\\r")
+             .replacingOccurrences(of: "\t", with: "\\t")
+        }
+        let line = "{\"ts\":\"\(ts)\",\"raw\":\"\(jsonEscape(raw))\",\"processed\":\"\(jsonEscape(processed))\",\"model\":\"\(jsonEscape(postProcessorModelId))\",\"asr\":\"\(jsonEscape(asr))\"}\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if FileManager.default.fileExists(atPath: logURL.path) {
+            if let fh = try? FileHandle(forWritingTo: logURL) {
+                fh.seekToEndOfFile()
+                fh.write(data)
+                try? fh.close()
+            }
+        } else {
+            try? data.write(to: logURL, options: .atomic)
         }
     }
 
@@ -346,6 +373,7 @@ actor TranscriptionCoordinator {
             }
             fputs("[muesli-native] Qwen3 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms (chars=\(trimmed.count))\n", stderr)
             Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor final output: \(trimmed)")
+            logPostProcPair(raw: result.text, processed: trimmed, asr: backend.backend)
             return SpeechTranscriptionResult(
                 text: trimmed,
                 segments: trimmed.isEmpty ? [] : result.segments
