@@ -26,7 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
 SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
-APP_DIR="/Applications/Muesli.app"
+APP_DIR="/Applications/MuesliCanary.app"
 OUTPUT_DIR="$ROOT/dist-release"
 HOSTED_MOUNT_POINT=""
 VERIFY_DIR=""
@@ -84,29 +84,31 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 TAG="v${VERSION}"
-RELEASE_TITLE="Muesli ${VERSION}"
-DMG_PATH="$OUTPUT_DIR/Muesli-${VERSION}.dmg"
+RELEASE_TITLE="MuesliCanary ${VERSION}"
+DMG_PATH="$OUTPUT_DIR/MuesliCanary-${VERSION}.dmg"
 
 RELEASE_NOTES="$(cat <<EOF
-## Muesli ${VERSION}
+## MuesliCanary ${VERSION}
 
 Alpha build — signed and notarized, but not yet stable.
+Installs as **MuesliCanary** alongside your existing Muesli install.
 
 ### Install
-1. Download \`Muesli-${VERSION}.dmg\`
-2. Open the DMG and drag Muesli to Applications (replaces existing install)
-3. Launch from Applications
+1. Download \`MuesliCanary-${VERSION}.dmg\`
+2. Open the DMG and drag MuesliCanary to Applications
+3. Launch MuesliCanary from Applications
 
-### Update path
-Sparkle in this build points to the stable update feed. When the next stable
-release ships, this app will auto-update to it via the in-app updater.
+### Notes
+- Stores data separately in \`~/Library/Application Support/MuesliCanary/\`
+- Raw ASR + post-processed pairs logged to \`MuesliCanary/postproc-pairs.jsonl\`
+- Sparkle points to the stable update feed — auto-updates to next stable release
 
 ### Not linked from the main site
 Download from [GitHub Releases](https://github.com/pHequals7/muesli/releases).
 EOF
 )"
 
-echo "=== Muesli Alpha v${VERSION} ==="
+echo "=== MuesliCanary Alpha v${VERSION} ==="
 echo ""
 
 mkdir -p "$OUTPUT_DIR"
@@ -118,7 +120,12 @@ echo "  Tests passed."
 
 # --- Step 2: Build and sign ---
 echo "[2/10] Building and signing (version: ${VERSION})..."
-echo "y" | MUESLI_BUILD_VERSION="$VERSION" "$ROOT/scripts/build_native_app.sh" > /dev/null 2>&1
+echo "y" | MUESLI_BUILD_VERSION="$VERSION" \
+  MUESLI_APP_NAME=MuesliCanary \
+  MUESLI_BUNDLE_ID=com.muesli.canary \
+  MUESLI_DISPLAY_NAME=MuesliCanary \
+  MUESLI_SUPPORT_DIR_NAME=MuesliCanary \
+  "$ROOT/scripts/build_native_app.sh" > /dev/null 2>&1
 echo "  Installed to $APP_DIR"
 
 FLAGS=$(codesign -dvvv "$APP_DIR" 2>&1 | grep -o 'flags=0x[0-9a-f]*([^)]*)')
@@ -126,7 +133,7 @@ echo "  Signature: $FLAGS"
 
 # --- Step 3: Notarize app bundle ---
 echo "[3/10] Notarizing app bundle (this may take several minutes)..."
-APP_ZIP="$OUTPUT_DIR/Muesli-app-${VERSION}.zip"
+APP_ZIP="$OUTPUT_DIR/MuesliCanary-app-${VERSION}.zip"
 ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP"
 NOTARY_OUTPUT=$(xcrun notarytool submit "$APP_ZIP" \
   --keychain-profile "$PROFILE_NAME" \
@@ -151,7 +158,7 @@ echo "  App stapled."
 echo "[5/10] Creating DMG from stapled app..."
 "$ROOT/scripts/create_dmg.sh" "$APP_DIR" "$OUTPUT_DIR"
 # create_dmg.sh reads CFBundleShortVersionString from the app, so the DMG is
-# already named Muesli-{VERSION}.dmg — no rename needed.
+# already named MuesliCanary-{VERSION}.dmg — no rename needed.
 
 # --- Step 6: Notarize DMG ---
 echo "[6/10] Notarizing DMG..."
@@ -178,8 +185,8 @@ if [[ -z "$MOUNT_POINT" ]]; then
   exit 1
 fi
 
-SPCTL_RESULT=$(spctl -a -vv "$MOUNT_POINT/Muesli.app" 2>&1)
-STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/Muesli.app" 2>&1)
+SPCTL_RESULT=$(spctl -a -vv "$MOUNT_POINT/MuesliCanary.app" 2>&1)
+STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/MuesliCanary.app" 2>&1)
 hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
 
 if ! echo "$SPCTL_RESULT" | grep -q "accepted"; then
@@ -229,10 +236,10 @@ echo "  Draft prerelease: $DRAFT_URL"
 # --- Step 10: Verify hosted asset + publish ---
 echo "[10/10] Verifying hosted DMG and publishing..."
 VERIFY_DIR=$(mktemp -d)
-HOSTED_DMG="$VERIFY_DIR/Muesli-${VERSION}.dmg"
+HOSTED_DMG="$VERIFY_DIR/MuesliCanary-${VERSION}.dmg"
 
 gh release download "$TAG" \
-  -p "Muesli-${VERSION}.dmg" \
+  -p "MuesliCanary-${VERSION}.dmg" \
   -D "$VERIFY_DIR" \
   --clobber >/dev/null
 
@@ -259,7 +266,7 @@ if ! echo "$HOSTED_STAPLE" | grep -q "worked"; then
 fi
 
 HOSTED_MOUNT_POINT=$(hdiutil attach "$HOSTED_DMG" -nobrowse 2>&1 | grep "/Volumes" | awk -F'\t' '{print $NF}')
-HOSTED_APP_SPCTL=$(spctl -a -vv "$HOSTED_MOUNT_POINT/Muesli.app" 2>&1)
+HOSTED_APP_SPCTL=$(spctl -a -vv "$HOSTED_MOUNT_POINT/MuesliCanary.app" 2>&1)
 hdiutil detach "$HOSTED_MOUNT_POINT" -quiet 2>/dev/null
 HOSTED_MOUNT_POINT=""
 
