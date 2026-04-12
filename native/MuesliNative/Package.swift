@@ -15,7 +15,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
         .package(url: "https://github.com/FluidInference/FluidAudio.git", "0.12.2"..<"0.13.0"),
         .package(url: "https://github.com/exPHAT/SwiftWhisper.git", branch: "master"),
-        .package(url: "https://github.com/eastriverlee/LLM.swift/", branch: "main"),
+        .package(url: "https://github.com/obra/LLM.swift.git", revision: "f1e1e11982dbc59662be191b8bed408dfb48e9df"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
         .package(url: "https://github.com/TelemetryDeck/SwiftSDK", from: "2.0.0"),
         .package(url: "https://github.com/MimicScribe/dtln-aec-coreml.git", from: "0.4.0-beta"),

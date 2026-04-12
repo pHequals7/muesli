@@ -30,10 +30,9 @@
     {
       "identity" : "llm.swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/eastriverlee/LLM.swift/",
+      "location" : "https://github.com/obra/LLM.swift.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "427f3b8957a40982500abc8d35ccff8b83ec56a4"
+        "revision" : "f1e1e11982dbc59662be191b8bed408dfb48e9df"
       }
     },
     {

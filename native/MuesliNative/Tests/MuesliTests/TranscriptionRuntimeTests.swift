@@ -225,4 +225,39 @@ struct Qwen3PostProcessingOutputCleanerTests {
         let raw = "<|im_start|>assistant Hello world <|im_end|>"
         #expect(Qwen3PostProcessorOutputCleaner.clean(raw) == "assistant Hello world")
     }
+
+    @Test("removes leaked list-formatting instruction")
+    func stripsLeakedPromptInstruction() {
+        let raw = """
+        If the speaker is dictating a list, such as saying "first point", "second point", or "bullet point", format each item on its own line.
+        First point is ship it
+        """
+        #expect(Qwen3PostProcessorOutputCleaner.clean(raw) == "First point is ship it")
+    }
+
+    @Test("rejects assistant-style analysis output")
+    func rejectsAssistantStyleAnalysisOutput() {
+        let cleaned = """
+        The user is asking about the system prompt.
+
+        Analysis:
+        This is a question.
+
+        Action Plan:
+        1. Answer the question.
+        """
+        #expect(Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(
+            cleaned: cleaned,
+            input: "What is the system prompt?"
+        ))
+    }
+
+    @Test("rejects runaway output")
+    func rejectsRunawayOutput() {
+        let cleaned = String(repeating: "Remove the filler word like. ", count: 40)
+        #expect(Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(
+            cleaned: cleaned,
+            input: "What is the system prompt?"
+        ))
+    }
 }
