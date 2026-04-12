@@ -228,6 +228,13 @@ final class MuesliController: NSObject {
 
         Task { [weak self] in
             guard let self else { return }
+            if #available(macOS 15, *) {
+                let ppOption = PostProcessorOption.all.first { $0.id == self.config.activePostProcessorId } ?? .finetunedV2
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: ppOption,
+                    systemPrompt: self.config.postProcessorSystemPrompt
+                )
+            }
             await self.transcriptionCoordinator.preload(
                 backend: self.selectedBackend,
                 enablePostProcessor: self.config.enablePostProcessor
@@ -352,6 +359,7 @@ final class MuesliController: NSObject {
         appState.meetingStats = meetingStats()
         appState.selectedBackend = selectedBackend
         appState.selectedMeetingSummaryBackend = selectedMeetingSummaryBackend
+        appState.activePostProcessor = PostProcessorOption.all.first { $0.id == config.activePostProcessorId } ?? .finetunedV2
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
@@ -398,6 +406,13 @@ final class MuesliController: NSObject {
         }
         Task { [weak self] in
             guard let self else { return }
+            if #available(macOS 15, *) {
+                let ppOption = PostProcessorOption.all.first { $0.id == self.config.activePostProcessorId } ?? .finetunedV2
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: ppOption,
+                    systemPrompt: self.config.postProcessorSystemPrompt
+                )
+            }
             await self.transcriptionCoordinator.preload(
                 backend: option,
                 enablePostProcessor: self.config.enablePostProcessor
@@ -410,14 +425,50 @@ final class MuesliController: NSObject {
     }
 
     func preloadExperimentalTranscriptionFeatures() {
-        let backend = selectedBackend
         let enabled = config.enablePostProcessor
+        let ppId = config.activePostProcessorId
+        let ppPrompt = config.postProcessorSystemPrompt
         Task { [weak self] in
             guard let self else { return }
-            await self.transcriptionCoordinator.preload(
-                backend: backend,
-                enablePostProcessor: enabled
-            )
+            if #available(macOS 15, *) {
+                let ppOption = PostProcessorOption.all.first { $0.id == ppId } ?? .finetunedV2
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: ppOption,
+                    systemPrompt: ppPrompt
+                )
+            }
+            await self.transcriptionCoordinator.preloadPostProcessorIfNeeded(enabled: enabled)
+        }
+    }
+
+    func selectPostProcessor(_ option: PostProcessorOption) {
+        updateConfig { $0.activePostProcessorId = option.id }
+        appState.activePostProcessor = option
+        guard config.enablePostProcessor else { return }
+        let systemPrompt = config.postProcessorSystemPrompt
+        Task { [weak self] in
+            guard let self else { return }
+            if #available(macOS 15, *) {
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: option,
+                    systemPrompt: systemPrompt
+                )
+            }
+        }
+    }
+
+    func updatePostProcessorSystemPrompt(_ prompt: String) {
+        updateConfig { $0.postProcessorSystemPrompt = prompt }
+        let ppOption = PostProcessorOption.all.first { $0.id == config.activePostProcessorId } ?? .finetunedV2
+        guard config.enablePostProcessor else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            if #available(macOS 15, *) {
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: ppOption,
+                    systemPrompt: prompt
+                )
+            }
         }
     }
 

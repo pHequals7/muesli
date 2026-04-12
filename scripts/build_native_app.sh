@@ -88,9 +88,9 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleVersion</key>
-  <string>0.5.5</string>
+  <string>${MUESLI_BUILD_VERSION:-0.5.5}</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.5.5</string>
+  <string>${MUESLI_BUILD_VERSION:-0.5.5}</string>
   <key>CFBundleExecutable</key>
   <string>$APP_EXECUTABLE_NAME</string>
   <key>CFBundlePackageType</key>

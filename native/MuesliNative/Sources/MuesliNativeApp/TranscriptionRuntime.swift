@@ -55,12 +55,27 @@ actor TranscriptionCoordinator {
         return _canaryQwenTranscriber as! CanaryQwenTranscriber
     }
 
+    private var postProcessorModelURL: URL = PostProcessorOption.finetunedV2.modelURL
+    private var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
+
     @available(macOS 15, *)
     private var qwen3PostProcessor: Qwen3PostProcessor {
         if _qwen3PostProcessor == nil {
-            _qwen3PostProcessor = Qwen3PostProcessor()
+            _qwen3PostProcessor = Qwen3PostProcessor(
+                modelURL: postProcessorModelURL,
+                systemPrompt: postProcessorSystemPrompt
+            )
         }
         return _qwen3PostProcessor as! Qwen3PostProcessor
+    }
+
+    @available(macOS 15, *)
+    func setActivePostProcessor(option: PostProcessorOption, systemPrompt: String) async {
+        postProcessorModelURL = option.modelURL
+        postProcessorSystemPrompt = systemPrompt
+        if let existing = _qwen3PostProcessor as? Qwen3PostProcessor {
+            await existing.reconfigure(modelURL: option.modelURL, systemPrompt: systemPrompt)
+        }
     }
 
     @available(macOS 15, *)
@@ -165,7 +180,11 @@ actor TranscriptionCoordinator {
             fputs("[muesli-native] unknown backend: \(backend.backend)\n", stderr)
         }
 
-        if enablePostProcessor, #available(macOS 15, *) {
+        await preloadPostProcessorIfNeeded(enabled: enablePostProcessor)
+    }
+
+    func preloadPostProcessorIfNeeded(enabled: Bool) async {
+        if enabled, #available(macOS 15, *) {
             do {
                 try await qwen3PostProcessor.prepare()
             } catch {
@@ -314,7 +333,9 @@ actor TranscriptionCoordinator {
         }
 
         do {
-            fputs("[muesli-native] Qwen3 post-processor forced by toggle\n", stderr)
+            // Prototype mode intentionally runs cleanup on every dictation while the toggle is on.
+            // Keep the heuristics in place for a future smart-mode gate once prompt/model behavior stabilizes.
+            fputs("[muesli-native] Qwen3 post-processor forced by toggle (prototype mode)\n", stderr)
             let start = CFAbsoluteTimeGetCurrent()
             let processed = try await qwen3PostProcessor.process(result.text)
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
@@ -323,7 +344,8 @@ actor TranscriptionCoordinator {
                 fputs("[muesli-native] Qwen3 post-processor returned empty output in \(String(format: "%.1f", elapsedMs))ms; falling back\n", stderr)
                 return nil
             }
-            fputs("[muesli-native] Qwen3 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms -> \(trimmed)\n", stderr)
+            fputs("[muesli-native] Qwen3 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms (chars=\(trimmed.count))\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor final output: \(trimmed)")
             return SpeechTranscriptionResult(
                 text: trimmed,
                 segments: trimmed.isEmpty ? [] : result.segments

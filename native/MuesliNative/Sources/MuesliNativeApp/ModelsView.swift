@@ -14,6 +14,15 @@ struct ModelsView: View {
     @State private var selectedWhisperModel: String
     @State private var showExperimental: Bool
 
+    // Post-processor state
+    @State private var downloadingPostProcModels: Set<String> = []
+    @State private var downloadProgressPostProc: [String: Double] = [:]
+    @State private var downloadedPostProcModels: Set<String> = []
+    @State private var downloadTasksPostProc: [String: Task<Void, Never>] = [:]
+    @State private var postProcModelToDelete: PostProcessorOption?
+    @State private var isEditingSystemPrompt: Bool = false
+    @State private var editedSystemPrompt: String
+
     init(appState: AppState, controller: MuesliController) {
         self.appState = appState
         self.controller = controller
@@ -22,6 +31,7 @@ struct ModelsView: View {
         _selectedParakeetModel = State(initialValue: BackendOption.parakeetFamily.contains(active) ? active.model : BackendOption.parakeetMultilingual.model)
         _selectedWhisperModel = State(initialValue: BackendOption.whisperFamily.contains(active) ? active.model : BackendOption.whisperSmall.model)
         _showExperimental = State(initialValue: false)
+        _editedSystemPrompt = State(initialValue: appState.config.postProcessorSystemPrompt)
     }
 
     var body: some View {
@@ -55,6 +65,8 @@ struct ModelsView: View {
 
                 experimentalSection
 
+                postProcessorSection
+
                 if !BackendOption.comingSoon.isEmpty {
                     VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
                         Text("COMING SOON")
@@ -78,6 +90,7 @@ struct ModelsView: View {
         .background(MuesliTheme.backgroundBase)
         .onAppear {
             checkDownloadedModels()
+            checkDownloadedPostProcModels()
             syncSelectionsFromActiveBackend()
         }
         .onChange(of: appState.selectedBackend.model) { _, _ in
@@ -97,6 +110,24 @@ struct ModelsView: View {
                 guard let option = modelToDelete else { return }
                 deleteModel(option)
                 modelToDelete = nil
+            }
+        } message: {
+            Text("The downloaded model files will be removed from this Mac. You can download the model again later.")
+        }
+        .alert(
+            "Delete \"\(postProcModelToDelete?.label ?? "")\"?",
+            isPresented: Binding(
+                get: { postProcModelToDelete != nil },
+                set: { if !$0 { postProcModelToDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                postProcModelToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                guard let option = postProcModelToDelete else { return }
+                deletePostProcModel(option)
+                postProcModelToDelete = nil
             }
         } message: {
             Text("The downloaded model files will be removed from this Mac. You can download the model again later.")
@@ -146,6 +177,240 @@ struct ModelsView: View {
                         modelCard(option: option)
                     }
                 }
+            }
+        }
+        .padding(MuesliTheme.spacing16)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private var postProcessorSection: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+                Text("POST-PROCESSING")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .textCase(.uppercase)
+                    .padding(.leading, 2)
+
+                Text("Optional LLM cleanup layer applied after transcription. Removes filler words, formats spoken lists, and corrects common dictation errors.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .padding(.leading, 2)
+            }
+            .padding(.top, MuesliTheme.spacing8)
+
+            VStack(spacing: MuesliTheme.spacing12) {
+                ForEach(PostProcessorOption.all) { option in
+                    postProcModelCard(option)
+                }
+            }
+
+            systemPromptCard
+        }
+    }
+
+    private func postProcModelCard(_ option: PostProcessorOption) -> some View {
+        let isActive = appState.activePostProcessor.id == option.id
+        let isDownloaded = downloadedPostProcModels.contains(option.id)
+        let isDownloading = downloadingPostProcModels.contains(option.id)
+        let progress = downloadProgressPostProc[option.id] ?? 0
+
+        return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+                    HStack(spacing: MuesliTheme.spacing8) {
+                        Text(option.label)
+                            .font(MuesliTheme.headline())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+
+                        Text(option.sizeLabel)
+                            .font(MuesliTheme.caption())
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                    }
+
+                    Text(option.description)
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                }
+
+                Spacer()
+
+                if isActive {
+                    Text("Active")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.success)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(MuesliTheme.success.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                } else if isDownloaded {
+                    Text("Downloaded")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(MuesliTheme.surfacePrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            }
+
+            if isDownloading {
+                VStack(alignment: .leading, spacing: 4) {
+                    ProgressView(value: progress)
+                        .tint(MuesliTheme.accent)
+                    Text("\(Int(progress * 100))% downloading...")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+            }
+
+            HStack(spacing: MuesliTheme.spacing8) {
+                if isDownloading {
+                    Button("Cancel") {
+                        cancelPostProcDownload(option)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                } else if isDownloaded {
+                    if !isActive {
+                        Button("Set Active") {
+                            controller.selectPostProcessor(option)
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MuesliTheme.accent)
+                        .padding(.horizontal, MuesliTheme.spacing12)
+                        .padding(.vertical, 4)
+                        .background(MuesliTheme.accentSubtle)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    }
+
+                    Button {
+                        postProcModelToDelete = option
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red.opacity(0.6))
+                            .frame(width: 20, height: 20)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button("Download") {
+                        startPostProcDownload(option)
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.accent)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.accentSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                }
+            }
+        }
+        .padding(MuesliTheme.spacing16)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(isActive ? MuesliTheme.accent.opacity(0.5) : MuesliTheme.surfaceBorder, lineWidth: isActive ? 1.5 : 1)
+        )
+    }
+
+    private var systemPromptCard: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            HStack {
+                VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+                    Text("System Prompt")
+                        .font(MuesliTheme.headline())
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                    Text("Controls how the model cleans up transcriptions. Applies to the active post-processor model.")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                }
+                Spacer()
+                if !isEditingSystemPrompt {
+                    Button("Edit") {
+                        editedSystemPrompt = appState.config.postProcessorSystemPrompt
+                        isEditingSystemPrompt = true
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.accent)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.accentSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                }
+            }
+
+            if isEditingSystemPrompt {
+                TextEditor(text: $editedSystemPrompt)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(minHeight: 120)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+
+                HStack(spacing: MuesliTheme.spacing8) {
+                    Button("Save") {
+                        controller.updatePostProcessorSystemPrompt(editedSystemPrompt)
+                        isEditingSystemPrompt = false
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.accent)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.accentSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+
+                    Button("Cancel") {
+                        isEditingSystemPrompt = false
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+
+                    Button("Reset to Default") {
+                        editedSystemPrompt = PostProcessorOption.defaultSystemPrompt
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                }
+            } else {
+                Text(appState.config.postProcessorSystemPrompt)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .lineLimit(6)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
             }
         }
         .padding(MuesliTheme.spacing16)
@@ -430,6 +695,91 @@ struct ModelsView: View {
                 .strokeBorder(MuesliTheme.surfaceBorder.opacity(0.5), lineWidth: 1)
         )
         .opacity(0.6)
+    }
+
+    // MARK: - Post-Processor Actions
+
+    private func startPostProcDownload(_ option: PostProcessorOption) {
+        withAnimation { downloadingPostProcModels.insert(option.id) }
+        downloadProgressPostProc[option.id] = 0.02
+
+        let task = Task {
+            let fm = FileManager.default
+            let tmpURL = option.cacheDirectory.appendingPathComponent(option.filename + ".tmp")
+            do {
+                try fm.createDirectory(at: option.cacheDirectory, withIntermediateDirectories: true)
+                fm.createFile(atPath: tmpURL.path, contents: nil)
+                let handle = try FileHandle(forWritingTo: tmpURL)
+                let (asyncBytes, response) = try await URLSession.shared.bytes(from: option.downloadURL)
+                let total = response.expectedContentLength
+                var received: Int64 = 0
+                var chunk = Data(capacity: 65536)
+                for try await byte in asyncBytes {
+                    guard !Task.isCancelled else { throw CancellationError() }
+                    chunk.append(byte)
+                    if chunk.count >= 65536 {
+                        try handle.write(contentsOf: chunk)
+                        received += Int64(chunk.count)
+                        chunk.removeAll(keepingCapacity: true)
+                        if total > 0 {
+                            let p = Double(received) / Double(total)
+                            await MainActor.run { downloadProgressPostProc[option.id] = max(p, 0.02) }
+                        }
+                    }
+                }
+                if !chunk.isEmpty { try handle.write(contentsOf: chunk) }
+                try handle.close()
+                if fm.fileExists(atPath: option.modelURL.path) { try fm.removeItem(at: option.modelURL) }
+                try fm.moveItem(at: tmpURL, to: option.modelURL)
+                await MainActor.run {
+                    withAnimation {
+                        downloadingPostProcModels.remove(option.id)
+                        downloadedPostProcModels.insert(option.id)
+                        downloadProgressPostProc.removeValue(forKey: option.id)
+                        downloadTasksPostProc.removeValue(forKey: option.id)
+                    }
+                }
+            } catch {
+                try? fm.removeItem(at: tmpURL)
+                await MainActor.run {
+                    withAnimation {
+                        downloadingPostProcModels.remove(option.id)
+                        downloadProgressPostProc.removeValue(forKey: option.id)
+                        downloadTasksPostProc.removeValue(forKey: option.id)
+                    }
+                }
+                if !(error is CancellationError) {
+                    fputs("[muesli-native] Post-processor download failed: \(error)\n", stderr)
+                }
+            }
+        }
+        downloadTasksPostProc[option.id] = task
+    }
+
+    private func cancelPostProcDownload(_ option: PostProcessorOption) {
+        downloadTasksPostProc[option.id]?.cancel()
+        withAnimation {
+            downloadingPostProcModels.remove(option.id)
+            downloadProgressPostProc.removeValue(forKey: option.id)
+            downloadTasksPostProc.removeValue(forKey: option.id)
+        }
+    }
+
+    private func deletePostProcModel(_ option: PostProcessorOption) {
+        if appState.activePostProcessor.id == option.id {
+            let fallback = PostProcessorOption.all.first { $0.id != option.id } ?? .finetunedV2
+            controller.selectPostProcessor(fallback)
+        }
+        try? FileManager.default.removeItem(at: option.cacheDirectory)
+        downloadedPostProcModels.remove(option.id)
+    }
+
+    private func checkDownloadedPostProcModels() {
+        for option in PostProcessorOption.all {
+            if option.isDownloaded {
+                downloadedPostProcModels.insert(option.id)
+            }
+        }
     }
 
     // MARK: - Actions

@@ -1,6 +1,28 @@
 import Foundation
 import LLM
 
+enum Qwen3PostProcessorLogging {
+    private static let verboseEnv = "MUESLI_DEBUG_POSTPROC_LOGS"
+
+    static var isVerboseEnabled: Bool {
+        #if DEBUG
+        true
+        #else
+        let raw = ProcessInfo.processInfo.environment[verboseEnv]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return raw == "1" || raw == "true" || raw == "yes"
+        #endif
+    }
+
+    static func log(_ message: String) {
+        fputs("[muesli-native] \(message)\n", stderr)
+    }
+
+    static func logVerbose(_ message: @autoclosure () -> String) {
+        guard isVerboseEnabled else { return }
+        log(message())
+    }
+}
+
 enum Qwen3PostProcessingHeuristics {
     private static let formattingCues: [String] = [
         "bullet point", "bullet points", "number one", "number two", "number three",
@@ -62,6 +84,11 @@ enum Qwen3PostProcessorOutputCleaner {
             options: .regularExpression
         )
         result = result.replacingOccurrences(
+            of: #"(?is)<think\b[^>]*>[\s\S]*$"#,
+            with: " ",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
             of: #"<\|im_(?:start|end)\|>"#,
             with: " ",
             options: .regularExpression
@@ -92,6 +119,16 @@ enum Qwen3PostProcessorOutputCleaner {
             options: .regularExpression
         )
         result = result.replacingOccurrences(
+            of: #"(?im)^\s*when the speaker is dictating a numbered list or bullet list,\s*format each item on its own line\.?\s*"#,
+            with: "",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: #"(?im)^\s*if the speaker is dictating a list, such as saying ["“”]?first point["“”]?[,]?\s*["“”]?second point["“”]?[,]?\s*or ["“”]?bullet point["“”]?[,]?\s*format each item on its own line\.?\s*"#,
+            with: "",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
             of: #"(?im)^\s*(?:\*\*|__)([^*\n_]{1,80})(?:\*\*|__)\s*$"#,
             with: "$1",
             options: .regularExpression
@@ -108,106 +145,108 @@ enum Qwen3PostProcessorOutputCleaner {
         )
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    static func shouldFallbackToInput(cleaned: String, input: String) -> Bool {
+        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return true }
+
+        let lower = trimmed.lowercased()
+        let assistantMarkers = [
+            "the user is asking",
+            "**analysis:**",
+            "analysis:",
+            "**action plan:**",
+            "action plan:",
+            "grammar/spelling:",
+            "meaning:",
+            "remove the filler word",
+        ]
+        if assistantMarkers.contains(where: { lower.contains($0) }) {
+            return true
+        }
+
+        let inputLength = max(input.trimmingCharacters(in: .whitespacesAndNewlines).count, 1)
+        return trimmed.count > inputLength * 4 && trimmed.count > 500
+    }
 }
 
 private enum Qwen3PostProcessorConfig {
+    // Dev/Canary override — takes precedence over the UI-selected model when set.
     static let envOverride = "MUESLI_QWEN3_POSTPROC_GGUF"
     static let legacyDirectoryEnvOverride = "MUESLI_QWEN3_POSTPROC_DIR"
-    static let maxContextTokens: Int32 = 2048
+    static let maxContextTokens: Int32 = 768
 
-    static let systemPrompt = """
-    Clean up speech-to-text transcription. Only make changes when there is a clear error. If the text is already correct, output it exactly as-is.
-
-    You may: fix obvious misspellings, remove filler words (um, uh, like), apply 'scratch that' deletions, and format numbered or bullet lists when dictated.
-
-    Do not: paraphrase, reword, add words, remove meaningful words, change the meaning in any way, wrap the output in markdown, code fences, tags, labels, or commentary, or repeat the output more than once. Preserve the speaker's original phrasing.
-    """
-
-    static let defaultCacheDirectory = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".cache/muesli/models/qwen3-postproc-gguf", isDirectory: true)
-}
-
-private enum Qwen3PostProcessorModelStore {
-    static func resolvedModelURL() throws -> URL {
-        if let override = overrideModelURL() {
-            return override
-        }
-        if let cached = ggufURL(in: Qwen3PostProcessorConfig.defaultCacheDirectory) {
-            return cached
-        }
-        throw NSError(domain: "Qwen3PostProcessor", code: 1, userInfo: [
-            NSLocalizedDescriptionKey: "Qwen3 post-processor GGUF not found. Set \(Qwen3PostProcessorConfig.envOverride) to a .gguf file or directory.",
-        ])
+    static func formatInput(_ text: String) -> String {
+        """
+        <USER-INPUT>
+        \(text)
+        </USER-INPUT>
+        """
     }
 
-    private static func overrideModelURL() -> URL? {
+    /// Checks for a dev/Canary env-var override and returns the resolved GGUF URL if present.
+    static func devOverrideURL() -> URL? {
         let env = ProcessInfo.processInfo.environment
-        if let raw = env[Qwen3PostProcessorConfig.envOverride], !raw.isEmpty {
-            return resolveOverride(raw)
-        }
-        if let raw = env[Qwen3PostProcessorConfig.legacyDirectoryEnvOverride], !raw.isEmpty {
-            return resolveOverride(raw)
+        for key in [envOverride, legacyDirectoryEnvOverride] {
+            guard let raw = env[key], !raw.isEmpty else { continue }
+            let url = URL(fileURLWithPath: raw)
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
+            if isDir.boolValue {
+                if let found = firstGGUF(in: url) { return found }
+            } else if url.pathExtension.lowercased() == "gguf" {
+                return url
+            }
         }
         return nil
     }
 
-    private static func resolveOverride(_ raw: String) -> URL? {
-        let url = URL(fileURLWithPath: raw)
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-            return nil
-        }
-        if isDirectory.boolValue {
-            return ggufURL(in: url)
-        }
-        return url.pathExtension.lowercased() == "gguf" ? url : nil
-    }
-
-    private static func ggufURL(in directory: URL) -> URL? {
-        guard let enumerator = FileManager.default.enumerator(
-            at: directory,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return nil
-        }
-
-        for case let fileURL as URL in enumerator {
-            guard fileURL.pathExtension.lowercased() == "gguf" else { continue }
-            return fileURL
-        }
+    private static func firstGGUF(in directory: URL) -> URL? {
+        guard let e = FileManager.default.enumerator(
+            at: directory, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles]
+        ) else { return nil }
+        for case let f as URL in e where f.pathExtension.lowercased() == "gguf" { return f }
         return nil
     }
 }
 
 @available(macOS 15, *)
-private final class Qwen3PostProcessorManager {
+private actor Qwen3PostProcessorManager {
     private let modelURL: URL
-    private let template = Template.chatML(Qwen3PostProcessorConfig.systemPrompt)
+    private let systemPrompt: String
+    private var bot: LLM?
 
-    init(modelURL: URL) {
+    init(modelURL: URL, systemPrompt: String) {
         self.modelURL = modelURL
+        self.systemPrompt = systemPrompt
     }
 
     func warm() throws {
-        _ = try makeBot()
+        _ = try loadBot()
     }
 
     func process(_ text: String) async throws -> String {
-        let bot = try makeBot()
-        let prompt = bot.preprocess(text, [], .suppressed)
-        let raw = await bot.getCompletion(from: prompt)
+        let bot = try loadBot()
+        defer { bot.reset() }
+        let formattedInput = Qwen3PostProcessorConfig.formatInput(text)
+        bot.history = []
+        await bot.respond(to: formattedInput, thinking: .suppressed)
+        let raw = bot.output
         let cleaned = Qwen3PostProcessorOutputCleaner.clean(raw)
-        fputs("[muesli-native] Qwen3 GGUF prompt chars=\(prompt.count)\n", stderr)
-        fputs("[muesli-native] Qwen3 GGUF raw output: \(raw)\n", stderr)
-        fputs("[muesli-native] Qwen3 GGUF cleaned output: \(cleaned)\n", stderr)
+        Qwen3PostProcessorLogging.log("Qwen3 GGUF prompt chars=\(bot.preprocess(formattedInput, [], .suppressed).count)")
+        Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF raw output: \(raw)")
+        Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF cleaned output: \(cleaned)")
+        if Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(cleaned: cleaned, input: text) {
+            Qwen3PostProcessorLogging.log("Qwen3 GGUF output rejected; falling back to raw ASR transcript")
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         return cleaned
     }
 
-    private func makeBot() throws -> LLM {
-        guard let bot = LLM(
+    private func loadBot() throws -> LLM {
+        if let bot { return bot }
+        guard let loaded = LLM(
             from: modelURL,
-            template: template,
             seed: 7,
             topK: 1,
             topP: 1.0,
@@ -221,14 +260,36 @@ private final class Qwen3PostProcessorManager {
                 NSLocalizedDescriptionKey: "Failed to load Qwen3 GGUF model at \(modelURL.path)",
             ])
         }
-        return bot
+        loaded.useResolvedTemplate(systemPrompt: systemPrompt)
+        bot = loaded
+        return loaded
     }
 }
 
 @available(macOS 15, *)
 actor Qwen3PostProcessor {
+    private var modelURL: URL
+    private var systemPrompt: String
     private var manager: Qwen3PostProcessorManager?
     private var loadTask: Task<Qwen3PostProcessorManager, Error>?
+
+    init(modelURL: URL, systemPrompt: String) {
+        // Dev/Canary env-var override takes precedence.
+        self.modelURL = Qwen3PostProcessorConfig.devOverrideURL() ?? modelURL
+        self.systemPrompt = systemPrompt
+    }
+
+    /// Swap to a different model or system prompt. Discards the loaded manager so
+    /// the next `prepare()` or `process()` call reloads with the new config.
+    func reconfigure(modelURL: URL, systemPrompt: String) {
+        let resolved = Qwen3PostProcessorConfig.devOverrideURL() ?? modelURL
+        guard resolved != self.modelURL || systemPrompt != self.systemPrompt else { return }
+        self.modelURL = resolved
+        self.systemPrompt = systemPrompt
+        manager = nil
+        loadTask?.cancel()
+        loadTask = nil
+    }
 
     func prepare() async throws {
         _ = try await loadManager()
@@ -246,17 +307,19 @@ actor Qwen3PostProcessor {
     }
 
     private func loadManager() async throws -> Qwen3PostProcessorManager {
-        if let manager {
-            return manager
-        }
-        if let loadTask {
-            return try await loadTask.value
-        }
+        if let manager { return manager }
+        if let loadTask { return try await loadTask.value }
 
+        let url = self.modelURL
+        let prompt = self.systemPrompt
         let task = Task<Qwen3PostProcessorManager, Error> {
-            let modelURL = try Qwen3PostProcessorModelStore.resolvedModelURL()
-            let manager = Qwen3PostProcessorManager(modelURL: modelURL)
-            try manager.warm()
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw NSError(domain: "Qwen3PostProcessor", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Post-processor model not found at \(url.path). Download it from the Models tab.",
+                ])
+            }
+            let manager = Qwen3PostProcessorManager(modelURL: url, systemPrompt: prompt)
+            try await manager.warm()
             return manager
         }
         loadTask = task
