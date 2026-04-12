@@ -48,6 +48,20 @@ struct SettingsView: View {
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
 
+    /// Downloaded backends, always including the currently active one so the picker never goes blank.
+    private var availableBackendOptions: [BackendOption] {
+        var options = BackendOption.downloaded
+        if !options.contains(where: { $0.backend == appState.selectedBackend.backend }) {
+            options.insert(appState.selectedBackend, at: 0)
+        }
+        return options
+    }
+
+    /// Post-processor models that have been downloaded to disk.
+    private var downloadedPostProcOptions: [PostProcessorOption] {
+        PostProcessorOption.all.filter { $0.isDownloaded }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
@@ -80,9 +94,9 @@ struct SettingsView: View {
                     settingsRow("Backend") {
                         settingsMenu(
                             selection: appState.selectedBackend.label,
-                            options: BackendOption.all.map(\.label)
+                            options: availableBackendOptions.map(\.label)
                         ) { label in
-                            if let option = BackendOption.all.first(where: { $0.label == label }) {
+                            if let option = availableBackendOptions.first(where: { $0.label == label }) {
                                 controller.selectBackend(option)
                             }
                         }
@@ -92,6 +106,22 @@ struct SettingsView: View {
                         settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
                             controller.updateConfig { $0.enablePostProcessor = newValue }
                             controller.preloadExperimentalTranscriptionFeatures()
+                        }
+                    }
+                    if appState.config.enablePostProcessor && !downloadedPostProcOptions.isEmpty {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Cleanup model") {
+                            let selection = downloadedPostProcOptions.contains(where: { $0.id == appState.activePostProcessor.id })
+                                ? appState.activePostProcessor.label
+                                : (downloadedPostProcOptions.first?.label ?? "")
+                            settingsMenu(
+                                selection: selection,
+                                options: downloadedPostProcOptions.map(\.label)
+                            ) { label in
+                                if let option = downloadedPostProcOptions.first(where: { $0.label == label }) {
+                                    controller.selectPostProcessor(option)
+                                }
+                            }
                         }
                     }
                 }
