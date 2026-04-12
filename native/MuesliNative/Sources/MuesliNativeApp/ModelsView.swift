@@ -705,32 +705,29 @@ struct ModelsView: View {
 
         let task = Task {
             let fm = FileManager.default
-            let tmpURL = option.cacheDirectory.appendingPathComponent(option.filename + ".tmp")
             do {
                 try fm.createDirectory(at: option.cacheDirectory, withIntermediateDirectories: true)
-                fm.createFile(atPath: tmpURL.path, contents: nil)
-                let handle = try FileHandle(forWritingTo: tmpURL)
-                let (asyncBytes, response) = try await URLSession.shared.bytes(from: option.downloadURL)
-                let total = response.expectedContentLength
-                var received: Int64 = 0
-                var chunk = Data(capacity: 65536)
-                for try await byte in asyncBytes {
-                    guard !Task.isCancelled else { throw CancellationError() }
-                    chunk.append(byte)
-                    if chunk.count >= 65536 {
-                        try handle.write(contentsOf: chunk)
-                        received += Int64(chunk.count)
-                        chunk.removeAll(keepingCapacity: true)
-                        if total > 0 {
-                            let p = Double(received) / Double(total)
-                            await MainActor.run { downloadProgressPostProc[option.id] = max(p, 0.02) }
-                        }
+
+                let delegate = PostProcDownloadDelegate { progress in
+                    DispatchQueue.main.async {
+                        downloadProgressPostProc[option.id] = max(progress, 0.02)
                     }
                 }
-                if !chunk.isEmpty { try handle.write(contentsOf: chunk) }
-                try handle.close()
+                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+
+                let tmpURL = try await withTaskCancellationHandler {
+                    try await withCheckedThrowingContinuation { continuation in
+                        delegate.setContinuation(continuation)
+                        session.downloadTask(with: option.downloadURL).resume()
+                    }
+                } onCancel: {
+                    session.invalidateAndCancel()
+                }
+                session.finishTasksAndInvalidate()
+
                 if fm.fileExists(atPath: option.modelURL.path) { try fm.removeItem(at: option.modelURL) }
                 try fm.moveItem(at: tmpURL, to: option.modelURL)
+
                 await MainActor.run {
                     withAnimation {
                         downloadingPostProcModels.remove(option.id)
@@ -740,7 +737,6 @@ struct ModelsView: View {
                     }
                 }
             } catch {
-                try? fm.removeItem(at: tmpURL)
                 await MainActor.run {
                     withAnimation {
                         downloadingPostProcModels.remove(option.id)
@@ -748,7 +744,8 @@ struct ModelsView: View {
                         downloadTasksPostProc.removeValue(forKey: option.id)
                     }
                 }
-                if !(error is CancellationError) {
+                let isCancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
+                if !isCancelled {
                     fputs("[muesli-native] Post-processor download failed: \(error)\n", stderr)
                 }
             }
@@ -942,5 +939,42 @@ struct ModelsView: View {
         default:
             return false
         }
+    }
+}
+
+/// URLSessionDownloadDelegate bridge for post-processor GGUF downloads.
+/// Uses OS-level buffered download task instead of byte-by-byte async iteration.
+private final class PostProcDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let onProgress: (Double) -> Void
+    private var continuation: CheckedContinuation<URL, Error>?
+
+    init(onProgress: @escaping (Double) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    func setContinuation(_ c: CheckedContinuation<URL, Error>) {
+        continuation = c
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // URLSession deletes the temp file after this returns — move it first.
+        let dest = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".gguf.tmp")
+        try? FileManager.default.moveItem(at: location, to: dest)
+        continuation?.resume(returning: dest)
+        continuation = nil
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error else { return }
+        continuation?.resume(throwing: error)
+        continuation = nil
     }
 }
