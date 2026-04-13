@@ -228,7 +228,7 @@ actor TranscriptionCoordinator {
             do {
                 try await qwen3PostProcessor.prepare()
             } catch {
-                fputs("[muesli-native] Qwen3 post-processor preload failed: \(error)\n", stderr)
+                Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor preload failed: \(error)")
             }
         }
     }
@@ -358,37 +358,37 @@ actor TranscriptionCoordinator {
         enabled: Bool
     ) async -> SpeechTranscriptionResult? {
         guard enabled else {
-            fputs("[muesli-native] Qwen3 post-processor disabled for dictation\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor disabled for dictation")
             return nil
         }
         guard !result.text.isEmpty else {
-            fputs("[muesli-native] Qwen3 post-processor skipped: empty transcript\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor skipped: empty transcript")
             return nil
         }
         guard #available(macOS 15, *) else {
-            fputs("[muesli-native] Qwen3 post-processor skipped: requires macOS 15+\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor skipped: requires macOS 15+")
             return nil
         }
 
         do {
-            fputs("[muesli-native] Qwen3 post-processor forced by toggle (prototype mode)\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor forced by toggle")
             let start = CFAbsoluteTimeGetCurrent()
             let processed = try await qwen3PostProcessor.process(result.text)
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
             let trimmed = processed.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty, !Qwen3DeletionCueDetector.containsDeletionCue(result.text) {
-                fputs("[muesli-native] Qwen3 post-processor returned empty output in \(String(format: "%.1f", elapsedMs))ms; falling back\n", stderr)
+                Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor returned empty output in \(String(format: "%.1f", elapsedMs))ms; falling back")
                 return nil
             }
-            fputs("[muesli-native] Qwen3 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms (chars=\(trimmed.count))\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms (chars=\(trimmed.count))")
             Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor final output: \(trimmed)")
             logPostProcPair(raw: result.text, processed: trimmed, asr: backend.backend)
             return SpeechTranscriptionResult(
                 text: trimmed,
-                segments: trimmed.isEmpty ? [] : result.segments
+                segments: Qwen3PostProcessorLogging.isVerboseEnabled && !trimmed.isEmpty ? result.segments : []
             )
         } catch {
-            fputs("[muesli-native] Qwen3 post-processor failed, falling back: \(error)\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor failed, falling back: \(error)")
             return nil
         }
     }

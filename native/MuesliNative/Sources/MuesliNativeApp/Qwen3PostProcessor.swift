@@ -11,17 +11,14 @@ enum Qwen3PostProcessorLogging {
     }
 
     static var isPairLoggingEnabled: Bool {
+        guard isVerboseEnabled else { return false }
         let raw = ProcessInfo.processInfo.environment[pairLogEnv]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return raw == "1" || raw == "true" || raw == "yes"
     }
 
-    static func log(_ message: String) {
-        fputs("[muesli-native] \(message)\n", stderr)
-    }
-
     static func logVerbose(_ message: @autoclosure () -> String) {
         guard isVerboseEnabled else { return }
-        log(message())
+        fputs("[muesli-native] \(message())\n", stderr)
     }
 }
 
@@ -195,11 +192,11 @@ private actor Qwen3PostProcessorManager {
         await bot.respond(to: formattedInput, thinking: .suppressed)
         let raw = bot.output
         let cleaned = Qwen3PostProcessorOutputCleaner.clean(raw)
-        Qwen3PostProcessorLogging.log("Qwen3 GGUF prompt chars=\(bot.preprocess(formattedInput, [], .suppressed).count)")
+        Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF prompt chars=\(bot.preprocess(formattedInput, [], .suppressed).count)")
         Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF raw output: \(raw)")
         Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF cleaned output: \(cleaned)")
         if Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(cleaned: cleaned, input: text) {
-            Qwen3PostProcessorLogging.log("Qwen3 GGUF output rejected; falling back to raw ASR transcript")
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF output rejected; falling back to raw ASR transcript")
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return cleaned
