@@ -55,9 +55,9 @@ actor TranscriptionCoordinator {
         return _canaryQwenTranscriber as! CanaryQwenTranscriber
     }
 
-    private var postProcessorModelURL: URL = PostProcessorOption.finetunedV2.modelURL
+    private var postProcessorModelURL: URL = PostProcessorOption.defaultOption.modelURL
     private var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
-    private var postProcessorModelId: String = PostProcessorOption.finetunedV2.id
+    private var postProcessorModelId: String = PostProcessorOption.defaultOption.id
 
     @available(macOS 15, *)
     private var qwen3PostProcessor: Qwen3PostProcessor {
@@ -80,25 +80,37 @@ actor TranscriptionCoordinator {
         }
     }
 
+    private struct PostProcPairLogEntry: Encodable {
+        let ts: String
+        let raw: String
+        let processed: String
+        let model: String
+        let asr: String
+    }
+
     private func logPostProcPair(raw: String, processed: String, asr: String) {
         let logURL = AppIdentity.supportDirectoryURL.appendingPathComponent("postproc-pairs.jsonl")
         let iso8601 = ISO8601DateFormatter()
         iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let ts = iso8601.string(from: Date())
-        func jsonEscape(_ s: String) -> String {
-            s.replacingOccurrences(of: "\\", with: "\\\\")
-             .replacingOccurrences(of: "\"", with: "\\\"")
-             .replacingOccurrences(of: "\n", with: "\\n")
-             .replacingOccurrences(of: "\r", with: "\\r")
-             .replacingOccurrences(of: "\t", with: "\\t")
-        }
-        let line = "{\"ts\":\"\(ts)\",\"raw\":\"\(jsonEscape(raw))\",\"processed\":\"\(jsonEscape(processed))\",\"model\":\"\(jsonEscape(postProcessorModelId))\",\"asr\":\"\(jsonEscape(asr))\"}\n"
-        guard let data = line.data(using: .utf8) else { return }
+        let entry = PostProcPairLogEntry(
+            ts: ts,
+            raw: raw,
+            processed: processed,
+            model: postProcessorModelId,
+            asr: asr
+        )
+        guard var data = try? JSONEncoder().encode(entry) else { return }
+        data.append(0x0A)
+        try? FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         if FileManager.default.fileExists(atPath: logURL.path) {
             if let fh = try? FileHandle(forWritingTo: logURL) {
+                defer { try? fh.close() }
                 fh.seekToEndOfFile()
                 fh.write(data)
-                try? fh.close()
             }
         } else {
             try? data.write(to: logURL, options: .atomic)
@@ -242,16 +254,16 @@ actor TranscriptionCoordinator {
         var result = try await route(url: url, backend: backend)
         result = removeArtifacts(result)
         if !result.text.isEmpty {
-            fputs("[muesli-native] Dictation raw transcript after artifact cleanup: \(result.text)\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Dictation raw transcript after artifact cleanup: \(result.text)")
         }
-        result = try await postProcessDictationIfNeeded(
+        result = await postProcessDictationIfNeeded(
             result,
             backend: backend,
             enabled: enablePostProcessor
         ) ?? removeFillersWithLogging(result)
         let final = applyCustomWords(result, customWords: customWords)
         if !final.text.isEmpty {
-            fputs("[muesli-native] Dictation final transcript: \(final.text)\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("Dictation final transcript: \(final.text)")
         }
         return final
     }
@@ -305,17 +317,15 @@ actor TranscriptionCoordinator {
         diarizerManager
     }
 
-    func shutdown() {
-        Task {
-            await fluidTranscriber.shutdown()
-            await whisperTranscriber.shutdown()
-            if #available(macOS 15, *) {
-                await nemotronTranscriber.shutdown()
-                await qwen3Transcriber.shutdown()
-                await qwen3PostProcessor.shutdown()
-                await canaryQwenTranscriber.shutdown()
-                await cohereTranscriber.shutdown()
-            }
+    func shutdown() async {
+        await fluidTranscriber.shutdown()
+        await whisperTranscriber.shutdown()
+        if #available(macOS 15, *) {
+            await nemotronTranscriber.shutdown()
+            await qwen3Transcriber.shutdown()
+            await qwen3PostProcessor.shutdown()
+            await canaryQwenTranscriber.shutdown()
+            await cohereTranscriber.shutdown()
         }
     }
 
@@ -345,7 +355,7 @@ actor TranscriptionCoordinator {
         _ result: SpeechTranscriptionResult,
         backend: BackendOption,
         enabled: Bool
-    ) async throws -> SpeechTranscriptionResult? {
+    ) async -> SpeechTranscriptionResult? {
         guard enabled else {
             fputs("[muesli-native] Qwen3 post-processor disabled for dictation\n", stderr)
             return nil

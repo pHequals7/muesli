@@ -51,7 +51,7 @@ struct SettingsView: View {
     /// Downloaded backends, always including the currently active one so the picker never goes blank.
     private var availableBackendOptions: [BackendOption] {
         var options = BackendOption.downloaded
-        if !options.contains(where: { $0.backend == appState.selectedBackend.backend }) {
+        if !options.contains(where: { $0 == appState.selectedBackend }) {
             options.insert(appState.selectedBackend, at: 0)
         }
         return options
@@ -59,7 +59,7 @@ struct SettingsView: View {
 
     /// Post-processor models that have been downloaded to disk.
     private var downloadedPostProcOptions: [PostProcessorOption] {
-        PostProcessorOption.all.filter { $0.isDownloaded }
+        PostProcessorOption.downloaded
     }
 
     var body: some View {
@@ -104,8 +104,7 @@ struct SettingsView: View {
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("AI transcript cleanup") {
                         settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
-                            controller.updateConfig { $0.enablePostProcessor = newValue }
-                            controller.preloadExperimentalTranscriptionFeatures()
+                            controller.setPostProcessorEnabled(newValue)
                         }
                     }
                     if appState.config.enablePostProcessor && !downloadedPostProcOptions.isEmpty {
@@ -122,6 +121,15 @@ struct SettingsView: View {
                                     controller.selectPostProcessor(option)
                                 }
                             }
+                        }
+                    } else if appState.config.enablePostProcessor {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Cleanup model") {
+                            Text("Download a cleanup model in Models")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(MuesliTheme.textTertiary)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: controlWidth, alignment: .trailing)
                         }
                     }
                 }

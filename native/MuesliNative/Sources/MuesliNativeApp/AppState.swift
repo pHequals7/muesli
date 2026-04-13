@@ -40,7 +40,7 @@ final class AppState {
     // Config-driven state
     var selectedBackend: BackendOption = .whisper
     var selectedMeetingSummaryBackend: MeetingSummaryBackendOption = .openAI
-    var activePostProcessor: PostProcessorOption = .finetunedV2
+    var activePostProcessor: PostProcessorOption = PostProcessorOption.defaultOption
     var config: AppConfig = AppConfig()
 
     // Live status

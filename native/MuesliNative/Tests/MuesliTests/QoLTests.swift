@@ -58,13 +58,21 @@ struct FloatingIndicatorVisibilityTests {
         #expect(config.enablePostProcessor == false)
     }
 
+    @Test("post processor defaults to v3 model")
+    func postProcessorDefaultModel() {
+        let config = AppConfig()
+        #expect(config.activePostProcessorId == PostProcessorOption.defaultOption.id)
+    }
+
     @Test("post processor persists through JSON round-trip")
     func postProcessorRoundTrip() throws {
         var config = AppConfig()
         config.enablePostProcessor = true
+        config.activePostProcessorId = PostProcessorOption.finetunedV2.id
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
         #expect(decoded.enablePostProcessor == true)
+        #expect(decoded.activePostProcessorId == PostProcessorOption.finetunedV2.id)
     }
 
     @Test("post processor decodes from snake_case JSON")

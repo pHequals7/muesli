@@ -700,7 +700,7 @@ struct ModelsView: View {
     // MARK: - Post-Processor Actions
 
     private func startPostProcDownload(_ option: PostProcessorOption) {
-        withAnimation { downloadingPostProcModels.insert(option.id) }
+        withAnimation { _ = downloadingPostProcModels.insert(option.id) }
         downloadProgressPostProc[option.id] = 0.02
 
         let task = Task {
@@ -708,25 +708,7 @@ struct ModelsView: View {
             do {
                 try fm.createDirectory(at: option.cacheDirectory, withIntermediateDirectories: true)
 
-                let delegate = PostProcDownloadDelegate { progress in
-                    DispatchQueue.main.async {
-                        downloadProgressPostProc[option.id] = max(progress, 0.02)
-                    }
-                }
-                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-
-                let tmpURL = try await withTaskCancellationHandler {
-                    try await withCheckedThrowingContinuation { continuation in
-                        delegate.setContinuation(continuation)
-                        session.downloadTask(with: option.downloadURL).resume()
-                    }
-                } onCancel: {
-                    session.invalidateAndCancel()
-                }
-                session.finishTasksAndInvalidate()
-
-                if fm.fileExists(atPath: option.modelURL.path) { try fm.removeItem(at: option.modelURL) }
-                try fm.moveItem(at: tmpURL, to: option.modelURL)
+                try await downloadPostProcModel(option)
 
                 await MainActor.run {
                     withAnimation {
@@ -734,6 +716,10 @@ struct ModelsView: View {
                         downloadedPostProcModels.insert(option.id)
                         downloadProgressPostProc.removeValue(forKey: option.id)
                         downloadTasksPostProc.removeValue(forKey: option.id)
+                    }
+                    if appState.config.enablePostProcessor && !appState.activePostProcessor.isDownloaded {
+                        controller.selectPostProcessor(option)
+                        controller.preloadExperimentalTranscriptionFeatures()
                     }
                 }
             } catch {
@@ -753,6 +739,70 @@ struct ModelsView: View {
         downloadTasksPostProc[option.id] = task
     }
 
+    private func downloadPostProcModel(_ option: PostProcessorOption, maxRetries: Int = 3) async throws {
+        var lastError: Error?
+        for attempt in 0..<maxRetries {
+            try Task.checkCancellation()
+            if attempt > 0 {
+                let delay = UInt64(pow(2.0, Double(attempt - 1))) * 1_000_000_000
+                try await Task.sleep(nanoseconds: delay)
+                fputs("[download] retry \(attempt)/\(maxRetries) for \(option.filename)\n", stderr)
+                await MainActor.run {
+                    downloadProgressPostProc[option.id] = 0.02
+                }
+            }
+            do {
+                let tmpURL = try await downloadPostProcTempFile(option)
+                try installPostProcModel(from: tmpURL, option: option)
+                return
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+            }
+        }
+        throw DownloadError.retriesExhausted(option.filename, lastError!)
+    }
+
+    private func downloadPostProcTempFile(_ option: PostProcessorOption) async throws -> URL {
+        let delegate = PostProcDownloadDelegate { progress in
+            DispatchQueue.main.async {
+                downloadProgressPostProc[option.id] = max(progress, 0.02)
+            }
+        }
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.setContinuation(continuation)
+                session.downloadTask(with: option.downloadURL).resume()
+            }
+        } onCancel: {
+            session.invalidateAndCancel()
+        }
+    }
+
+    private func installPostProcModel(from tmpURL: URL, option: PostProcessorOption) throws {
+        let fm = FileManager.default
+        let stagingURL = option.cacheDirectory.appendingPathComponent(".\(option.filename).download")
+        defer {
+            try? fm.removeItem(at: tmpURL)
+            try? fm.removeItem(at: stagingURL)
+        }
+        try? fm.removeItem(at: stagingURL)
+        try fm.moveItem(at: tmpURL, to: stagingURL)
+        if fm.fileExists(atPath: option.modelURL.path) {
+            _ = try fm.replaceItemAt(
+                option.modelURL,
+                withItemAt: stagingURL,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try fm.moveItem(at: stagingURL, to: option.modelURL)
+        }
+    }
+
     private func cancelPostProcDownload(_ option: PostProcessorOption) {
         downloadTasksPostProc[option.id]?.cancel()
         withAnimation {
@@ -764,14 +814,19 @@ struct ModelsView: View {
 
     private func deletePostProcModel(_ option: PostProcessorOption) {
         if appState.activePostProcessor.id == option.id {
-            let fallback = PostProcessorOption.all.first { $0.id != option.id } ?? .finetunedV2
-            controller.selectPostProcessor(fallback)
+            let remainingDownloadedIDs = downloadedPostProcModels.subtracting([option.id])
+            if let fallback = PostProcessorOption.firstDownloaded(excluding: option.id, downloadedIDs: remainingDownloadedIDs) {
+                controller.selectPostProcessor(fallback)
+            } else {
+                controller.setPostProcessorEnabled(false)
+            }
         }
         try? FileManager.default.removeItem(at: option.cacheDirectory)
         downloadedPostProcModels.remove(option.id)
     }
 
     private func checkDownloadedPostProcModels() {
+        downloadedPostProcModels.removeAll()
         for option in PostProcessorOption.all {
             if option.isDownloaded {
                 downloadedPostProcModels.insert(option.id)
@@ -782,7 +837,7 @@ struct ModelsView: View {
     // MARK: - Actions
 
     private func startDownload(_ option: BackendOption) {
-        withAnimation { downloadingModels.insert(option.model) }
+        withAnimation { _ = downloadingModels.insert(option.model) }
         downloadProgress[option.model] = 0.05  // Show initial progress immediately
 
         let startTime = Date()
@@ -839,7 +894,7 @@ struct ModelsView: View {
         Task {
             await deleteModelFiles(option)
             await MainActor.run {
-                downloadedModels.remove(option.model)
+                _ = downloadedModels.remove(option.model)
             }
         }
     }
@@ -957,12 +1012,28 @@ private final class PostProcDownloadDelegate: NSObject, URLSessionDownloadDelega
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        // URLSession deletes the temp file after this returns — move it first.
-        let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".gguf.tmp")
-        try? FileManager.default.moveItem(at: location, to: dest)
-        continuation?.resume(returning: dest)
-        continuation = nil
+        var dest: URL?
+        do {
+            if let response = downloadTask.response as? HTTPURLResponse,
+               !(200..<300).contains(response.statusCode) {
+                throw NSError(domain: "PostProcDownload", code: response.statusCode, userInfo: [
+                    NSLocalizedDescriptionKey: "Post-processor download failed with HTTP \(response.statusCode)",
+                ])
+            }
+
+            // URLSession deletes the temp file after this returns — move it first.
+            let movedURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + ".gguf.tmp")
+            try FileManager.default.moveItem(at: location, to: movedURL)
+            dest = movedURL
+            try validateGGUFHeader(at: movedURL)
+            continuation?.resume(returning: movedURL)
+            continuation = nil
+        } catch {
+            if let dest { try? FileManager.default.removeItem(at: dest) }
+            continuation?.resume(throwing: error)
+            continuation = nil
+        }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
@@ -976,5 +1047,16 @@ private final class PostProcDownloadDelegate: NSObject, URLSessionDownloadDelega
         guard let error else { return }
         continuation?.resume(throwing: error)
         continuation = nil
+    }
+
+    private func validateGGUFHeader(at url: URL) throws {
+        let fh = try FileHandle(forReadingFrom: url)
+        defer { try? fh.close() }
+        let header = try fh.read(upToCount: 4) ?? Data()
+        guard header == Data([0x47, 0x47, 0x55, 0x46]) else {
+            throw NSError(domain: "PostProcDownload", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Downloaded post-processor file is not a GGUF model",
+            ])
+        }
     }
 }

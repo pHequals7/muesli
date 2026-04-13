@@ -170,7 +170,7 @@ enum Qwen3PostProcessorOutputCleaner {
     }
 }
 
-private enum Qwen3PostProcessorConfig {
+enum Qwen3PostProcessorConfig {
     // Dev/Canary override — takes precedence over the UI-selected model when set.
     static let envOverride = "MUESLI_QWEN3_POSTPROC_GGUF"
     static let legacyDirectoryEnvOverride = "MUESLI_QWEN3_POSTPROC_DIR"

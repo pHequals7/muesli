@@ -229,15 +229,16 @@ final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             if #available(macOS 15, *) {
-                let ppOption = PostProcessorOption.all.first { $0.id == self.config.activePostProcessorId } ?? .finetunedV2
-                await self.transcriptionCoordinator.setActivePostProcessor(
-                    option: ppOption,
-                    systemPrompt: self.config.postProcessorSystemPrompt
-                )
+                if let ppOption = self.resolveRuntimePostProcessorOption() {
+                    await self.transcriptionCoordinator.setActivePostProcessor(
+                        option: ppOption,
+                        systemPrompt: self.config.postProcessorSystemPrompt
+                    )
+                }
             }
             await self.transcriptionCoordinator.preload(
                 backend: self.selectedBackend,
-                enablePostProcessor: self.config.enablePostProcessor
+                enablePostProcessor: self.isPostProcessorReady
             )
             await MainActor.run {
                 self.refreshUI()
@@ -359,7 +360,7 @@ final class MuesliController: NSObject {
         appState.meetingStats = meetingStats()
         appState.selectedBackend = selectedBackend
         appState.selectedMeetingSummaryBackend = selectedMeetingSummaryBackend
-        appState.activePostProcessor = PostProcessorOption.all.first { $0.id == config.activePostProcessorId } ?? .finetunedV2
+        appState.activePostProcessor = PostProcessorOption.resolve(id: config.activePostProcessorId)
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
@@ -407,15 +408,16 @@ final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             if #available(macOS 15, *) {
-                let ppOption = PostProcessorOption.all.first { $0.id == self.config.activePostProcessorId } ?? .finetunedV2
-                await self.transcriptionCoordinator.setActivePostProcessor(
-                    option: ppOption,
-                    systemPrompt: self.config.postProcessorSystemPrompt
-                )
+                if let ppOption = self.resolveRuntimePostProcessorOption() {
+                    await self.transcriptionCoordinator.setActivePostProcessor(
+                        option: ppOption,
+                        systemPrompt: self.config.postProcessorSystemPrompt
+                    )
+                }
             }
             await self.transcriptionCoordinator.preload(
                 backend: option,
-                enablePostProcessor: self.config.enablePostProcessor
+                enablePostProcessor: self.isPostProcessorReady
             )
             await MainActor.run {
                 self.statusBarController?.refresh()
@@ -424,14 +426,46 @@ final class MuesliController: NSObject {
         }
     }
 
+    var isPostProcessorReady: Bool {
+        config.enablePostProcessor && resolveRuntimePostProcessorOption() != nil
+    }
+
+    @discardableResult
+    private func normalizePostProcessorSelectionForAvailability() -> PostProcessorOption? {
+        guard let option = PostProcessorOption.resolveDownloaded(id: config.activePostProcessorId) else {
+            appState.activePostProcessor = PostProcessorOption.resolve(id: config.activePostProcessorId)
+            return nil
+        }
+        if config.activePostProcessorId != option.id {
+            updateConfig { $0.activePostProcessorId = option.id }
+        }
+        appState.activePostProcessor = option
+        return option
+    }
+
+    private func resolveRuntimePostProcessorOption() -> PostProcessorOption? {
+        let configured = PostProcessorOption.resolve(id: config.activePostProcessorId)
+        if configured.isDownloaded || Qwen3PostProcessorConfig.devOverrideURL() != nil {
+            return configured
+        }
+        return normalizePostProcessorSelectionForAvailability()
+    }
+
+    func setPostProcessorEnabled(_ enabled: Bool) {
+        updateConfig { $0.enablePostProcessor = enabled }
+        if enabled {
+            normalizePostProcessorSelectionForAvailability()
+        }
+        preloadExperimentalTranscriptionFeatures()
+    }
+
     func preloadExperimentalTranscriptionFeatures() {
-        let enabled = config.enablePostProcessor
-        let ppId = config.activePostProcessorId
+        let enabled = isPostProcessorReady
+        let ppOption = resolveRuntimePostProcessorOption()
         let ppPrompt = config.postProcessorSystemPrompt
         Task { [weak self] in
             guard let self else { return }
-            if #available(macOS 15, *) {
-                let ppOption = PostProcessorOption.all.first { $0.id == ppId } ?? .finetunedV2
+            if let ppOption, #available(macOS 15, *) {
                 await self.transcriptionCoordinator.setActivePostProcessor(
                     option: ppOption,
                     systemPrompt: ppPrompt
@@ -459,11 +493,11 @@ final class MuesliController: NSObject {
 
     func updatePostProcessorSystemPrompt(_ prompt: String) {
         updateConfig { $0.postProcessorSystemPrompt = prompt }
-        let ppOption = PostProcessorOption.all.first { $0.id == config.activePostProcessorId } ?? .finetunedV2
+        let ppOption = resolveRuntimePostProcessorOption()
         guard config.enablePostProcessor else { return }
         Task { [weak self] in
             guard let self else { return }
-            if #available(macOS 15, *) {
+            if let ppOption, #available(macOS 15, *) {
                 await self.transcriptionCoordinator.setActivePostProcessor(
                     option: ppOption,
                     systemPrompt: prompt
@@ -689,7 +723,7 @@ final class MuesliController: NSObject {
         progress(0.0, "Downloading \(backend.label)...")
         await transcriptionCoordinator.preload(
             backend: backend,
-            enablePostProcessor: config.enablePostProcessor,
+            enablePostProcessor: isPostProcessorReady,
             progress: progress
         )
         progress(1.0, nil)
@@ -1641,7 +1675,7 @@ final class MuesliController: NSObject {
                 let result = try await self.transcriptionCoordinator.transcribeDictation(
                     at: wavURL,
                     backend: self.selectedBackend,
-                    enablePostProcessor: self.config.enablePostProcessor,
+                    enablePostProcessor: self.isPostProcessorReady,
                     customWords: self.serializedCustomWords()
                 )
                 let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)

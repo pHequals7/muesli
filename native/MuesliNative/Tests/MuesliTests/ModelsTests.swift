@@ -84,6 +84,77 @@ struct BackendOptionTests {
     }
 }
 
+@Suite("PostProcessorOption")
+struct PostProcessorOptionTests {
+
+    @Test("all options have unique ids")
+    func uniqueIDs() {
+        let ids = PostProcessorOption.all.map(\.id)
+        #expect(Set(ids).count == ids.count, "Duplicate id in PostProcessorOption.all")
+    }
+
+    @Test("all options have unique filenames")
+    func uniqueFilenames() {
+        let filenames = PostProcessorOption.all.map(\.filename)
+        #expect(Set(filenames).count == filenames.count, "Duplicate filename in PostProcessorOption.all")
+    }
+
+    @Test("all options use HTTPS GGUF downloads")
+    func validDownloadMetadata() {
+        for option in PostProcessorOption.all {
+            #expect(option.downloadURL.scheme == "https", "Non-HTTPS download URL for \(option.id)")
+            #expect(option.filename.lowercased().hasSuffix(".gguf"), "Non-GGUF filename for \(option.id)")
+            #expect(!option.label.isEmpty, "Empty label for \(option.id)")
+            #expect(!option.description.isEmpty, "Empty description for \(option.id)")
+            #expect(!option.sizeLabel.isEmpty, "Empty size label for \(option.id)")
+        }
+    }
+
+    @Test("default option is first and matches config default")
+    func defaultOption() {
+        #expect(PostProcessorOption.all.first == PostProcessorOption.defaultOption)
+        #expect(AppConfig().activePostProcessorId == PostProcessorOption.defaultOption.id)
+    }
+
+    @Test("unknown ids resolve to default")
+    func unknownIDResolvesToDefault() {
+        #expect(PostProcessorOption.resolve(id: "missing") == PostProcessorOption.defaultOption)
+    }
+
+    @Test("resolveDownloaded prefers selected downloaded option")
+    func resolveDownloadedPrefersSelected() {
+        let downloadedIDs: Set<String> = [
+            PostProcessorOption.finetunedV2.id,
+            PostProcessorOption.qwen35_0_8b.id,
+        ]
+        #expect(PostProcessorOption.resolveDownloaded(
+            id: PostProcessorOption.qwen35_0_8b.id,
+            downloadedIDs: downloadedIDs
+        ) == PostProcessorOption.qwen35_0_8b)
+    }
+
+    @Test("resolveDownloaded falls back to first downloaded option")
+    func resolveDownloadedFallsBack() {
+        let downloadedIDs: Set<String> = [PostProcessorOption.finetunedV2.id]
+        #expect(PostProcessorOption.resolveDownloaded(
+            id: PostProcessorOption.finetunedV3.id,
+            downloadedIDs: downloadedIDs
+        ) == PostProcessorOption.finetunedV2)
+    }
+
+    @Test("firstDownloaded respects deletion exclusion")
+    func firstDownloadedExcludingDeleted() {
+        let downloadedIDs: Set<String> = [
+            PostProcessorOption.finetunedV3.id,
+            PostProcessorOption.finetunedV2.id,
+        ]
+        #expect(PostProcessorOption.firstDownloaded(
+            excluding: PostProcessorOption.finetunedV3.id,
+            downloadedIDs: downloadedIDs
+        ) == PostProcessorOption.finetunedV2)
+    }
+}
+
 @Suite("SummaryModelPreset")
 struct SummaryModelPresetTests {
 

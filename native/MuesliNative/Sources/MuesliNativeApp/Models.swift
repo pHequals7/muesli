@@ -259,6 +259,33 @@ struct PostProcessorOption: Identifiable, Equatable {
     )
 
     static let all: [PostProcessorOption] = [.finetunedV3, .finetunedV2, .qwen35_0_8b]
+    static let defaultOption: PostProcessorOption = .finetunedV3
+
+    static var downloaded: [PostProcessorOption] {
+        all.filter(\.isDownloaded)
+    }
+
+    static func resolve(id: String) -> PostProcessorOption {
+        all.first { $0.id == id } ?? defaultOption
+    }
+
+    static func firstDownloaded(
+        excluding excludedID: String? = nil,
+        downloadedIDs: Set<String> = Set(downloaded.map(\.id))
+    ) -> PostProcessorOption? {
+        all.first { option in
+            option.id != excludedID && downloadedIDs.contains(option.id)
+        }
+    }
+
+    static func resolveDownloaded(
+        id: String,
+        downloadedIDs: Set<String> = Set(downloaded.map(\.id))
+    ) -> PostProcessorOption? {
+        let resolved = resolve(id: id)
+        if downloadedIDs.contains(resolved.id) { return resolved }
+        return firstDownloaded(downloadedIDs: downloadedIDs)
+    }
 
     static let defaultSystemPrompt = """
     Clean up speech-to-text transcription. Only make changes when there is a clear error. If the text is already correct, output it exactly as-is.
@@ -349,7 +376,7 @@ struct AppConfig: Codable {
     var maraudersMapCustomAudioPath: String?
     var hiddenCalendarEventIDs: [String] = []
     var enablePostProcessor: Bool = false
-    var activePostProcessorId: String = PostProcessorOption.finetunedV2.id
+    var activePostProcessorId: String = PostProcessorOption.defaultOption.id
     var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
 
     enum CodingKeys: String, CodingKey {
