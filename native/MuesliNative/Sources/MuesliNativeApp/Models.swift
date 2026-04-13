@@ -248,7 +248,17 @@ struct PostProcessorOption: Identifiable, Equatable {
         filename: "Qwen3.5-0.8B-Q4_K_M.gguf"
     )
 
-    static let all: [PostProcessorOption] = [.finetunedV2, .qwen35_0_8b]
+    // Fine-tuned Qwen3.5-0.8B v3 trained on Muesli dictation correction data.
+    static let finetunedV3 = PostProcessorOption(
+        id: "qwen35-postproc-v3",
+        label: "Post-Proc v3 (Finetuned)",
+        sizeLabel: "~505 MB",
+        description: "Fine-tuned Qwen3.5-0.8B on Muesli dictation data. Improved over v2 on filler removal, deletion cues, and spoken list formatting.",
+        downloadURL: URL(string: "https://huggingface.co/phequals/qwen35-postproc-v3-gguf/resolve/main/qwen35-postproc-v3-Q4_K_M.gguf")!,
+        filename: "qwen35-postproc-v3-Q4_K_M.gguf"
+    )
+
+    static let all: [PostProcessorOption] = [.finetunedV3, .finetunedV2, .qwen35_0_8b]
 
     static let defaultSystemPrompt = """
     Clean up speech-to-text transcription. Only make changes when there is a clear error. If the text is already correct, output it exactly as-is.
