@@ -89,6 +89,7 @@ actor TranscriptionCoordinator {
     }
 
     private func logPostProcPair(raw: String, processed: String, asr: String) {
+        guard Qwen3PostProcessorLogging.isPairLoggingEnabled else { return }
         let logURL = AppIdentity.supportDirectoryURL.appendingPathComponent("postproc-pairs.jsonl")
         let iso8601 = ISO8601DateFormatter()
         iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -370,14 +371,12 @@ actor TranscriptionCoordinator {
         }
 
         do {
-            // Prototype mode intentionally runs cleanup on every dictation while the toggle is on.
-            // Keep the heuristics in place for a future smart-mode gate once prompt/model behavior stabilizes.
             fputs("[muesli-native] Qwen3 post-processor forced by toggle (prototype mode)\n", stderr)
             let start = CFAbsoluteTimeGetCurrent()
             let processed = try await qwen3PostProcessor.process(result.text)
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
             let trimmed = processed.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty, !Qwen3PostProcessingHeuristics.containsDeletionCue(result.text) {
+            if trimmed.isEmpty, !Qwen3DeletionCueDetector.containsDeletionCue(result.text) {
                 fputs("[muesli-native] Qwen3 post-processor returned empty output in \(String(format: "%.1f", elapsedMs))ms; falling back\n", stderr)
                 return nil
             }

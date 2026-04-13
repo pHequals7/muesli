@@ -3,14 +3,16 @@ import LLM
 
 enum Qwen3PostProcessorLogging {
     private static let verboseEnv = "MUESLI_DEBUG_POSTPROC_LOGS"
+    private static let pairLogEnv = "MUESLI_LOG_POSTPROC_PAIRS"
 
     static var isVerboseEnabled: Bool {
-        #if DEBUG
-        true
-        #else
         let raw = ProcessInfo.processInfo.environment[verboseEnv]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return raw == "1" || raw == "true" || raw == "yes"
-        #endif
+    }
+
+    static var isPairLoggingEnabled: Bool {
+        let raw = ProcessInfo.processInfo.environment[pairLogEnv]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return raw == "1" || raw == "true" || raw == "yes"
     }
 
     static func log(_ message: String) {
@@ -23,53 +25,14 @@ enum Qwen3PostProcessorLogging {
     }
 }
 
-enum Qwen3PostProcessingHeuristics {
-    private static let formattingCues: [String] = [
-        "bullet point", "bullet points", "number one", "number two", "number three",
-        "new paragraph", "new line", "next line", "comma", "period", "full stop",
-        "question mark", "exclamation point", "colon", "semicolon", "open quote",
-        "close quote", "open parenthesis", "close parenthesis",
-    ]
-
+enum Qwen3DeletionCueDetector {
     private static let deletionCues: [String] = [
         "scratch that", "delete that", "forget that", "never mind",
     ]
 
-    static func shouldApply(to text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        if FillerWordFilter.apply(trimmed) != trimmed { return true }
-        return containsDeletionCue(trimmed) || containsFormattingCue(trimmed)
-    }
-
-    static func triggerLabels(for text: String) -> [String] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
-
-        var labels: [String] = []
-        if FillerWordFilter.apply(trimmed) != trimmed {
-            labels.append("fillers")
-        }
-        if containsDeletionCue(trimmed) {
-            labels.append("deletion")
-        }
-        if containsFormattingCue(trimmed) {
-            labels.append("formatting")
-        }
-        return labels
-    }
-
     static func containsDeletionCue(_ text: String) -> Bool {
-        containsPhrase(in: text, phrases: deletionCues)
-    }
-
-    static func containsFormattingCue(_ text: String) -> Bool {
-        containsPhrase(in: text, phrases: formattingCues)
-    }
-
-    private static func containsPhrase(in text: String, phrases: [String]) -> Bool {
         let lower = text.lowercased()
-        return phrases.contains { lower.contains($0) }
+        return deletionCues.contains { lower.contains($0) }
     }
 }
 
@@ -229,7 +192,6 @@ private actor Qwen3PostProcessorManager {
         let bot = try loadBot()
         defer { bot.reset() }
         let formattedInput = Qwen3PostProcessorConfig.formatInput(text)
-        bot.history = []
         await bot.respond(to: formattedInput, thinking: .suppressed)
         let raw = bot.output
         let cleaned = Qwen3PostProcessorOutputCleaner.clean(raw)

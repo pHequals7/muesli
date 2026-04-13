@@ -187,30 +187,6 @@ struct TranscriptionEngineArtifactsFilterTests {
     }
 }
 
-@Suite("Qwen3 post-processing heuristics")
-struct Qwen3PostProcessingHeuristicsTests {
-
-    @Test("runs when filler cleanup would change text")
-    func fillerTrigger() {
-        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "um I think we should go") == true)
-    }
-
-    @Test("runs when scratch-that cue is present")
-    func deletionTrigger() {
-        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "Call Sarah scratch that call James") == true)
-    }
-
-    @Test("runs when formatting cue is present")
-    func formattingTrigger() {
-        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "bullet point ship the fix") == true)
-    }
-
-    @Test("skips clean text with no cues")
-    func cleanTextSkips() {
-        #expect(Qwen3PostProcessingHeuristics.shouldApply(to: "The quarterly revenue grew twelve percent.") == false)
-    }
-}
-
 @Suite("Qwen3 post-processing output cleanup")
 struct Qwen3PostProcessingOutputCleanerTests {
 
