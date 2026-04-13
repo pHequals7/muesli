@@ -239,6 +239,7 @@ actor TranscriptionCoordinator {
         enablePostProcessor: Bool = false,
         customWords: [[String: Any]] = []
     ) async throws -> SpeechTranscriptionResult {
+        // Qwen3 post-processing is intentionally dictation-only. Meeting transcription should keep raw backend/Parakeet output.
         // Cohere decodes hallucinated text from silence — skip if VAD detects no speech
         if backend.backend == "cohere", let vadManager {
             do {
@@ -269,14 +270,13 @@ actor TranscriptionCoordinator {
         return final
     }
 
-    func transcribeMeeting(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
-        var result = try await route(url: url, backend: backend)
-        result = removeArtifacts(result)
-        result = removeFillers(result)
-        return applyCustomWords(result, customWords: customWords)
+    func transcribeMeeting(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
+        // Meeting transcription intentionally returns raw backend/Parakeet output. Do not run transcript cleanup here.
+        try await route(url: url, backend: backend)
     }
 
-    func transcribeMeetingChunk(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+    func transcribeMeetingChunk(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
+        // Meeting chunks intentionally return raw backend/Parakeet output for reconciliation. Do not run transcript cleanup here.
         // Run VAD to skip silent chunks (prevents hallucinations)
         if let vadManager {
             do {
@@ -290,10 +290,7 @@ actor TranscriptionCoordinator {
                 fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
             }
         }
-        var result = try await route(url: url, backend: backend)
-        result = removeArtifacts(result)
-        result = removeFillers(result)
-        return applyCustomWords(result, customWords: customWords)
+        return try await route(url: url, backend: backend)
     }
 
     func diarizeSystemAudio(at url: URL) async throws -> DiarizationResult? {
@@ -385,6 +382,7 @@ actor TranscriptionCoordinator {
             logPostProcPair(raw: result.text, processed: trimmed, asr: backend.backend)
             return SpeechTranscriptionResult(
                 text: trimmed,
+                // Original ASR segments describe pre-cleanup text. Keep them only for debug diagnostics.
                 segments: Qwen3PostProcessorLogging.isVerboseEnabled && !trimmed.isEmpty ? result.segments : []
             )
         } catch {

@@ -134,6 +134,7 @@ enum Qwen3PostProcessorConfig {
     // Dev/Canary override — takes precedence over the UI-selected model when set.
     static let envOverride = "MUESLI_QWEN3_POSTPROC_GGUF"
     static let legacyDirectoryEnvOverride = "MUESLI_QWEN3_POSTPROC_DIR"
+    // Dictation-only cleanup cap. Keep bounded to avoid slow local inference; long dictations may be truncated by LLM.swift.
     static let maxContextTokens: Int32 = 768
 
     static func formatInput(_ text: String) -> String {

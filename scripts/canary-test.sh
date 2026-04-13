@@ -113,7 +113,7 @@ configure_postproc_override() {
 
   if [[ -d "$resolved" ]]; then
     local first_gguf
-    first_gguf="$(find "$resolved" -type f -name '*.gguf' | head -n 1 || true)"
+    first_gguf="$(find "$resolved" -maxdepth 3 -type f -name '*.gguf' | head -n 1 || true)"
     if [[ -n "$first_gguf" ]]; then
       resolved="$first_gguf"
     fi
