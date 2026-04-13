@@ -176,6 +176,8 @@ private actor Qwen3PostProcessorManager {
     private let modelURL: URL
     private let systemPrompt: String
     private var bot: LLM?
+    private var isProcessing = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     init(modelURL: URL, systemPrompt: String) {
         self.modelURL = modelURL
@@ -187,6 +189,9 @@ private actor Qwen3PostProcessorManager {
     }
 
     func process(_ text: String) async throws -> String {
+        await acquireInferenceSlot()
+        defer { releaseInferenceSlot() }
+
         let bot = try loadBot()
         defer { bot.reset() }
         let formattedInput = Qwen3PostProcessorConfig.formatInput(text)
@@ -201,6 +206,26 @@ private actor Qwen3PostProcessorManager {
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return cleaned
+    }
+
+    private func acquireInferenceSlot() async {
+        if !isProcessing {
+            isProcessing = true
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func releaseInferenceSlot() {
+        if waiters.isEmpty {
+            isProcessing = false
+            return
+        }
+
+        waiters.removeFirst().resume()
     }
 
     private func loadBot() throws -> LLM {

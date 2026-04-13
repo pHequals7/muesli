@@ -321,7 +321,9 @@ actor TranscriptionCoordinator {
         if #available(macOS 15, *) {
             await nemotronTranscriber.shutdown()
             await qwen3Transcriber.shutdown()
-            await qwen3PostProcessor.shutdown()
+            if let postProcessor = _qwen3PostProcessor as? Qwen3PostProcessor {
+                await postProcessor.shutdown()
+            }
             await canaryQwenTranscriber.shutdown()
             await cohereTranscriber.shutdown()
         }
