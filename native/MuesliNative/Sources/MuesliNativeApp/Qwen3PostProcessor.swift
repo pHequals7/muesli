@@ -291,10 +291,17 @@ private actor Qwen3PostProcessorManager {
 
 @available(macOS 15, *)
 actor Qwen3PostProcessor {
+    private struct LoadTaskState {
+        let id = UUID()
+        let modelURL: URL
+        let systemPrompt: String
+        let task: Task<Qwen3PostProcessorManager, Error>
+    }
+
     private var modelURL: URL
     private var systemPrompt: String
     private var manager: Qwen3PostProcessorManager?
-    private var loadTask: Task<Qwen3PostProcessorManager, Error>?
+    private var loadTask: LoadTaskState?
 
     init(modelURL: URL, systemPrompt: String) {
         // Dev/Canary env-var override takes precedence.
@@ -310,7 +317,7 @@ actor Qwen3PostProcessor {
         self.modelURL = resolved
         self.systemPrompt = systemPrompt
         manager = nil
-        loadTask?.cancel()
+        loadTask?.task.cancel()
         loadTask = nil
     }
 
@@ -325,13 +332,13 @@ actor Qwen3PostProcessor {
 
     func shutdown() {
         manager = nil
-        loadTask?.cancel()
+        loadTask?.task.cancel()
         loadTask = nil
     }
 
     private func loadManager() async throws -> Qwen3PostProcessorManager {
         if let manager { return manager }
-        if let loadTask { return try await loadTask.value }
+        if let loadTask { return try await finishLoad(loadTask) }
 
         let url = self.modelURL
         let prompt = self.systemPrompt
@@ -345,14 +352,28 @@ actor Qwen3PostProcessor {
             try await manager.warm()
             return manager
         }
-        loadTask = task
+        let state = LoadTaskState(modelURL: url, systemPrompt: prompt, task: task)
+        loadTask = state
+        return try await finishLoad(state)
+    }
+
+    private func finishLoad(_ state: LoadTaskState) async throws -> Qwen3PostProcessorManager {
         do {
-            let loaded = try await task.value
+            let loaded = try await state.task.value
+            guard state.modelURL == modelURL, state.systemPrompt == systemPrompt else {
+                if loadTask?.id == state.id {
+                    loadTask = nil
+                }
+                return try await loadManager()
+            }
+            guard loadTask?.id == state.id else { throw CancellationError() }
             manager = loaded
             loadTask = nil
             return loaded
         } catch {
-            loadTask = nil
+            if loadTask?.id == state.id {
+                loadTask = nil
+            }
             throw error
         }
     }
