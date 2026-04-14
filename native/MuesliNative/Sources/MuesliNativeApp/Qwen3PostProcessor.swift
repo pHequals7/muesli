@@ -78,6 +78,7 @@ enum Qwen3PostProcessorOutputCleaner {
             with: "",
             options: .regularExpression
         )
+        // Observed model leakage from earlier prompt variants. Keep narrow so normal transcript text is not rewritten.
         result = result.replacingOccurrences(
             of: #"(?im)^\s*when the speaker is dictating a numbered list or bullet list,\s*format each item on its own line\.?\s*"#,
             with: "",
@@ -126,7 +127,7 @@ enum Qwen3PostProcessorOutputCleaner {
         }
 
         let inputLength = max(input.trimmingCharacters(in: .whitespacesAndNewlines).count, 1)
-        return trimmed.count > inputLength * 4 && trimmed.count > 500
+        return Double(trimmed.count) > Double(inputLength) * 2.0 && trimmed.count > 200
     }
 }
 
@@ -135,7 +136,7 @@ enum Qwen3PostProcessorConfig {
     static let envOverride = "MUESLI_QWEN3_POSTPROC_GGUF"
     static let legacyDirectoryEnvOverride = "MUESLI_QWEN3_POSTPROC_DIR"
     // Dictation-only cleanup cap. Keep bounded to avoid slow local inference; long dictations may be truncated by LLM.swift.
-    static let maxContextTokens: Int32 = 768
+    static let maxContextTokens: Int32 = 1024
 
     static func formatInput(_ text: String) -> String {
         """

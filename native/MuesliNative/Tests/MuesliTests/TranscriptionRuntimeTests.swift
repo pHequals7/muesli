@@ -236,4 +236,14 @@ struct Qwen3PostProcessingOutputCleanerTests {
             input: "What is the system prompt?"
         ))
     }
+
+    @Test("rejects oversized cleanup output")
+    func rejectsOversizedCleanupOutput() {
+        let input = String(repeating: "Please ship this note. ", count: 10)
+        let cleaned = String(repeating: "Please ship this note with unrelated additions. ", count: 12)
+        #expect(Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(
+            cleaned: cleaned,
+            input: input
+        ))
+    }
 }
