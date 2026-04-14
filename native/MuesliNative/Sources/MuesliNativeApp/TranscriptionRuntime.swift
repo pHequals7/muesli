@@ -271,12 +271,12 @@ actor TranscriptionCoordinator {
     }
 
     func transcribeMeeting(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
-        // Meeting transcription intentionally returns raw backend/Parakeet output. Do not run transcript cleanup here.
-        try await route(url: url, backend: backend)
+        // Meetings intentionally skip Qwen/custom-word post-processing. Keep deterministic artifact/filler cleanup only.
+        cleanMeetingTranscript(try await route(url: url, backend: backend))
     }
 
     func transcribeMeetingChunk(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
-        // Meeting chunks intentionally return raw backend/Parakeet output for reconciliation. Do not run transcript cleanup here.
+        // Meeting chunks intentionally skip Qwen/custom-word post-processing for reconciliation.
         // Run VAD to skip silent chunks (prevents hallucinations)
         if let vadManager {
             do {
@@ -290,7 +290,7 @@ actor TranscriptionCoordinator {
                 fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
             }
         }
-        return try await route(url: url, backend: backend)
+        return cleanMeetingTranscript(try await route(url: url, backend: backend))
     }
 
     func diarizeSystemAudio(at url: URL) async throws -> DiarizationResult? {
@@ -339,11 +339,15 @@ actor TranscriptionCoordinator {
         let filtered = removeFillers(result)
         let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
         if filtered.text != result.text {
-            fputs("[muesli-native] FillerWordFilter applied in \(String(format: "%.1f", elapsedMs))ms -> \(filtered.text)\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("FillerWordFilter applied in \(String(format: "%.1f", elapsedMs))ms -> \(filtered.text)")
         } else {
-            fputs("[muesli-native] FillerWordFilter skipped effective changes (\(String(format: "%.1f", elapsedMs))ms)\n", stderr)
+            Qwen3PostProcessorLogging.logVerbose("FillerWordFilter skipped effective changes (\(String(format: "%.1f", elapsedMs))ms)")
         }
         return filtered
+    }
+
+    private func cleanMeetingTranscript(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
+        removeFillers(removeArtifacts(result))
     }
 
     private func removeArtifacts(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {

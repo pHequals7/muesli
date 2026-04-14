@@ -127,6 +127,7 @@ enum Qwen3PostProcessorOutputCleaner {
         }
 
         let inputLength = max(input.trimmingCharacters(in: .whitespacesAndNewlines).count, 1)
+        // Cleanup should usually compress text. Treat large expansion as a hallucination signal.
         return Double(trimmed.count) > Double(inputLength) * 2.0 && trimmed.count > 200
     }
 }
@@ -190,6 +191,7 @@ private actor Qwen3PostProcessorManager {
     }
 
     func process(_ text: String) async throws -> String {
+        // Actors can re-enter while respond() awaits; serialize access to the cached mutable LLM.
         await acquireInferenceSlot()
         defer { releaseInferenceSlot() }
 

@@ -1001,6 +1001,7 @@ struct ModelsView: View {
 /// Uses OS-level buffered download task instead of byte-by-byte async iteration.
 private final class PostProcDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let onProgress: (Double) -> Void
+    private let lock = NSLock()
     private var continuation: CheckedContinuation<URL, Error>?
 
     init(onProgress: @escaping (Double) -> Void) {
@@ -1008,6 +1009,8 @@ private final class PostProcDownloadDelegate: NSObject, URLSessionDownloadDelega
     }
 
     func setContinuation(_ c: CheckedContinuation<URL, Error>) {
+        lock.lock()
+        defer { lock.unlock() }
         continuation = c
     }
 
@@ -1027,12 +1030,10 @@ private final class PostProcDownloadDelegate: NSObject, URLSessionDownloadDelega
             try FileManager.default.moveItem(at: location, to: movedURL)
             dest = movedURL
             try validateGGUFHeader(at: movedURL)
-            continuation?.resume(returning: movedURL)
-            continuation = nil
+            resumeOnce(.success(movedURL))
         } catch {
             if let dest { try? FileManager.default.removeItem(at: dest) }
-            continuation?.resume(throwing: error)
-            continuation = nil
+            resumeOnce(.failure(error))
         }
     }
 
@@ -1045,8 +1046,21 @@ private final class PostProcDownloadDelegate: NSObject, URLSessionDownloadDelega
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error else { return }
-        continuation?.resume(throwing: error)
-        continuation = nil
+        resumeOnce(.failure(error))
+    }
+
+    private func resumeOnce(_ result: Result<URL, Error>) {
+        lock.lock()
+        let continuation = continuation
+        self.continuation = nil
+        lock.unlock()
+
+        switch result {
+        case .success(let url):
+            continuation?.resume(returning: url)
+        case .failure(let error):
+            continuation?.resume(throwing: error)
+        }
     }
 
     private func validateGGUFHeader(at url: URL) throws {
