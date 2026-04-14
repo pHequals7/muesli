@@ -251,8 +251,10 @@ private actor Qwen3PostProcessorManager {
             Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF cleaned output: \(cleaned)")
             let result: String
             if Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(cleaned: cleaned, input: text) {
-                Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF output rejected; falling back to raw ASR transcript")
-                result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF output rejected; falling back to deterministic cleanup")
+                throw NSError(domain: "Qwen3PostProcessor", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "Qwen3 GGUF output was rejected by transcript safety checks",
+                ])
             } else {
                 result = cleaned
             }
