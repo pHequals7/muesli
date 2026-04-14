@@ -452,10 +452,12 @@ final class MuesliController: NSObject {
     }
 
     func setPostProcessorEnabled(_ enabled: Bool) {
-        updateConfig { $0.enablePostProcessor = enabled }
-        if enabled {
-            normalizePostProcessorSelectionForAvailability()
+        if enabled, resolveRuntimePostProcessorOption() == nil {
+            updateConfig { $0.enablePostProcessor = false }
+            appState.selectedTab = .models
+            return
         }
+        updateConfig { $0.enablePostProcessor = enabled }
         preloadExperimentalTranscriptionFeatures()
     }
 
