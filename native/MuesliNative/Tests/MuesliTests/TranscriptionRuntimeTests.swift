@@ -39,6 +39,48 @@ struct SpeechTranscriptionResultTests {
     }
 }
 
+@Suite("Qwen3 inference gate")
+struct Qwen3InferenceGateTests {
+
+    @Test("cancelled waiter is removed before next slot")
+    func cancelledWaiterDoesNotConsumeSlot() async throws {
+        let gate = Qwen3InferenceGate()
+        try await gate.acquire()
+
+        let cancelled = Task {
+            try await gate.acquire()
+            await gate.release()
+            return true
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+        #expect(await gate.queuedWaiterCount() == 1)
+
+        cancelled.cancel()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(await gate.queuedWaiterCount() == 0)
+
+        let next = Task {
+            try await gate.acquire()
+            await gate.release()
+            return true
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+        await gate.release()
+        #expect(try await next.value)
+
+        do {
+            _ = try await cancelled.value
+            Issue.record("Cancelled waiter unexpectedly acquired the inference slot")
+        } catch is CancellationError {
+            // Expected path.
+        } catch {
+            Issue.record("Cancelled waiter failed with unexpected error: \(error)")
+        }
+    }
+}
+
 @Suite("TranscriptionCoordinator routing")
 struct TranscriptionCoordinatorTests {
 

@@ -173,13 +173,58 @@ enum Qwen3PostProcessorConfig {
     }
 }
 
+actor Qwen3InferenceGate {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private var isProcessing = false
+    private var waiters: [Waiter] = []
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        if !isProcessing {
+            isProcessing = true
+            return
+        }
+
+        let id = UUID()
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append(Waiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
+        guard acquired else { throw CancellationError() }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            isProcessing = false
+            return
+        }
+
+        waiters.removeFirst().continuation.resume(returning: true)
+    }
+
+    func queuedWaiterCount() -> Int {
+        waiters.count
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(returning: false)
+    }
+}
+
 @available(macOS 15, *)
 private actor Qwen3PostProcessorManager {
     private let modelURL: URL
     private let systemPrompt: String
     private var bot: LLM?
-    private var isProcessing = false
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private let inferenceGate = Qwen3InferenceGate()
 
     init(modelURL: URL, systemPrompt: String) {
         self.modelURL = modelURL
@@ -192,43 +237,31 @@ private actor Qwen3PostProcessorManager {
 
     func process(_ text: String) async throws -> String {
         // Actors can re-enter while respond() awaits; serialize access to the cached mutable LLM.
-        await acquireInferenceSlot()
-        defer { releaseInferenceSlot() }
-
-        let bot = try loadBot()
-        defer { bot.reset() }
-        let formattedInput = Qwen3PostProcessorConfig.formatInput(text)
-        await bot.respond(to: formattedInput, thinking: .suppressed)
-        let raw = bot.output
-        let cleaned = Qwen3PostProcessorOutputCleaner.clean(raw)
-        Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF prompt chars=\(bot.preprocess(formattedInput, [], .suppressed).count)")
-        Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF raw output: \(raw)")
-        Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF cleaned output: \(cleaned)")
-        if Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(cleaned: cleaned, input: text) {
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF output rejected; falling back to raw ASR transcript")
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await inferenceGate.acquire()
+        do {
+            try Task.checkCancellation()
+            let bot = try loadBot()
+            defer { bot.reset() }
+            let formattedInput = Qwen3PostProcessorConfig.formatInput(text)
+            await bot.respond(to: formattedInput, thinking: .suppressed)
+            let raw = bot.output
+            let cleaned = Qwen3PostProcessorOutputCleaner.clean(raw)
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF prompt chars=\(bot.preprocess(formattedInput, [], .suppressed).count)")
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF raw output: \(raw)")
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF cleaned output: \(cleaned)")
+            let result: String
+            if Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(cleaned: cleaned, input: text) {
+                Qwen3PostProcessorLogging.logVerbose("Qwen3 GGUF output rejected; falling back to raw ASR transcript")
+                result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                result = cleaned
+            }
+            await inferenceGate.release()
+            return result
+        } catch {
+            await inferenceGate.release()
+            throw error
         }
-        return cleaned
-    }
-
-    private func acquireInferenceSlot() async {
-        if !isProcessing {
-            isProcessing = true
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    private func releaseInferenceSlot() {
-        if waiters.isEmpty {
-            isProcessing = false
-            return
-        }
-
-        waiters.removeFirst().resume()
     }
 
     private func loadBot() throws -> LLM {
