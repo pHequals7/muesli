@@ -412,7 +412,12 @@ struct OnboardingView: View {
 
                 if !allPermissionsGranted {
                     Button {
-                        openSystemSettings("Privacy_Accessibility")
+                        let pane: String
+                        if !micGranted { pane = "Privacy_Microphone" }
+                        else if !accessibilityGranted { pane = "Privacy_Accessibility" }
+                        else if !inputMonitoringGranted { pane = "Privacy_ListenEvent" }
+                        else { pane = "Privacy_ScreenCapture" }
+                        openSystemSettings(pane)
                     } label: {
                         Text("Not seeing a prompt? Open System Settings manually")
                             .font(.system(size: 11))
@@ -706,6 +711,10 @@ struct OnboardingView: View {
             modelPollTimer = nil
             controller.dictationTestCallback = nil
             controller.dictationTestRecordingStarted = nil
+            // Stop hotkey monitor if going back to prevent real dictation on step 3
+            if currentStep < Self.dictationTestStep {
+                controller.stopHotkeyMonitor()
+            }
         }
     }
 

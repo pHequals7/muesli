@@ -753,7 +753,7 @@ final class MuesliController: NSObject {
                 fputs("[muesli-native] relaunch failed: \(error)\n", stderr)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                exit(0)
+                NSApp.terminate(nil)
             }
         }
     }
@@ -767,11 +767,11 @@ final class MuesliController: NSObject {
 
     var isDictationTestMode: Bool { dictationTestCallback != nil }
 
-    func configureHotkeyForTest(keyCode: UInt16) {
-        hotkeyMonitor.configure(keyCode: keyCode)
+    func stopHotkeyMonitor() {
+        hotkeyMonitor.stop()
     }
 
-    func downloadModelForOnboarding(_ backend: BackendOption, progress: @escaping (Double, String?) -> Void) async throws -> Bool {
+    func downloadModelForOnboarding(_ backend: BackendOption, progress: @escaping (Double, String?) -> Void) async throws {
         progress(0.0, "Downloading \(backend.label)...")
         await transcriptionCoordinator.preload(
             backend: backend,
@@ -779,7 +779,6 @@ final class MuesliController: NSObject {
             progress: progress
         )
         progress(1.0, nil)
-        return false
     }
 
     func completeOnboarding(userName: String, backend: BackendOption, hotkey: HotkeyConfig, summaryBackend: MeetingSummaryBackendOption?, apiKey: String?) {
