@@ -162,7 +162,7 @@ struct OnboardingView: View {
             }
         case 6:
             HStack(spacing: MuesliTheme.spacing12) {
-                skipButton { finishOnboarding(withKey: false) }
+                skipButton { finishOnboarding(withKey: true) }
                 onboardingButton("Finish", enabled: true) {
                     finishOnboarding(withKey: true)
                 }
