@@ -95,10 +95,11 @@ struct MeetingExporter {
 
     private static func writePDF(attributed: NSAttributedString, to url: URL) {
         let pageWidth: CGFloat = 612   // US Letter
+        let pageHeight: CGFloat = 792
         let margin: CGFloat = 72       // 1 inch
         let contentWidth = pageWidth - margin * 2
 
-        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: contentWidth, height: 10))
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: contentWidth, height: pageHeight - margin * 2))
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.maxSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
@@ -108,18 +109,25 @@ struct MeetingExporter {
         textView.textContainerInset = .zero
         textView.textStorage?.setAttributedString(attributed)
 
-        if let container = textView.textContainer {
-            textView.layoutManager?.ensureLayout(for: container)
-            let usedRect = textView.layoutManager?.usedRect(for: container) ?? .zero
-            textView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(usedRect.height, 100))
-        }
+        let printInfo = NSPrintInfo()
+        printInfo.paperSize = NSSize(width: pageWidth, height: pageHeight)
+        printInfo.topMargin = margin
+        printInfo.bottomMargin = margin
+        printInfo.leftMargin = margin
+        printInfo.rightMargin = margin
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .automatic
+        printInfo.isHorizontallyCentered = false
+        printInfo.isVerticallyCentered = false
+        printInfo.jobDisposition = .save
+        printInfo.dictionary().setValue(url, forKey: NSPrintInfo.AttributeKey.jobSavingURL.rawValue)
 
-        let pdfData = textView.dataWithPDF(inside: textView.bounds)
+        let printOp = NSPrintOperation(view: textView, printInfo: printInfo)
+        printOp.showsPrintPanel = false
+        printOp.showsProgressPanel = false
 
-        do {
-            try pdfData.write(to: url, options: .atomic)
-        } catch {
-            showError("Export Failed", error.localizedDescription)
+        if !printOp.run() {
+            showError("Export Failed", "Could not generate the PDF document.")
         }
     }
 
