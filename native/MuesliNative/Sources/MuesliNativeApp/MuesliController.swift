@@ -808,7 +808,6 @@ final class MuesliController: NSObject {
         // Start monitors that were deferred during onboarding
         calendarMonitor.start()
         startCalendarRefreshTimer()
-        if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
         micActivityMonitor.start()
 
         onboardingWindowController?.close()
