@@ -91,6 +91,7 @@ struct MeetingExporter {
         DispatchQueue.global(qos: .userInitiated).async {
             do {
                 try text.write(to: url, atomically: true, encoding: .utf8)
+                DispatchQueue.main.async { NSWorkspace.shared.open(url) }
             } catch {
                 DispatchQueue.main.async { showError("Export Failed", error.localizedDescription) }
             }
@@ -130,7 +131,9 @@ struct MeetingExporter {
         printOp.showsPrintPanel = false
         printOp.showsProgressPanel = false
 
-        if !printOp.run() {
+        if printOp.run() {
+            NSWorkspace.shared.open(url)
+        } else {
             showError("Export Failed", "Could not generate the PDF document.")
         }
     }
