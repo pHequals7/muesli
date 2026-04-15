@@ -767,6 +767,11 @@ final class MuesliController: NSObject {
 
     var isDictationTestMode: Bool { dictationTestCallback != nil }
 
+    func cancelTestDictation() {
+        recorder.cancel()
+        setState(.idle)
+    }
+
     func startHotkeyMonitor() {
         hotkeyMonitor.start()
     }

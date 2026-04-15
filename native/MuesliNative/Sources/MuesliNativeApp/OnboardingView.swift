@@ -482,9 +482,11 @@ struct OnboardingView: View {
     private func startPermissionPolling() {
         refreshPermissions()
         permissionPollTimer?.invalidate()
-        permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             withAnimation { refreshPermissions() }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        permissionPollTimer = timer
     }
 
     private func stopPermissionPolling() {
@@ -710,6 +712,9 @@ struct OnboardingView: View {
         .onDisappear {
             modelPollTimer?.invalidate()
             modelPollTimer = nil
+            // Cancel any in-flight recording before clearing callbacks to prevent
+            // the transcription Task from falling through to the production paste path
+            controller.cancelTestDictation()
             controller.dictationTestCallback = nil
             controller.dictationTestRecordingStarted = nil
             // Stop hotkey monitor when leaving dictation test to prevent real dictation
