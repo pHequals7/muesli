@@ -711,10 +711,8 @@ struct OnboardingView: View {
             modelPollTimer = nil
             controller.dictationTestCallback = nil
             controller.dictationTestRecordingStarted = nil
-            // Stop hotkey monitor if going back to prevent real dictation on step 3
-            if currentStep < Self.dictationTestStep {
-                controller.stopHotkeyMonitor()
-            }
+            // Stop hotkey monitor when leaving dictation test to prevent real dictation
+            controller.stopHotkeyMonitor()
         }
     }
 

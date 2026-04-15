@@ -808,6 +808,7 @@ final class MuesliController: NSObject {
         // Start monitors that were deferred during onboarding
         calendarMonitor.start()
         startCalendarRefreshTimer()
+        if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
         micActivityMonitor.start()
 
         onboardingWindowController?.close()
@@ -1727,6 +1728,9 @@ final class MuesliController: NSObject {
         if duration < 0.3 {
             fputs("[muesli-native] discarded short recording\n", stderr)
             try? FileManager.default.removeItem(at: wavURL)
+            if isDictationTestMode {
+                dictationTestCallback?("")
+            }
             setState(.idle)
             return
         }
@@ -1746,6 +1750,16 @@ final class MuesliController: NSObject {
                     customWords: self.serializedCustomWords()
                 )
                 let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+                // Test mode: route result to callback, skip history/paste
+                if self.isDictationTestMode {
+                    await MainActor.run {
+                        self.dictationTestCallback?(text)
+                        self.setState(.idle)
+                    }
+                    return
+                }
+
                 if !self.config.maraudersMapUnlocked {
                     await MainActor.run { self.checkMaraudersMapActivation(text) }
                 }
@@ -1762,11 +1776,6 @@ final class MuesliController: NSObject {
                     endedAt: Date()
                 )
                 await MainActor.run {
-                    if let testCallback = self.dictationTestCallback {
-                        testCallback(text)
-                        self.setState(.idle)
-                        return
-                    }
                     self.statusBarController?.refresh()
                     self.historyWindowController?.reload()
                     self.syncAppState()
@@ -1782,6 +1791,9 @@ final class MuesliController: NSObject {
             } catch {
                 fputs("[muesli-native] transcription failed: \(error)\n", stderr)
                 await MainActor.run {
+                    if self.isDictationTestMode {
+                        self.dictationTestCallback?("")
+                    }
                     self.setState(.idle)
                 }
             }
