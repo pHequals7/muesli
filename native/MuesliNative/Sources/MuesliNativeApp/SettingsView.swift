@@ -44,6 +44,7 @@ struct SettingsView: View {
     @State private var pendingDataDestruction: PendingDataDestruction?
     @State private var recordingColorInput: String = ""
     @State private var isPreviewingClip = false
+    @State private var downloadedPostProcOptions: [PostProcessorOption] = []
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
@@ -55,11 +56,6 @@ struct SettingsView: View {
             options.insert(appState.selectedBackend, at: 0)
         }
         return options
-    }
-
-    /// Post-processor models that have been downloaded to disk.
-    private var downloadedPostProcOptions: [PostProcessorOption] {
-        PostProcessorOption.downloaded
     }
 
     var body: some View {
@@ -524,6 +520,14 @@ struct SettingsView: View {
             .padding(MuesliTheme.spacing32)
         }
         .background(MuesliTheme.backgroundBase)
+        .onAppear {
+            refreshDownloadedPostProcOptions()
+        }
+        .onChange(of: appState.selectedTab) { _, tab in
+            if tab == .settings {
+                refreshDownloadedPostProcOptions()
+            }
+        }
         .alert(
             pendingDataDestruction?.title ?? "Confirm Destructive Action",
             isPresented: Binding(
@@ -548,6 +552,10 @@ struct SettingsView: View {
         } message: {
             Text(pendingDataDestruction?.message ?? "")
         }
+    }
+
+    private func refreshDownloadedPostProcOptions() {
+        downloadedPostProcOptions = PostProcessorOption.downloaded
     }
 
     private static let accentPresets: [(hex: String, name: String)] = [

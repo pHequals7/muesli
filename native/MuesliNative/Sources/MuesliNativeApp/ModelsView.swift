@@ -761,7 +761,10 @@ struct ModelsView: View {
                 lastError = error
             }
         }
-        throw DownloadError.retriesExhausted(option.filename, lastError!)
+        let underlying = lastError ?? NSError(domain: "PostProcDownload", code: 0, userInfo: [
+            NSLocalizedDescriptionKey: "No download attempts were made",
+        ])
+        throw DownloadError.retriesExhausted(option.filename, underlying)
     }
 
     private func downloadPostProcTempFile(_ option: PostProcessorOption) async throws -> URL {
@@ -771,14 +774,25 @@ struct ModelsView: View {
             }
         }
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                delegate.setContinuation(continuation)
-                session.downloadTask(with: option.downloadURL).resume()
+        let invalidator = URLSessionInvalidator()
+        do {
+            let downloadedURL = try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    delegate.setContinuation(continuation)
+                    session.downloadTask(with: option.downloadURL).resume()
+                }
+            } onCancel: {
+                invalidator.cancel(session)
             }
-        } onCancel: {
-            session.invalidateAndCancel()
+            invalidator.finish(session)
+            return downloadedURL
+        } catch {
+            if error is CancellationError {
+                invalidator.cancel(session)
+            } else {
+                invalidator.finish(session)
+            }
+            throw error
         }
     }
 
@@ -994,6 +1008,30 @@ struct ModelsView: View {
         default:
             return false
         }
+    }
+}
+
+private final class URLSessionInvalidator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didInvalidate = false
+
+    func finish(_ session: URLSession) {
+        invalidate(session, action: { $0.finishTasksAndInvalidate() })
+    }
+
+    func cancel(_ session: URLSession) {
+        invalidate(session, action: { $0.invalidateAndCancel() })
+    }
+
+    private func invalidate(_ session: URLSession, action: (URLSession) -> Void) {
+        lock.lock()
+        guard !didInvalidate else {
+            lock.unlock()
+            return
+        }
+        didInvalidate = true
+        lock.unlock()
+        action(session)
     }
 }
 

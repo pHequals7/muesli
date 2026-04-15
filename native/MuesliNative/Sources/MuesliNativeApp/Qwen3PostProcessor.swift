@@ -366,6 +366,7 @@ actor Qwen3PostProcessor {
                 }
                 return try await loadManager()
             }
+            if let manager { return manager }
             guard loadTask?.id == state.id else { throw CancellationError() }
             manager = loaded
             loadTask = nil
