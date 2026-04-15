@@ -117,7 +117,7 @@ struct MeetingExporter {
         let pdfData = textView.dataWithPDF(inside: textView.bounds)
 
         do {
-            try pdfData.write(to: url)
+            try pdfData.write(to: url, options: .atomic)
         } catch {
             showError("Export Failed", error.localizedDescription)
         }
@@ -308,13 +308,14 @@ struct MeetingExporter {
                 .lowercased()
                 .prefix(50)
         )
+        let stem = sanitized.isEmpty ? "meeting" : sanitized
         let suffix: String
         switch content {
         case .notes: suffix = "-notes"
         case .transcript: suffix = "-transcript"
         case .fullMeeting: suffix = ""
         }
-        return "\(sanitized)\(suffix).pdf"
+        return "\(stem)\(suffix).pdf"
     }
 
     private static func formatExportDate(_ raw: String) -> String {

@@ -224,6 +224,14 @@ struct MeetingExporterTests {
         #expect(name == "daily-standup.pdf")
     }
 
+    @Test("Falls back to 'meeting' when title has no alphanumeric chars")
+    func filenameEmptyStem() {
+        let meeting = makeMeeting(title: "!!!")
+        let name = MeetingExporter.suggestedFilename(meeting: meeting, content: .notes)
+
+        #expect(name == "meeting-notes.pdf")
+    }
+
     @Test("Truncates long titles in filename")
     func filenameTruncation() {
         let longTitle = String(repeating: "word ", count: 30).trimmingCharacters(in: .whitespaces)
