@@ -125,7 +125,7 @@ echo "y" | MUESLI_BUILD_VERSION="$VERSION" \
   MUESLI_BUNDLE_ID=com.muesli.canary \
   MUESLI_DISPLAY_NAME=MuesliCanary \
   MUESLI_SUPPORT_DIR_NAME=MuesliCanary \
-  "$ROOT/scripts/build_native_app.sh" > /dev/null 2>&1
+  "$ROOT/scripts/build_native_app.sh" > /dev/null
 echo "  Installed to $APP_DIR"
 
 FLAGS=$(codesign -dvvv "$APP_DIR" 2>&1 | grep -o 'flags=0x[0-9a-f]*([^)]*)')
