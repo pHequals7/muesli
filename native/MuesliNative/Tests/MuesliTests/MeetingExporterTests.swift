@@ -83,6 +83,7 @@ struct MeetingExporterTests {
         let meeting = makeMeeting(formattedNotes: "## Raw Transcript\nsome text")
         let md = MeetingExporter.buildMarkdown(meeting: meeting, content: .notes)
 
+        #expect(md.contains("*No structured notes available."))
         #expect(md.contains("## Raw Transcript"))
         #expect(md.contains("[00:00:05] You: Hello everyone"))
     }

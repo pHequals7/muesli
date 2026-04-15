@@ -23,7 +23,7 @@ struct MeetingExporter {
             panel.allowedContentTypes = [pdfType]
             panel.canCreateDirectories = true
 
-            let formatPicker = ExportFormatAccessory(panel: panel, baseFilename: filename)
+            let formatPicker = ExportFormatAccessory(panel: panel)
             panel.accessoryView = formatPicker.view
 
             presentSavePanel(panel) { url in
@@ -58,6 +58,8 @@ struct MeetingExporter {
             if meeting.notesState == .structuredNotes {
                 parts.append(meeting.formattedNotes)
             } else {
+                parts.append("*No structured notes available. Raw transcript included below.*")
+                parts.append("")
                 parts.append("## Raw Transcript")
                 parts.append("")
                 parts.append(meeting.rawTranscript)
@@ -96,42 +98,40 @@ struct MeetingExporter {
     }
 
     private static func writePDF(attributed: NSAttributedString, to url: URL) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let pageWidth: CGFloat = 612   // US Letter
-            let pageHeight: CGFloat = 792
-            let margin: CGFloat = 72       // 1 inch
-            let contentWidth = pageWidth - margin * 2
+        let pageWidth: CGFloat = 612   // US Letter
+        let pageHeight: CGFloat = 792
+        let margin: CGFloat = 72       // 1 inch
+        let contentWidth = pageWidth - margin * 2
 
-            let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: contentWidth, height: pageHeight - margin * 2))
-            textView.isVerticallyResizable = true
-            textView.isHorizontallyResizable = false
-            textView.maxSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
-            textView.textContainer?.widthTracksTextView = true
-            textView.textContainer?.containerSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
-            textView.textContainer?.lineFragmentPadding = 0
-            textView.textContainerInset = .zero
-            textView.textStorage?.setAttributedString(attributed)
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: contentWidth, height: pageHeight - margin * 2))
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.maxSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: contentWidth, height: .greatestFiniteMagnitude)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = .zero
+        textView.textStorage?.setAttributedString(attributed)
 
-            let printInfo = NSPrintInfo()
-            printInfo.paperSize = NSSize(width: pageWidth, height: pageHeight)
-            printInfo.topMargin = margin
-            printInfo.bottomMargin = margin
-            printInfo.leftMargin = margin
-            printInfo.rightMargin = margin
-            printInfo.horizontalPagination = .fit
-            printInfo.verticalPagination = .automatic
-            printInfo.isHorizontallyCentered = false
-            printInfo.isVerticallyCentered = false
-            printInfo.jobDisposition = .save
-            printInfo.dictionary().setValue(url, forKey: NSPrintInfo.AttributeKey.jobSavingURL.rawValue)
+        let printInfo = NSPrintInfo()
+        printInfo.paperSize = NSSize(width: pageWidth, height: pageHeight)
+        printInfo.topMargin = margin
+        printInfo.bottomMargin = margin
+        printInfo.leftMargin = margin
+        printInfo.rightMargin = margin
+        printInfo.horizontalPagination = .fit
+        printInfo.verticalPagination = .automatic
+        printInfo.isHorizontallyCentered = false
+        printInfo.isVerticallyCentered = false
+        printInfo.jobDisposition = .save
+        printInfo.dictionary().setValue(url, forKey: NSPrintInfo.AttributeKey.jobSavingURL.rawValue)
 
-            let printOp = NSPrintOperation(view: textView, printInfo: printInfo)
-            printOp.showsPrintPanel = false
-            printOp.showsProgressPanel = false
+        let printOp = NSPrintOperation(view: textView, printInfo: printInfo)
+        printOp.showsPrintPanel = false
+        printOp.showsProgressPanel = false
 
-            if !printOp.run() {
-                DispatchQueue.main.async { showError("Export Failed", "Could not generate the PDF document.") }
-            }
+        if !printOp.run() {
+            showError("Export Failed", "Could not generate the PDF document.")
         }
     }
 
@@ -370,7 +370,7 @@ private class ExportFormatAccessory: NSObject {
         popup.indexOfSelectedItem == 0 ? .pdf : .markdown
     }
 
-    init(panel: NSSavePanel, baseFilename: String) {
+    init(panel: NSSavePanel) {
         self.panel = panel
 
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 32))
