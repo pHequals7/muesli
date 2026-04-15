@@ -228,7 +228,19 @@ final class MuesliController: NSObject {
 
         Task { [weak self] in
             guard let self else { return }
-            await self.transcriptionCoordinator.preload(backend: self.selectedBackend)
+            let ppOption = self.runtimePostProcessorOption()
+            if #available(macOS 15, *) {
+                if let ppOption {
+                    await self.transcriptionCoordinator.setActivePostProcessor(
+                        option: ppOption,
+                        systemPrompt: self.config.postProcessorSystemPrompt
+                    )
+                }
+            }
+            await self.transcriptionCoordinator.preload(
+                backend: self.selectedBackend,
+                enablePostProcessor: self.config.enablePostProcessor && ppOption != nil
+            )
             await MainActor.run {
                 self.refreshUI()
             }
@@ -349,6 +361,7 @@ final class MuesliController: NSObject {
         appState.meetingStats = meetingStats()
         appState.selectedBackend = selectedBackend
         appState.selectedMeetingSummaryBackend = selectedMeetingSummaryBackend
+        appState.activePostProcessor = PostProcessorOption.resolve(id: config.activePostProcessorId)
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
@@ -395,10 +408,102 @@ final class MuesliController: NSObject {
         }
         Task { [weak self] in
             guard let self else { return }
-            await self.transcriptionCoordinator.preload(backend: option)
+            let ppOption = self.runtimePostProcessorOption()
+            if #available(macOS 15, *) {
+                if let ppOption {
+                    await self.transcriptionCoordinator.setActivePostProcessor(
+                        option: ppOption,
+                        systemPrompt: self.config.postProcessorSystemPrompt
+                    )
+                }
+            }
+            await self.transcriptionCoordinator.preload(
+                backend: option,
+                enablePostProcessor: self.config.enablePostProcessor && ppOption != nil
+            )
             await MainActor.run {
                 self.statusBarController?.refresh()
                 self.historyWindowController?.updateBackendLabel()
+            }
+        }
+    }
+
+    var isPostProcessorReady: Bool {
+        config.enablePostProcessor && runtimePostProcessorOption() != nil
+    }
+
+    @discardableResult
+    private func normalizePostProcessorSelectionForAvailability() -> PostProcessorOption? {
+        guard let option = runtimePostProcessorOption() else {
+            appState.activePostProcessor = PostProcessorOption.resolve(id: config.activePostProcessorId)
+            return nil
+        }
+        if config.activePostProcessorId != option.id {
+            updateConfig { $0.activePostProcessorId = option.id }
+        }
+        appState.activePostProcessor = option
+        return option
+    }
+
+    private func runtimePostProcessorOption() -> PostProcessorOption? {
+        PostProcessorOption.runtimeOption(id: config.activePostProcessorId)
+    }
+
+    func setPostProcessorEnabled(_ enabled: Bool) {
+        if enabled {
+            guard normalizePostProcessorSelectionForAvailability() != nil else {
+                updateConfig { $0.enablePostProcessor = false }
+                appState.selectedTab = .models
+                return
+            }
+        }
+        updateConfig { $0.enablePostProcessor = enabled }
+        preloadExperimentalTranscriptionFeatures()
+    }
+
+    func preloadExperimentalTranscriptionFeatures() {
+        let ppOption = runtimePostProcessorOption()
+        let enabled = config.enablePostProcessor && ppOption != nil
+        let ppPrompt = config.postProcessorSystemPrompt
+        Task { [weak self] in
+            guard let self else { return }
+            if let ppOption, #available(macOS 15, *) {
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: ppOption,
+                    systemPrompt: ppPrompt
+                )
+            }
+            await self.transcriptionCoordinator.preloadPostProcessorIfNeeded(enabled: enabled)
+        }
+    }
+
+    func selectPostProcessor(_ option: PostProcessorOption) {
+        updateConfig { $0.activePostProcessorId = option.id }
+        appState.activePostProcessor = option
+        guard config.enablePostProcessor else { return }
+        let systemPrompt = config.postProcessorSystemPrompt
+        Task { [weak self] in
+            guard let self else { return }
+            if #available(macOS 15, *) {
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: option,
+                    systemPrompt: systemPrompt
+                )
+            }
+        }
+    }
+
+    func updatePostProcessorSystemPrompt(_ prompt: String) {
+        updateConfig { $0.postProcessorSystemPrompt = prompt }
+        let ppOption = runtimePostProcessorOption()
+        guard config.enablePostProcessor else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            if let ppOption, #available(macOS 15, *) {
+                await self.transcriptionCoordinator.setActivePostProcessor(
+                    option: ppOption,
+                    systemPrompt: prompt
+                )
             }
         }
     }
@@ -618,7 +723,11 @@ final class MuesliController: NSObject {
 
     func downloadModelForOnboarding(_ backend: BackendOption, progress: @escaping (Double, String?) -> Void) async throws -> Bool {
         progress(0.0, "Downloading \(backend.label)...")
-        await transcriptionCoordinator.preload(backend: backend, progress: progress)
+        await transcriptionCoordinator.preload(
+            backend: backend,
+            enablePostProcessor: isPostProcessorReady,
+            progress: progress
+        )
         progress(1.0, nil)
         return false
     }
@@ -1568,6 +1677,7 @@ final class MuesliController: NSObject {
                 let result = try await self.transcriptionCoordinator.transcribeDictation(
                     at: wavURL,
                     backend: self.selectedBackend,
+                    enablePostProcessor: self.isPostProcessorReady,
                     customWords: self.serializedCustomWords()
                 )
                 let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)

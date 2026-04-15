@@ -44,9 +44,15 @@ struct SettingsView: View {
     @State private var pendingDataDestruction: PendingDataDestruction?
     @State private var recordingColorInput: String = ""
     @State private var isPreviewingClip = false
+    @State private var availableBackendOptions: [BackendOption] = []
+    @State private var downloadedPostProcOptions: [PostProcessorOption] = []
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
+
+    private var displayedBackendOptions: [BackendOption] {
+        availableBackendOptions.isEmpty ? [appState.selectedBackend] : availableBackendOptions
+    }
 
     var body: some View {
         ScrollView {
@@ -80,11 +86,42 @@ struct SettingsView: View {
                     settingsRow("Backend") {
                         settingsMenu(
                             selection: appState.selectedBackend.label,
-                            options: BackendOption.all.map(\.label)
+                            options: displayedBackendOptions.map(\.label)
                         ) { label in
-                            if let option = BackendOption.all.first(where: { $0.label == label }) {
+                            if let option = displayedBackendOptions.first(where: { $0.label == label }) {
                                 controller.selectBackend(option)
                             }
+                        }
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("AI transcript cleanup") {
+                        settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
+                            controller.setPostProcessorEnabled(newValue)
+                        }
+                    }
+                    if appState.config.enablePostProcessor && !downloadedPostProcOptions.isEmpty {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Cleanup model") {
+                            let selection = downloadedPostProcOptions.contains(where: { $0.id == appState.activePostProcessor.id })
+                                ? appState.activePostProcessor.label
+                                : (downloadedPostProcOptions.first?.label ?? "")
+                            settingsMenu(
+                                selection: selection,
+                                options: downloadedPostProcOptions.map(\.label)
+                            ) { label in
+                                if let option = downloadedPostProcOptions.first(where: { $0.label == label }) {
+                                    controller.selectPostProcessor(option)
+                                }
+                            }
+                        }
+                    } else if appState.config.enablePostProcessor {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Cleanup model") {
+                            Text("Download a cleanup model in Models")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(MuesliTheme.textTertiary)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: controlWidth, alignment: .trailing)
                         }
                     }
                 }
@@ -479,6 +516,17 @@ struct SettingsView: View {
             .padding(MuesliTheme.spacing32)
         }
         .background(MuesliTheme.backgroundBase)
+        .onAppear {
+            refreshDownloadedModelOptions()
+        }
+        .onChange(of: appState.selectedTab) { _, tab in
+            if tab == .settings {
+                refreshDownloadedModelOptions()
+            }
+        }
+        .onChange(of: appState.selectedBackend) { _, _ in
+            refreshAvailableBackendOptions()
+        }
         .alert(
             pendingDataDestruction?.title ?? "Confirm Destructive Action",
             isPresented: Binding(
@@ -503,6 +551,19 @@ struct SettingsView: View {
         } message: {
             Text(pendingDataDestruction?.message ?? "")
         }
+    }
+
+    private func refreshDownloadedModelOptions() {
+        refreshAvailableBackendOptions()
+        downloadedPostProcOptions = PostProcessorOption.downloaded
+    }
+
+    private func refreshAvailableBackendOptions() {
+        var options = BackendOption.downloaded
+        if !options.contains(where: { $0 == appState.selectedBackend }) {
+            options.insert(appState.selectedBackend, at: 0)
+        }
+        availableBackendOptions = options
     }
 
     private static let accentPresets: [(hex: String, name: String)] = [
@@ -872,4 +933,3 @@ private extension NSColor {
         return String(format: "%02x%02x%02x", r, g, b)
     }
 }
-

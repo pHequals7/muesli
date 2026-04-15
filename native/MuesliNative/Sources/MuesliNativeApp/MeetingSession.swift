@@ -132,16 +132,6 @@ final class MeetingSession {
         self.transcriptionCoordinator = transcriptionCoordinator
     }
 
-    private var serializedCustomWords: [[String: Any]] {
-        config.customWords.map { word in
-            var dict: [String: Any] = ["word": word.word]
-            if let replacement = word.replacement {
-                dict["replacement"] = replacement
-            }
-            return dict
-        }
-    }
-
     func start() async throws {
         let vadManager = await transcriptionCoordinator.getVadManager()
         let now = Date()
@@ -297,7 +287,7 @@ final class MeetingSession {
             let chunkDuration = lastSystemChunkTiming?.durationSeconds ?? 0
             fputs("[meeting] transcribing final system chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
             do {
-                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastSystemChunkURL, backend: backend, customWords: serializedCustomWords)
+                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastSystemChunkURL, backend: backend)
                 let normalizedSegments = normalizeSystemTranscription(
                     result: result,
                     startTime: chunkOffset,
@@ -554,7 +544,7 @@ final class MeetingSession {
                 if Task.isCancelled {
                     return []
                 }
-                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend, customWords: self.serializedCustomWords)
+                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend)
                 if !result.text.isEmpty {
                     fputs("[meeting] system chunk transcribed: \"\(String(result.text.prefix(60)))...\"\n", stderr)
                     let normalizedSegments = self.normalizeSystemTranscription(
@@ -710,8 +700,7 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeetingChunk(
                 at: url,
-                backend: backend,
-                customWords: serializedCustomWords
+                backend: backend
             )
             if !result.text.isEmpty {
                 fputs("[meeting] mic chunk transcribed (raw): \"\(String(result.text.prefix(60)))...\"\n", stderr)
@@ -860,8 +849,7 @@ final class MeetingSession {
 
                     let result = try await transcriptionCoordinator.transcribeMeeting(
                         at: segmentURL,
-                        backend: backend,
-                        customWords: serializedCustomWords
+                        backend: backend
                     )
                     repairedSegments.append(contentsOf: MicTurnNormalizer.normalize(
                         result: result,
@@ -941,8 +929,7 @@ final class MeetingSession {
 
                     let result = try await transcriptionCoordinator.transcribeMeeting(
                         at: segmentURL,
-                        backend: backend,
-                        customWords: serializedCustomWords
+                        backend: backend
                     )
                     repairedSegments.append(contentsOf: normalizeSystemTranscription(
                         result: result,
@@ -972,8 +959,7 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeeting(
                 at: fullSessionMicURL,
-                backend: backend,
-                customWords: serializedCustomWords
+                backend: backend
             )
             return MicTurnNormalizer.normalize(
                 result: result,
@@ -994,8 +980,7 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeeting(
                 at: systemAudioURL,
-                backend: backend,
-                customWords: serializedCustomWords
+                backend: backend
             )
             return normalizeSystemTranscription(
                 result: result,

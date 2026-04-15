@@ -18,6 +18,7 @@ actor TranscriptionCoordinator {
     private let whisperTranscriber = WhisperCppTranscriber()
     private var _nemotronTranscriber: Any?
     private var _qwen3Transcriber: Any?
+    private var _qwen3PostProcessor: Any?
     private var _canaryQwenTranscriber: Any?
     private var _cohereTranscriber: Any?
     private var vadManager: VadManager?
@@ -54,6 +55,69 @@ actor TranscriptionCoordinator {
         return _canaryQwenTranscriber as! CanaryQwenTranscriber
     }
 
+    private var postProcessorModelURL: URL = PostProcessorOption.defaultOption.modelURL
+    private var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
+    private var postProcessorModelId: String = PostProcessorOption.defaultOption.id
+
+    @available(macOS 15, *)
+    private var qwen3PostProcessor: Qwen3PostProcessor {
+        if _qwen3PostProcessor == nil {
+            _qwen3PostProcessor = Qwen3PostProcessor(
+                modelURL: postProcessorModelURL,
+                systemPrompt: postProcessorSystemPrompt
+            )
+        }
+        return _qwen3PostProcessor as! Qwen3PostProcessor
+    }
+
+    @available(macOS 15, *)
+    func setActivePostProcessor(option: PostProcessorOption, systemPrompt: String) async {
+        postProcessorModelURL = option.modelURL
+        postProcessorSystemPrompt = systemPrompt
+        postProcessorModelId = option.id
+        if let existing = _qwen3PostProcessor as? Qwen3PostProcessor {
+            await existing.reconfigure(modelURL: option.modelURL, systemPrompt: systemPrompt)
+        }
+    }
+
+    private struct PostProcPairLogEntry: Encodable {
+        let ts: String
+        let raw: String
+        let processed: String
+        let model: String
+        let asr: String
+    }
+
+    private func logPostProcPair(raw: String, processed: String, asr: String) {
+        guard Qwen3PostProcessorLogging.isPairLoggingEnabled else { return }
+        let logURL = AppIdentity.supportDirectoryURL.appendingPathComponent("postproc-pairs.jsonl")
+        let iso8601 = ISO8601DateFormatter()
+        iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let ts = iso8601.string(from: Date())
+        let entry = PostProcPairLogEntry(
+            ts: ts,
+            raw: raw,
+            processed: processed,
+            model: postProcessorModelId,
+            asr: asr
+        )
+        guard var data = try? JSONEncoder().encode(entry) else { return }
+        data.append(0x0A)
+        try? FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: logURL.path) {
+            if let fh = try? FileHandle(forWritingTo: logURL) {
+                defer { try? fh.close() }
+                fh.seekToEndOfFile()
+                fh.write(data)
+            }
+        } else {
+            try? data.write(to: logURL, options: .atomic)
+        }
+    }
+
     @available(macOS 15, *)
     private var cohereTranscriber: CohereTranscribeTranscriber {
         if _cohereTranscriber == nil {
@@ -62,7 +126,11 @@ actor TranscriptionCoordinator {
         return _cohereTranscriber as! CohereTranscribeTranscriber
     }
 
-    func preload(backend: BackendOption, progress: ((Double, String?) -> Void)? = nil) async {
+    func preload(
+        backend: BackendOption,
+        enablePostProcessor: Bool = false,
+        progress: ((Double, String?) -> Void)? = nil
+    ) async {
         activeBackend = backend.backend
 
         // Initialize Silero VAD for meeting chunk silence detection
@@ -151,9 +219,27 @@ actor TranscriptionCoordinator {
         default:
             fputs("[muesli-native] unknown backend: \(backend.backend)\n", stderr)
         }
+
+        await preloadPostProcessorIfNeeded(enabled: enablePostProcessor)
     }
 
-    func transcribeDictation(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+    func preloadPostProcessorIfNeeded(enabled: Bool) async {
+        if enabled, #available(macOS 15, *) {
+            do {
+                try await qwen3PostProcessor.prepare()
+            } catch {
+                Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor preload failed: \(error)")
+            }
+        }
+    }
+
+    func transcribeDictation(
+        at url: URL,
+        backend: BackendOption,
+        enablePostProcessor: Bool = false,
+        customWords: [[String: Any]] = []
+    ) async throws -> SpeechTranscriptionResult {
+        // Qwen3 post-processing is intentionally dictation-only. Meeting transcription should keep raw backend/Parakeet output.
         // Cohere decodes hallucinated text from silence — skip if VAD detects no speech
         if backend.backend == "cohere", let vadManager {
             do {
@@ -169,18 +255,28 @@ actor TranscriptionCoordinator {
         }
         var result = try await route(url: url, backend: backend)
         result = removeArtifacts(result)
-        result = removeFillers(result)
-        return applyCustomWords(result, customWords: customWords)
+        if !result.text.isEmpty {
+            Qwen3PostProcessorLogging.logVerbose("Dictation raw transcript after artifact cleanup: \(result.text)")
+        }
+        result = await postProcessDictationIfNeeded(
+            result,
+            backend: backend,
+            enabled: enablePostProcessor
+        ) ?? removeFillersWithLogging(result)
+        let final = applyCustomWords(result, customWords: customWords)
+        if !final.text.isEmpty {
+            Qwen3PostProcessorLogging.logVerbose("Dictation final transcript: \(final.text)")
+        }
+        return final
     }
 
-    func transcribeMeeting(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
-        var result = try await route(url: url, backend: backend)
-        result = removeArtifacts(result)
-        result = removeFillers(result)
-        return applyCustomWords(result, customWords: customWords)
+    func transcribeMeeting(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
+        // Meetings intentionally skip Qwen/custom-word post-processing. Keep deterministic artifact/filler cleanup only.
+        cleanMeetingTranscript(try await route(url: url, backend: backend))
     }
 
-    func transcribeMeetingChunk(at url: URL, backend: BackendOption, customWords: [[String: Any]] = []) async throws -> SpeechTranscriptionResult {
+    func transcribeMeetingChunk(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
+        // Meeting chunks intentionally skip Qwen/custom-word post-processing for reconciliation.
         // Run VAD to skip silent chunks (prevents hallucinations)
         if let vadManager {
             do {
@@ -194,10 +290,7 @@ actor TranscriptionCoordinator {
                 fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
             }
         }
-        var result = try await route(url: url, backend: backend)
-        result = removeArtifacts(result)
-        result = removeFillers(result)
-        return applyCustomWords(result, customWords: customWords)
+        return cleanMeetingTranscript(try await route(url: url, backend: backend))
     }
 
     func diarizeSystemAudio(at url: URL) async throws -> DiarizationResult? {
@@ -222,16 +315,17 @@ actor TranscriptionCoordinator {
         diarizerManager
     }
 
-    func shutdown() {
-        Task {
-            await fluidTranscriber.shutdown()
-            await whisperTranscriber.shutdown()
-            if #available(macOS 15, *) {
-                await nemotronTranscriber.shutdown()
-                await qwen3Transcriber.shutdown()
-                await canaryQwenTranscriber.shutdown()
-                await cohereTranscriber.shutdown()
+    func shutdown() async {
+        await fluidTranscriber.shutdown()
+        await whisperTranscriber.shutdown()
+        if #available(macOS 15, *) {
+            await nemotronTranscriber.shutdown()
+            await qwen3Transcriber.shutdown()
+            if let postProcessor = _qwen3PostProcessor as? Qwen3PostProcessor {
+                await postProcessor.shutdown()
             }
+            await canaryQwenTranscriber.shutdown()
+            await cohereTranscriber.shutdown()
         }
     }
 
@@ -240,9 +334,69 @@ actor TranscriptionCoordinator {
         return SpeechTranscriptionResult(text: filtered, segments: result.segments)
     }
 
+    private func removeFillersWithLogging(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
+        let start = CFAbsoluteTimeGetCurrent()
+        let filtered = removeFillers(result)
+        let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        if filtered.text != result.text {
+            Qwen3PostProcessorLogging.logVerbose("FillerWordFilter applied in \(String(format: "%.1f", elapsedMs))ms -> \(filtered.text)")
+        } else {
+            Qwen3PostProcessorLogging.logVerbose("FillerWordFilter skipped effective changes (\(String(format: "%.1f", elapsedMs))ms)")
+        }
+        return filtered
+    }
+
+    private func cleanMeetingTranscript(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
+        removeFillers(removeArtifacts(result))
+    }
+
     private func removeArtifacts(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
         let filtered = TranscriptionEngineArtifactsFilter.apply(result.text)
         return SpeechTranscriptionResult(text: filtered, segments: filtered.isEmpty ? [] : result.segments)
+    }
+
+    private func postProcessDictationIfNeeded(
+        _ result: SpeechTranscriptionResult,
+        backend: BackendOption,
+        enabled: Bool
+    ) async -> SpeechTranscriptionResult? {
+        guard enabled else {
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor disabled for dictation")
+            return nil
+        }
+        guard !result.text.isEmpty else {
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor skipped: empty transcript")
+            return nil
+        }
+        guard #available(macOS 15, *) else {
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor skipped: requires macOS 15+")
+            return nil
+        }
+
+        do {
+            // The explicit toggle means "always try cleanup" for dictation.
+            // Trigger heuristics were removed; the only remaining heuristic here preserves deletion-cue empty output.
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor forced by toggle")
+            let start = CFAbsoluteTimeGetCurrent()
+            let processed = try await qwen3PostProcessor.process(result.text)
+            let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            let trimmed = processed.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty, !Qwen3DeletionCueDetector.containsDeletionCue(result.text) {
+                Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor returned empty output in \(String(format: "%.1f", elapsedMs))ms; falling back")
+                return nil
+            }
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms (chars=\(trimmed.count))")
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor final output: \(trimmed)")
+            logPostProcPair(raw: result.text, processed: trimmed, asr: backend.backend)
+            return SpeechTranscriptionResult(
+                text: trimmed,
+                // Original ASR segments describe pre-cleanup text. Keep them only for debug diagnostics.
+                segments: Qwen3PostProcessorLogging.isVerboseEnabled && !trimmed.isEmpty ? result.segments : []
+            )
+        } catch {
+            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor failed, falling back: \(error)")
+            return nil
+        }
     }
 
     private func applyCustomWords(_ result: SpeechTranscriptionResult, customWords: [[String: Any]]) -> SpeechTranscriptionResult {
