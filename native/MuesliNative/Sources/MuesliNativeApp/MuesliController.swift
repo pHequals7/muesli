@@ -776,6 +776,7 @@ final class MuesliController: NSObject {
         appState.selectedTab = .meetings
         appState.selectedFolderID = folderID
         appState.meetingsNavigationState = .browser
+        syncAppState()
     }
 
     func showMeetingDocument(id: Int64) {
