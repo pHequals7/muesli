@@ -764,10 +764,13 @@ final class MuesliController: NSObject {
     /// The floating indicator and sounds are suppressed during test mode.
     var dictationTestCallback: ((String) -> Void)?
     var dictationTestRecordingStarted: (() -> Void)?
+    private var dictationTestTask: Task<Void, Never>?
 
     var isDictationTestMode: Bool { dictationTestCallback != nil }
 
     func cancelTestDictation() {
+        dictationTestTask?.cancel()
+        dictationTestTask = nil
         recorder.cancel()
         setState(.idle)
     }
@@ -1745,7 +1748,8 @@ final class MuesliController: NSObject {
         }
 
         setState(.transcribing)
-        Task { [weak self] in
+        let isTestMode = isDictationTestMode
+        let task = Task { [weak self] in
             guard let self else { return }
             defer {
                 try? FileManager.default.removeItem(at: wavURL)
@@ -1758,10 +1762,12 @@ final class MuesliController: NSObject {
                     enablePostProcessor: self.isPostProcessorReady,
                     customWords: self.serializedCustomWords()
                 )
+                // Drop result if test was cancelled (user navigated away)
+                try Task.checkCancellation()
                 let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
                 // Test mode: route result to callback, skip history/paste
-                if self.isDictationTestMode {
+                if isTestMode {
                     await MainActor.run {
                         self.dictationTestCallback?(text)
                         self.setState(.idle)
@@ -1797,6 +1803,9 @@ final class MuesliController: NSObject {
                         "paste_method": "clipboard_restore",
                     ])
                 }
+            } catch is CancellationError {
+                fputs("[muesli-native] test dictation cancelled\n", stderr)
+                await MainActor.run { self.setState(.idle) }
             } catch {
                 fputs("[muesli-native] transcription failed: \(error)\n", stderr)
                 await MainActor.run {
@@ -1807,6 +1816,7 @@ final class MuesliController: NSObject {
                 }
             }
         }
+        if isTestMode { dictationTestTask = task }
     }
 
     // MARK: - Marauder's Map
