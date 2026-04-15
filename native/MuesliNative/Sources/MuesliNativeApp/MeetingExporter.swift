@@ -107,10 +107,12 @@ struct MeetingExporter {
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainerInset = .zero
         textView.textStorage?.setAttributedString(attributed)
-        textView.layoutManager?.ensureLayout(for: textView.textContainer!)
 
-        let usedRect = textView.layoutManager?.usedRect(for: textView.textContainer!) ?? .zero
-        textView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(usedRect.height, 100))
+        if let container = textView.textContainer {
+            textView.layoutManager?.ensureLayout(for: container)
+            let usedRect = textView.layoutManager?.usedRect(for: container) ?? .zero
+            textView.frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(usedRect.height, 100))
+        }
 
         let pdfData = textView.dataWithPDF(inside: textView.bounds)
 
@@ -124,7 +126,7 @@ struct MeetingExporter {
     // MARK: - Save panel
 
     private static func presentSavePanel(_ panel: NSSavePanel, onSave: @escaping (URL) -> Void) {
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
         if let window = NSApp.keyWindow {
             panel.beginSheetModal(for: window) { response in
                 guard response == .OK, let url = panel.url else { return }
@@ -384,7 +386,8 @@ private class ExportFormatAccessory: NSObject {
 
     @objc private func formatChanged() {
         guard let panel else { return }
-        let stem = baseFilename
+        let currentName = panel.nameFieldStringValue
+        let stem = currentName
             .replacingOccurrences(of: ".pdf", with: "")
             .replacingOccurrences(of: ".md", with: "")
 
