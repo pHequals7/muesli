@@ -52,7 +52,7 @@ struct MeetingExporterTests {
         let md = MeetingExporter.buildMarkdown(meeting: meeting, content: .transcript)
 
         #expect(md.contains("# Weekly Standup"))
-        #expect(md.contains("## Transcript"))
+        #expect(md.contains("## Raw Transcript"))
         #expect(md.contains("[00:00:05] You: Hello everyone"))
         #expect(md.contains("[00:00:10] Speaker 1: Hi there"))
     }
@@ -64,7 +64,7 @@ struct MeetingExporterTests {
 
         #expect(md.contains("## Key Points"))
         #expect(md.contains("**Action item:** Ship export feature"))
-        #expect(md.contains("## Transcript"))
+        #expect(md.contains("## Raw Transcript"))
         #expect(md.contains("[00:00:05] You: Hello everyone"))
     }
 
@@ -74,7 +74,7 @@ struct MeetingExporterTests {
         let md = MeetingExporter.buildMarkdown(meeting: meeting, content: .fullMeeting)
 
         #expect(md.contains("*No structured notes available.*"))
-        #expect(md.contains("## Transcript"))
+        #expect(md.contains("## Raw Transcript"))
         #expect(md.contains("[00:00:05] You: Hello everyone"))
     }
 
@@ -83,7 +83,7 @@ struct MeetingExporterTests {
         let meeting = makeMeeting(formattedNotes: "## Raw Transcript\nsome text")
         let md = MeetingExporter.buildMarkdown(meeting: meeting, content: .notes)
 
-        #expect(md.contains("## Transcript"))
+        #expect(md.contains("## Raw Transcript"))
         #expect(md.contains("[00:00:05] You: Hello everyone"))
     }
 
