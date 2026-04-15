@@ -1,6 +1,9 @@
 import Foundation
 
 struct OnboardingProgress: Codable {
+    static let currentSchemaVersion = 1
+
+    var schemaVersion: Int = currentSchemaVersion
     var currentStep: Int
     var userName: String
     var selectedBackendKey: String
@@ -25,7 +28,16 @@ struct OnboardingProgress: Codable {
 
     static func load() -> OnboardingProgress? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
-        return try? JSONDecoder().decode(OnboardingProgress.self, from: data)
+        guard let progress = try? JSONDecoder().decode(OnboardingProgress.self, from: data) else {
+            // Stale or incompatible schema — discard and start fresh
+            clear()
+            return nil
+        }
+        guard progress.schemaVersion == currentSchemaVersion else {
+            clear()
+            return nil
+        }
+        return progress
     }
 
     static func clear() {

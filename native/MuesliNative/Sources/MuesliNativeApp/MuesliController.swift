@@ -255,9 +255,11 @@ final class MuesliController: NSObject {
 
         if !config.hasCompletedOnboarding {
             if let progress = OnboardingProgress.load() {
-                // Configure and start hotkey for the dictation test step
-                hotkeyMonitor.targetKeyCode = progress.hotkeyKeyCode
-                hotkeyMonitor.start()
+                // Only start hotkey monitor when resuming at/past the dictation test step
+                if progress.currentStep >= OnboardingView.dictationTestStep {
+                    hotkeyMonitor.targetKeyCode = progress.hotkeyKeyCode
+                    hotkeyMonitor.start()
+                }
                 showOnboarding(resumeFrom: progress)
             } else {
                 showOnboarding()
@@ -739,13 +741,17 @@ final class MuesliController: NSObject {
         let bundlePath = Bundle.main.bundleURL.path
         // Defer to next run-loop to escape any SwiftUI animation context
         DispatchQueue.main.async {
-            // Launch a shell that waits for this process to die, then opens the app
-            let script = "sleep 1; open \"\(bundlePath)\""
+            // Launch a detached process that waits for us to die, then reopens the app.
+            // Uses /bin/sh only for the sleep; the path is passed as a positional arg
+            // to avoid shell interpolation of special characters.
             let shell = Process()
             shell.executableURL = URL(fileURLWithPath: "/bin/sh")
-            shell.arguments = ["-c", script]
-            try? shell.run()
-            // Give the shell a moment to start, then exit
+            shell.arguments = ["-c", "sleep 1; open -- \"$1\"", "--", bundlePath]
+            do {
+                try shell.run()
+            } catch {
+                fputs("[muesli-native] relaunch failed: \(error)\n", stderr)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 exit(0)
             }

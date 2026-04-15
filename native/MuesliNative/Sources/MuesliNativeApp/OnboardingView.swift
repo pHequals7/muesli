@@ -22,12 +22,14 @@ struct OnboardingView: View {
     @State private var inputMonitoringGranted = false
     @State private var screenRecordingGranted = false
     @State private var permissionPollTimer: Timer?
-    @State private var showRestartBanner = false
 
     // Hotkey recorder
     @State private var selectedHotkey: HotkeyConfig
     @State private var isRecordingHotkey = false
     @State private var hotkeyEventMonitor: Any?
+
+    // Model selection
+    @State private var showMoreModels = false
 
     // Dictation test
     @State private var isDictationTesting = false
@@ -42,6 +44,7 @@ struct OnboardingView: View {
     @State private var googleCalSignInError: String?
 
     private let totalSteps = 7
+    static let dictationTestStep = 4
 
     init(
         controller: MuesliController,
@@ -233,8 +236,6 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity)
     }
-
-    @State private var showMoreModels = false
 
     // MARK: - Step 2: Model Selection
 
@@ -477,14 +478,7 @@ struct OnboardingView: View {
         refreshPermissions()
         permissionPollTimer?.invalidate()
         permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            DispatchQueue.main.async {
-                let wasAccessibilityGranted = accessibilityGranted
-                withAnimation { refreshPermissions() }
-                // Show restart banner if Accessibility was just granted but CGEvent creation fails
-                if accessibilityGranted && !wasAccessibilityGranted && !accessibilityActuallyWorks {
-                    withAnimation { showRestartBanner = true }
-                }
-            }
+            withAnimation { refreshPermissions() }
         }
     }
 
@@ -500,15 +494,6 @@ struct OnboardingView: View {
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
     }
 
-    private var accessibilityActuallyWorks: Bool {
-        guard AXIsProcessTrusted() else { return false }
-        guard let source = CGEventSource(stateID: .combinedSessionState),
-              let _ = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) else {
-            return false
-        }
-        return true
-    }
-
     private func saveProgress(atStep step: Int? = nil) {
         let progress = OnboardingProgress(
             currentStep: step ?? currentStep,
@@ -522,7 +507,7 @@ struct OnboardingView: View {
     }
 
     private func saveProgressAndRestart() {
-        saveProgress(atStep: 4) // Resume at dictation test after restart
+        saveProgress(atStep: Self.dictationTestStep)
         controller.relaunchApp()
     }
 
@@ -729,11 +714,9 @@ struct OnboardingView: View {
         guard isModelStillDownloading else { return }
         modelPollTimer?.invalidate()
         modelPollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
-            DispatchQueue.main.async {
-                if selectedBackend.isDownloaded {
-                    withAnimation { isModelStillDownloading = false }
-                    timer.invalidate()
-                }
+            if selectedBackend.isDownloaded {
+                withAnimation { isModelStillDownloading = false }
+                timer.invalidate()
             }
         }
     }
