@@ -154,7 +154,6 @@ final class MuesliController: NSObject {
             logDescription: "leftover temp meeting recording files"
         )
 
-        hotkeyMonitor.targetKeyCode = config.dictationHotkey.keyCode
         hotkeyMonitor.onPrepare = { [weak self] in self?.handlePrepare() }
         hotkeyMonitor.onStart = { [weak self] in self?.handleStart() }
         hotkeyMonitor.onStop = { [weak self] in self?.handleStop() }
@@ -162,7 +161,12 @@ final class MuesliController: NSObject {
         hotkeyMonitor.onToggleStart = { [weak self] in self?.handleToggleStart() }
         hotkeyMonitor.onToggleStop = { [weak self] in self?.handleToggleStop() }
         hotkeyMonitor.doubleTapEnabled = config.enableDoubleTapDictation
-        hotkeyMonitor.start()
+
+        // Defer permission-triggering monitors until after onboarding
+        if config.hasCompletedOnboarding {
+            hotkeyMonitor.targetKeyCode = config.dictationHotkey.keyCode
+            hotkeyMonitor.start()
+        }
         indicator.hotkeyLabel = config.dictationHotkey.label
         indicator.onStopMeeting = { [weak self] in self?.stopMeetingRecording() }
         indicator.onDiscardMeeting = { [weak self] in self?.discardMeetingWithConfirmation() }
@@ -212,10 +216,6 @@ final class MuesliController: NSObject {
         calendarMonitor.onMeetingSoon = { [weak self] event in
             self?.handleUpcomingMeeting(event)
         }
-        calendarMonitor.start()
-        startCalendarRefreshTimer()
-        if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
-
         micActivityMonitor.calendarEventProvider = { [weak self] in
             self?.calendarMonitor.currentOrNearbyEvent()
         }
@@ -224,7 +224,14 @@ final class MuesliController: NSObject {
             self.currentMeetingDetection = detection
             self.updateMeetingNotificationVisibility()
         }
-        micActivityMonitor.start()
+
+        // Defer permission-triggering monitors until after onboarding
+        if config.hasCompletedOnboarding {
+            calendarMonitor.start()
+            startCalendarRefreshTimer()
+            if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
+            micActivityMonitor.start()
+        }
 
         Task { [weak self] in
             guard let self else { return }
@@ -247,7 +254,14 @@ final class MuesliController: NSObject {
         }
 
         if !config.hasCompletedOnboarding {
-            showOnboarding()
+            if let progress = OnboardingProgress.load() {
+                // Configure and start hotkey for the dictation test step
+                hotkeyMonitor.targetKeyCode = progress.hotkeyKeyCode
+                hotkeyMonitor.start()
+                showOnboarding(resumeFrom: progress)
+            } else {
+                showOnboarding()
+            }
         } else if config.openDashboardOnLaunch {
             openHistoryWindow()
         }
@@ -715,10 +729,40 @@ final class MuesliController: NSObject {
 
     // MARK: - Onboarding
 
-    func showOnboarding() {
-        let wc = OnboardingWindowController(controller: self)
+    func showOnboarding(resumeFrom progress: OnboardingProgress? = nil) {
+        let wc = OnboardingWindowController(controller: self, resumeProgress: progress)
         self.onboardingWindowController = wc
         wc.show()
+    }
+
+    func relaunchApp() {
+        let bundlePath = Bundle.main.bundleURL.path
+        // Defer to next run-loop to escape any SwiftUI animation context
+        DispatchQueue.main.async {
+            // Launch a shell that waits for this process to die, then opens the app
+            let script = "sleep 1; open \"\(bundlePath)\""
+            let shell = Process()
+            shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+            shell.arguments = ["-c", script]
+            try? shell.run()
+            // Give the shell a moment to start, then exit
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                exit(0)
+            }
+        }
+    }
+
+    // MARK: - Dictation Test Mode (onboarding)
+
+    /// When set, handleStop routes transcribed text to this callback instead of pasting.
+    /// The floating indicator and sounds are suppressed during test mode.
+    var dictationTestCallback: ((String) -> Void)?
+    var dictationTestRecordingStarted: (() -> Void)?
+
+    var isDictationTestMode: Bool { dictationTestCallback != nil }
+
+    func configureHotkeyForTest(keyCode: UInt16) {
+        hotkeyMonitor.configure(keyCode: keyCode)
     }
 
     func downloadModelForOnboarding(_ backend: BackendOption, progress: @escaping (Double, String?) -> Void) async throws -> Bool {
@@ -753,6 +797,14 @@ final class MuesliController: NSObject {
         }
         selectBackend(backend)
         hotkeyMonitor.configure(keyCode: hotkey.keyCode)
+        dictationTestCallback = nil
+        dictationTestRecordingStarted = nil
+
+        // Start monitors that were deferred during onboarding
+        calendarMonitor.start()
+        startCalendarRefreshTimer()
+        micActivityMonitor.start()
+
         onboardingWindowController?.close()
         onboardingWindowController = nil
         openHistoryWindow()
@@ -1423,7 +1475,9 @@ final class MuesliController: NSObject {
         case .transcribing: status = "Transcribing"
         }
         statusBarController?.setStatus(status)
-        indicator.setState(state, config: config)
+        if !isDictationTestMode {
+            indicator.setState(state, config: config)
+        }
     }
 
     private func dismissPresentedMeetingDetection() {
@@ -1516,11 +1570,16 @@ final class MuesliController: NSObject {
         do {
             try recorder.start()
             dictationStartedAt = Date()
-            indicator.powerProvider = { [weak self] in
-                self?.recorder.currentPower() ?? -160
+            if !isDictationTestMode {
+                indicator.powerProvider = { [weak self] in
+                    self?.recorder.currentPower() ?? -160
+                }
             }
             setState(.recording)
-            SoundController.playDictationStart(enabled: config.soundEnabled)
+            if isDictationTestMode {
+                dictationTestRecordingStarted?()
+            }
+            SoundController.playDictationStart(enabled: config.soundEnabled && !isDictationTestMode)
         } catch {
             fputs("[muesli-native] recorder start failed: \(error)\n", stderr)
             setState(.idle)
@@ -1698,6 +1757,11 @@ final class MuesliController: NSObject {
                     endedAt: Date()
                 )
                 await MainActor.run {
+                    if let testCallback = self.dictationTestCallback {
+                        testCallback(text)
+                        self.setState(.idle)
+                        return
+                    }
                     self.statusBarController?.refresh()
                     self.historyWindowController?.reload()
                     self.syncAppState()
