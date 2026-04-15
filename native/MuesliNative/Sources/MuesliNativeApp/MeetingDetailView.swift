@@ -425,6 +425,7 @@ struct MeetingDetailView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .disabled(isEditingNotes)
     }
 
     private func templateMenuItem(title: String, systemImage: String, isSelected: Bool) -> some View {

@@ -152,6 +152,52 @@ struct MeetingExporterTests {
         #expect(html.contains("<hr"))
     }
 
+    // MARK: - Attributed string (PDF path)
+
+    @Test("Attributed string renders headings with correct fonts")
+    func attributedStringHeadings() {
+        let attr = MeetingExporter.buildAttributedString(from: "# Big\n## Medium\n### Small")
+        let full = attr.string
+
+        #expect(full.contains("Big"))
+        #expect(full.contains("Medium"))
+        #expect(full.contains("Small"))
+    }
+
+    @Test("Attributed string renders bold inline")
+    func attributedStringBold() {
+        let attr = MeetingExporter.buildAttributedString(from: "This is **bold** text")
+        let full = attr.string
+
+        #expect(full.contains("bold"))
+        #expect(!full.contains("**"))
+    }
+
+    @Test("Attributed string renders bullets")
+    func attributedStringBullets() {
+        let attr = MeetingExporter.buildAttributedString(from: "- Item one\n- Item two")
+        let full = attr.string
+
+        #expect(full.contains("\u{2022} Item one"))
+        #expect(full.contains("\u{2022} Item two"))
+    }
+
+    @Test("Attributed string handles empty input")
+    func attributedStringEmpty() {
+        let attr = MeetingExporter.buildAttributedString(from: "")
+
+        #expect(attr.length > 0) // at least the trailing newline
+    }
+
+    @Test("Unmatched bold marker emits literal **")
+    func attributedStringUnmatchedBold() {
+        let attr = MeetingExporter.buildAttributedString(from: "Start ** no close")
+        let full = attr.string
+
+        #expect(full.contains("**"))
+        #expect(full.contains("no close"))
+    }
+
     // MARK: - Filename generation
 
     @Test("Notes filename has -notes suffix")

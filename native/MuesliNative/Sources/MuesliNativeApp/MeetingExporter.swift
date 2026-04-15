@@ -387,9 +387,7 @@ private class ExportFormatAccessory: NSObject {
     @objc private func formatChanged() {
         guard let panel else { return }
         let currentName = panel.nameFieldStringValue
-        let stem = currentName
-            .replacingOccurrences(of: ".pdf", with: "")
-            .replacingOccurrences(of: ".md", with: "")
+        let stem = (currentName as NSString).deletingPathExtension
 
         if selectedFormat == .pdf {
             panel.allowedContentTypes = [MeetingExporter.pdfType]
