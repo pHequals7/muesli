@@ -693,6 +693,7 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity)
         .onAppear {
             checkModelDownloadStatus()
+            controller.startHotkeyMonitor()
             controller.dictationTestRecordingStarted = {
                 withAnimation { isDictationTesting = true }
                 dictationTestError = nil

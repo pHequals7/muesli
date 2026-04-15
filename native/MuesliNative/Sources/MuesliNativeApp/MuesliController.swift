@@ -767,6 +767,10 @@ final class MuesliController: NSObject {
 
     var isDictationTestMode: Bool { dictationTestCallback != nil }
 
+    func startHotkeyMonitor() {
+        hotkeyMonitor.start()
+    }
+
     func stopHotkeyMonitor() {
         hotkeyMonitor.stop()
     }
@@ -802,6 +806,7 @@ final class MuesliController: NSObject {
         }
         selectBackend(backend)
         hotkeyMonitor.configure(keyCode: hotkey.keyCode)
+        hotkeyMonitor.start()
         dictationTestCallback = nil
         dictationTestRecordingStarted = nil
 
