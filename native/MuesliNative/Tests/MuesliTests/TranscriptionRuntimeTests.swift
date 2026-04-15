@@ -288,4 +288,13 @@ struct Qwen3PostProcessingOutputCleanerTests {
             input: input
         ))
     }
+
+    @Test("rejects short-input hallucination expansion")
+    func rejectsShortInputHallucinationExpansion() {
+        let cleaned = String(repeating: "This unrelated response should not replace a short dictation. ", count: 3)
+        #expect(Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(
+            cleaned: cleaned,
+            input: "um yeah"
+        ))
+    }
 }

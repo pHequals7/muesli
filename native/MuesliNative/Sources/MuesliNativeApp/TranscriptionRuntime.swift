@@ -374,6 +374,8 @@ actor TranscriptionCoordinator {
         }
 
         do {
+            // The explicit toggle means "always try cleanup" for dictation.
+            // Trigger heuristics were removed; the only remaining heuristic here preserves deletion-cue empty output.
             Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor forced by toggle")
             let start = CFAbsoluteTimeGetCurrent()
             let processed = try await qwen3PostProcessor.process(result.text)

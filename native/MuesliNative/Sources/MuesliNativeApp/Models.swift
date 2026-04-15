@@ -265,25 +265,45 @@ struct PostProcessorOption: Identifiable, Equatable {
         all.filter(\.isDownloaded)
     }
 
+    static var downloadedIDs: Set<String> {
+        Set(downloaded.map(\.id))
+    }
+
     static func resolve(id: String) -> PostProcessorOption {
         all.first { $0.id == id } ?? defaultOption
     }
 
-    static func firstDownloaded(
-        excluding excludedID: String? = nil,
-        downloadedIDs: Set<String> = Set(downloaded.map(\.id))
-    ) -> PostProcessorOption? {
+    static func firstDownloaded(excluding excludedID: String? = nil) -> PostProcessorOption? {
+        firstDownloaded(excluding: excludedID, downloadedIDs: downloadedIDs)
+    }
+
+    static func firstDownloaded(excluding excludedID: String? = nil, downloadedIDs: Set<String>) -> PostProcessorOption? {
         all.first { option in
             option.id != excludedID && downloadedIDs.contains(option.id)
         }
     }
 
-    static func resolveDownloaded(
-        id: String,
-        downloadedIDs: Set<String> = Set(downloaded.map(\.id))
-    ) -> PostProcessorOption? {
+    static func resolveDownloaded(id: String) -> PostProcessorOption? {
+        resolveDownloaded(id: id, downloadedIDs: downloadedIDs)
+    }
+
+    static func resolveDownloaded(id: String, downloadedIDs: Set<String>) -> PostProcessorOption? {
         let resolved = resolve(id: id)
         if downloadedIDs.contains(resolved.id) { return resolved }
+        return firstDownloaded(downloadedIDs: downloadedIDs)
+    }
+
+    static func runtimeOption(id: String) -> PostProcessorOption? {
+        runtimeOption(
+            id: id,
+            downloadedIDs: downloadedIDs,
+            hasDevOverride: Qwen3PostProcessorConfig.devOverrideURL() != nil
+        )
+    }
+
+    static func runtimeOption(id: String, downloadedIDs: Set<String>, hasDevOverride: Bool) -> PostProcessorOption? {
+        let configured = resolve(id: id)
+        if downloadedIDs.contains(configured.id) || hasDevOverride { return configured }
         return firstDownloaded(downloadedIDs: downloadedIDs)
     }
 

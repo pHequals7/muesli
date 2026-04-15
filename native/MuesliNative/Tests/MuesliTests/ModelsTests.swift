@@ -142,6 +142,47 @@ struct PostProcessorOptionTests {
         ) == PostProcessorOption.finetunedV2)
     }
 
+    @Test("runtimeOption prefers selected downloaded option")
+    func runtimeOptionPrefersSelectedDownloadedOption() {
+        let downloadedIDs: Set<String> = [
+            PostProcessorOption.finetunedV2.id,
+            PostProcessorOption.qwen35_0_8b.id,
+        ]
+        #expect(PostProcessorOption.runtimeOption(
+            id: PostProcessorOption.qwen35_0_8b.id,
+            downloadedIDs: downloadedIDs,
+            hasDevOverride: false
+        ) == PostProcessorOption.qwen35_0_8b)
+    }
+
+    @Test("runtimeOption falls back to first downloaded option")
+    func runtimeOptionFallsBackToFirstDownloadedOption() {
+        let downloadedIDs: Set<String> = [PostProcessorOption.finetunedV2.id]
+        #expect(PostProcessorOption.runtimeOption(
+            id: PostProcessorOption.finetunedV3.id,
+            downloadedIDs: downloadedIDs,
+            hasDevOverride: false
+        ) == PostProcessorOption.finetunedV2)
+    }
+
+    @Test("runtimeOption accepts configured option with dev override")
+    func runtimeOptionAcceptsConfiguredOptionWithDevOverride() {
+        #expect(PostProcessorOption.runtimeOption(
+            id: PostProcessorOption.finetunedV3.id,
+            downloadedIDs: [],
+            hasDevOverride: true
+        ) == PostProcessorOption.finetunedV3)
+    }
+
+    @Test("runtimeOption returns nil without a download or dev override")
+    func runtimeOptionReturnsNilWithoutDownloadOrDevOverride() {
+        #expect(PostProcessorOption.runtimeOption(
+            id: PostProcessorOption.finetunedV3.id,
+            downloadedIDs: [],
+            hasDevOverride: false
+        ) == nil)
+    }
+
     @Test("firstDownloaded respects deletion exclusion")
     func firstDownloadedExcludingDeleted() {
         let downloadedIDs: Set<String> = [

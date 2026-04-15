@@ -228,8 +228,9 @@ final class MuesliController: NSObject {
 
         Task { [weak self] in
             guard let self else { return }
+            let ppOption = self.runtimePostProcessorOption()
             if #available(macOS 15, *) {
-                if let ppOption = self.resolveRuntimePostProcessorOption() {
+                if let ppOption {
                     await self.transcriptionCoordinator.setActivePostProcessor(
                         option: ppOption,
                         systemPrompt: self.config.postProcessorSystemPrompt
@@ -238,7 +239,7 @@ final class MuesliController: NSObject {
             }
             await self.transcriptionCoordinator.preload(
                 backend: self.selectedBackend,
-                enablePostProcessor: self.isPostProcessorReady
+                enablePostProcessor: self.config.enablePostProcessor && ppOption != nil
             )
             await MainActor.run {
                 self.refreshUI()
@@ -407,8 +408,9 @@ final class MuesliController: NSObject {
         }
         Task { [weak self] in
             guard let self else { return }
+            let ppOption = self.runtimePostProcessorOption()
             if #available(macOS 15, *) {
-                if let ppOption = self.resolveRuntimePostProcessorOption() {
+                if let ppOption {
                     await self.transcriptionCoordinator.setActivePostProcessor(
                         option: ppOption,
                         systemPrompt: self.config.postProcessorSystemPrompt
@@ -417,7 +419,7 @@ final class MuesliController: NSObject {
             }
             await self.transcriptionCoordinator.preload(
                 backend: option,
-                enablePostProcessor: self.isPostProcessorReady
+                enablePostProcessor: self.config.enablePostProcessor && ppOption != nil
             )
             await MainActor.run {
                 self.statusBarController?.refresh()
@@ -427,12 +429,12 @@ final class MuesliController: NSObject {
     }
 
     var isPostProcessorReady: Bool {
-        config.enablePostProcessor && resolveRuntimePostProcessorOption() != nil
+        config.enablePostProcessor && runtimePostProcessorOption() != nil
     }
 
     @discardableResult
     private func normalizePostProcessorSelectionForAvailability() -> PostProcessorOption? {
-        guard let option = PostProcessorOption.resolveDownloaded(id: config.activePostProcessorId) else {
+        guard let option = runtimePostProcessorOption() else {
             appState.activePostProcessor = PostProcessorOption.resolve(id: config.activePostProcessorId)
             return nil
         }
@@ -443,27 +445,25 @@ final class MuesliController: NSObject {
         return option
     }
 
-    private func resolveRuntimePostProcessorOption() -> PostProcessorOption? {
-        let configured = PostProcessorOption.resolve(id: config.activePostProcessorId)
-        if configured.isDownloaded || Qwen3PostProcessorConfig.devOverrideURL() != nil {
-            return configured
-        }
-        return normalizePostProcessorSelectionForAvailability()
+    private func runtimePostProcessorOption() -> PostProcessorOption? {
+        PostProcessorOption.runtimeOption(id: config.activePostProcessorId)
     }
 
     func setPostProcessorEnabled(_ enabled: Bool) {
-        if enabled, resolveRuntimePostProcessorOption() == nil {
-            updateConfig { $0.enablePostProcessor = false }
-            appState.selectedTab = .models
-            return
+        if enabled {
+            guard normalizePostProcessorSelectionForAvailability() != nil else {
+                updateConfig { $0.enablePostProcessor = false }
+                appState.selectedTab = .models
+                return
+            }
         }
         updateConfig { $0.enablePostProcessor = enabled }
         preloadExperimentalTranscriptionFeatures()
     }
 
     func preloadExperimentalTranscriptionFeatures() {
-        let enabled = isPostProcessorReady
-        let ppOption = resolveRuntimePostProcessorOption()
+        let ppOption = runtimePostProcessorOption()
+        let enabled = config.enablePostProcessor && ppOption != nil
         let ppPrompt = config.postProcessorSystemPrompt
         Task { [weak self] in
             guard let self else { return }
@@ -495,7 +495,7 @@ final class MuesliController: NSObject {
 
     func updatePostProcessorSystemPrompt(_ prompt: String) {
         updateConfig { $0.postProcessorSystemPrompt = prompt }
-        let ppOption = resolveRuntimePostProcessorOption()
+        let ppOption = runtimePostProcessorOption()
         guard config.enablePostProcessor else { return }
         Task { [weak self] in
             guard let self else { return }

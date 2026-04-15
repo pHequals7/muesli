@@ -127,8 +127,16 @@ enum Qwen3PostProcessorOutputCleaner {
         }
 
         let inputLength = max(input.trimmingCharacters(in: .whitespacesAndNewlines).count, 1)
-        // Cleanup should usually compress text. Treat large expansion as a hallucination signal.
-        return Double(trimmed.count) > Double(inputLength) * 2.0 && trimmed.count > 200
+        // Cleanup should usually compress text. Treat expansion as a hallucination signal,
+        // with a lower absolute floor for short dictations.
+        let expansion = Double(trimmed.count) / Double(inputLength)
+        if inputLength < 50 {
+            return expansion > 4.0 && trimmed.count > 80
+        }
+        if inputLength < 150 {
+            return expansion > 2.5 && trimmed.count > 150
+        }
+        return expansion > 2.0 && trimmed.count > 200
     }
 }
 
