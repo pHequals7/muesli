@@ -20,6 +20,7 @@ enum MeetingSummaryClient {
     You are a meeting notes assistant. Given a raw meeting transcript, produce concise, professional markdown notes.
     Do not invent facts. Prefer concrete takeaways over filler. Capture owners only when they are actually mentioned.
     If a requested section has no content, write "None noted."
+    Visual context may be provided showing on-screen text captured during the meeting. Use it to clarify references to shared screens, presentations, or documents discussed.
     """
 
     static func summarize(
@@ -27,7 +28,8 @@ enum MeetingSummaryClient {
         meetingTitle: String,
         config: AppConfig,
         template: MeetingTemplateSnapshot = MeetingTemplates.auto.snapshot,
-        existingNotes: String? = nil
+        existingNotes: String? = nil,
+        visualContext: String? = nil
     ) async -> String {
         let backend = (config.meetingSummaryBackend.isEmpty ? MeetingSummaryBackendOption.openAI.backend : config.meetingSummaryBackend).lowercased()
         if backend == MeetingSummaryBackendOption.chatGPT.backend {
@@ -36,7 +38,8 @@ enum MeetingSummaryClient {
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
                 config: config,
-                template: template
+                template: template,
+                visualContext: visualContext
             )
         }
         if backend == MeetingSummaryBackendOption.openRouter.backend {
@@ -45,7 +48,8 @@ enum MeetingSummaryClient {
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
                 config: config,
-                template: template
+                template: template,
+                visualContext: visualContext
             )
         }
         return await summarizeWithOpenAI(
@@ -53,7 +57,8 @@ enum MeetingSummaryClient {
             meetingTitle: meetingTitle,
             existingNotes: existingNotes,
             config: config,
-            template: template
+            template: template,
+            visualContext: visualContext
         )
     }
 
@@ -72,20 +77,20 @@ enum MeetingSummaryClient {
             + template.prompt
     }
 
-    static func summaryUserPrompt(transcript: String, meetingTitle: String, existingNotes: String? = nil) -> String {
-        let trimmedNotes = existingNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if trimmedNotes.isEmpty {
-            return "Meeting title: \(meetingTitle)\n\nRaw transcript:\n\(transcript)"
+    static func summaryUserPrompt(transcript: String, meetingTitle: String, existingNotes: String? = nil, visualContext: String? = nil) -> String {
+        var prompt = "Meeting title: \(meetingTitle)\n\n"
+
+        if let visualContext, !visualContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            prompt += "Visual context (on-screen text captured during the meeting):\n\(visualContext)\n\n"
         }
-        return """
-        Meeting title: \(meetingTitle)
 
-        Current notes to preserve and reformat:
-        \(trimmedNotes)
+        let trimmedNotes = existingNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedNotes.isEmpty {
+            prompt += "Current notes to preserve and reformat:\n\(trimmedNotes)\n\n"
+        }
 
-        Raw transcript:
-        \(transcript)
-        """
+        prompt += "Raw transcript:\n\(transcript)"
+        return prompt
     }
 
     private static func summarizeWithOpenAI(
@@ -93,7 +98,8 @@ enum MeetingSummaryClient {
         meetingTitle: String,
         existingNotes: String?,
         config: AppConfig,
-        template: MeetingTemplateSnapshot
+        template: MeetingTemplateSnapshot,
+        visualContext: String? = nil
     ) async -> String {
         let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? config.openAIAPIKey
         guard !apiKey.isEmpty else {
@@ -104,7 +110,8 @@ enum MeetingSummaryClient {
         let userPrompt = summaryUserPrompt(
             transcript: transcript,
             meetingTitle: meetingTitle,
-            existingNotes: existingNotes
+            existingNotes: existingNotes,
+            visualContext: visualContext
         )
         let body: [String: Any] = [
             "model": config.openAIModel.isEmpty ? defaultOpenAIModel : config.openAIModel,
@@ -143,7 +150,8 @@ enum MeetingSummaryClient {
         meetingTitle: String,
         existingNotes: String?,
         config: AppConfig,
-        template: MeetingTemplateSnapshot
+        template: MeetingTemplateSnapshot,
+        visualContext: String? = nil
     ) async -> String {
         let apiKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] ?? config.openRouterAPIKey
         guard !apiKey.isEmpty else {
@@ -155,7 +163,8 @@ enum MeetingSummaryClient {
         let userPrompt = summaryUserPrompt(
             transcript: transcript,
             meetingTitle: meetingTitle,
-            existingNotes: existingNotes
+            existingNotes: existingNotes,
+            visualContext: visualContext
         )
         let body: [String: Any] = [
             "model": model,
@@ -193,7 +202,8 @@ enum MeetingSummaryClient {
         meetingTitle: String,
         existingNotes: String?,
         config: AppConfig,
-        template: MeetingTemplateSnapshot
+        template: MeetingTemplateSnapshot,
+        visualContext: String? = nil
     ) async -> String {
         do {
             let instructions = summaryInstructions(for: template, existingNotes: existingNotes)
@@ -202,7 +212,8 @@ enum MeetingSummaryClient {
                 userPrompt: summaryUserPrompt(
                     transcript: transcript,
                     meetingTitle: meetingTitle,
-                    existingNotes: existingNotes
+                    existingNotes: existingNotes,
+                    visualContext: visualContext
                 ),
                 model: config.chatGPTModel.isEmpty ? defaultChatGPTModel : config.chatGPTModel
             )

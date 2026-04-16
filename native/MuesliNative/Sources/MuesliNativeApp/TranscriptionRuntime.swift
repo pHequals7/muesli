@@ -237,7 +237,8 @@ actor TranscriptionCoordinator {
         at url: URL,
         backend: BackendOption,
         enablePostProcessor: Bool = false,
-        customWords: [[String: Any]] = []
+        customWords: [[String: Any]] = [],
+        appContext: String? = nil
     ) async throws -> SpeechTranscriptionResult {
         // Qwen3 post-processing is intentionally dictation-only. Meeting transcription should keep raw backend/Parakeet output.
         // Cohere decodes hallucinated text from silence — skip if VAD detects no speech
@@ -261,7 +262,8 @@ actor TranscriptionCoordinator {
         result = await postProcessDictationIfNeeded(
             result,
             backend: backend,
-            enabled: enablePostProcessor
+            enabled: enablePostProcessor,
+            appContext: appContext
         ) ?? removeFillersWithLogging(result)
         let final = applyCustomWords(result, customWords: customWords)
         if !final.text.isEmpty {
@@ -358,7 +360,8 @@ actor TranscriptionCoordinator {
     private func postProcessDictationIfNeeded(
         _ result: SpeechTranscriptionResult,
         backend: BackendOption,
-        enabled: Bool
+        enabled: Bool,
+        appContext: String? = nil
     ) async -> SpeechTranscriptionResult? {
         guard enabled else {
             Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor disabled for dictation")
@@ -378,7 +381,7 @@ actor TranscriptionCoordinator {
             // Trigger heuristics were removed; the only remaining heuristic here preserves deletion-cue empty output.
             Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor forced by toggle")
             let start = CFAbsoluteTimeGetCurrent()
-            let processed = try await qwen3PostProcessor.process(result.text)
+            let processed = try await qwen3PostProcessor.process(result.text, appContext: appContext)
             let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
             let trimmed = processed.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty, !Qwen3DeletionCueDetector.containsDeletionCue(result.text) {

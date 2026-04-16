@@ -109,6 +109,7 @@ final class MuesliController: NSObject {
     private var previousStreamText = ""
     private var openWindowCount = 0
     private var lastExternalApp: NSRunningApplication?
+    private var capturedDictationContext: DictationContext?
     private var workspaceObserver: NSObjectProtocol?
     private var dataDidChangeObserver: NSObjectProtocol?
     private var isStartingMeetingRecording = false
@@ -1588,6 +1589,10 @@ final class MuesliController: NSObject {
         do {
             try recorder.start()
             dictationStartedAt = Date()
+            capturedDictationContext = nil
+            if config.enableScreenContext && !isDictationTestMode {
+                capturedDictationContext = DictationContextCapture.capture()
+            }
             if !isDictationTestMode {
                 indicator.powerProvider = { [weak self] in
                     self?.recorder.currentPower() ?? -160
@@ -1645,6 +1650,7 @@ final class MuesliController: NSObject {
         }
 
         recorder.cancel()
+        capturedDictationContext = nil
         dictationStartedAt = nil
         setState(.idle)
     }
@@ -1760,7 +1766,8 @@ final class MuesliController: NSObject {
                     at: wavURL,
                     backend: self.selectedBackend,
                     enablePostProcessor: self.isPostProcessorReady,
-                    customWords: self.serializedCustomWords()
+                    customWords: self.serializedCustomWords(),
+                    appContext: self.capturedDictationContext.map { DictationContextCapture.formatForPrompt($0) }
                 )
                 // Drop result if test was cancelled (user navigated away)
                 try Task.checkCancellation()
@@ -1784,13 +1791,16 @@ final class MuesliController: NSObject {
                     }
                     return
                 }
+                let appContextString = self.capturedDictationContext.map { DictationContextCapture.formatForStorage($0) } ?? ""
                 try? self.dictationStore.insertDictation(
                     text: text,
                     durationSeconds: duration,
+                    appContext: appContextString,
                     startedAt: startedAt,
                     endedAt: Date()
                 )
                 await MainActor.run {
+                    self.capturedDictationContext = nil
                     self.statusBarController?.refresh()
                     self.historyWindowController?.reload()
                     self.syncAppState()

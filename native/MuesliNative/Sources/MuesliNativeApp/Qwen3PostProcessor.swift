@@ -147,12 +147,13 @@ enum Qwen3PostProcessorConfig {
     // Dictation-only cleanup cap. Keep bounded to avoid slow local inference; long dictations may be truncated by LLM.swift.
     static let maxContextTokens: Int32 = 1024
 
-    static func formatInput(_ text: String) -> String {
-        """
-        <USER-INPUT>
-        \(text)
-        </USER-INPUT>
-        """
+    static func formatInput(_ text: String, appContext: String? = nil) -> String {
+        var parts = ""
+        if let appContext, !appContext.isEmpty {
+            parts += "<APP-CONTEXT>\n\(String(appContext.prefix(1200)))\n</APP-CONTEXT>\n\n"
+        }
+        parts += "<USER-INPUT>\n\(text)\n</USER-INPUT>"
+        return parts
     }
 
     /// Checks for a dev/Canary env-var override and returns the resolved GGUF URL if present.
@@ -243,14 +244,14 @@ private actor Qwen3PostProcessorManager {
         _ = try loadBot()
     }
 
-    func process(_ text: String) async throws -> String {
+    func process(_ text: String, appContext: String? = nil) async throws -> String {
         // Actors can re-enter while respond() awaits; serialize access to the cached mutable LLM.
         try await inferenceGate.acquire()
         do {
             try Task.checkCancellation()
             let bot = try loadBot()
             defer { bot.reset() }
-            let formattedInput = Qwen3PostProcessorConfig.formatInput(text)
+            let formattedInput = Qwen3PostProcessorConfig.formatInput(text, appContext: appContext)
             await bot.respond(to: formattedInput, thinking: .suppressed)
             let raw = bot.output
             let cleaned = Qwen3PostProcessorOutputCleaner.clean(raw)
@@ -333,9 +334,9 @@ actor Qwen3PostProcessor {
         _ = try await loadManager()
     }
 
-    func process(_ text: String) async throws -> String {
+    func process(_ text: String, appContext: String? = nil) async throws -> String {
         let manager = try await loadManager()
-        return try await manager.process(text)
+        return try await manager.process(text, appContext: appContext)
     }
 
     func shutdown() {

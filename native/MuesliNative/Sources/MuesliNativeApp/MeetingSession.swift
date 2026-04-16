@@ -107,6 +107,7 @@ final class MeetingSession {
     private var systemChunkTimingTracker = MeetingChunkTimingTracker()
     private var systemChunkRecorder: PCMChunkRecorder?
     var onProgress: ((MeetingProcessingStage) -> Void)?
+    private let screenContextCollector = MeetingScreenContextCollector()
 
     /// Current mic power level for waveform visualization.
     func currentPower() -> Float {
@@ -187,10 +188,14 @@ final class MeetingSession {
         } else {
             fputs("[meeting] VAD not available, using max-duration fallback only\n", stderr)
         }
+        if config.enableScreenContext {
+            await screenContextCollector.startPeriodicCapture()
+        }
     }
 
     /// Abandon the recording — stop everything, delete temp files, don't transcribe.
     func discard() {
+        Task { let _ = await screenContextCollector.stopAndDrain() }
         let (rawRecorder, systemRecorder) = chunkRotationQueue.sync { () -> (PCMChunkRecorder?, PCMChunkRecorder?) in
             isRecording = false
             chunkTimingTracker.discard()
@@ -450,12 +455,14 @@ final class MeetingSession {
             id: config.defaultMeetingTemplateID,
             customTemplates: config.customMeetingTemplates
         )
+        let visualContext = await screenContextCollector.stopAndDrain()
         onProgress?(.summarizingNotes)
         let formattedNotes = await MeetingSummaryClient.summarize(
             transcript: rawTranscript,
             meetingTitle: generatedTitle,
             config: config,
-            template: templateSnapshot
+            template: templateSnapshot,
+            visualContext: visualContext.isEmpty ? nil : visualContext
         )
 
         return MeetingSessionResult(

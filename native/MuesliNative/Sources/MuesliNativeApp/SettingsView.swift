@@ -126,6 +126,18 @@ struct SettingsView: View {
                     }
                 }
 
+                settingsSection("Context") {
+                    settingsRow("Screen context") {
+                        settingsSwitch(isOn: appState.config.enableScreenContext) { newValue in
+                            controller.updateConfig { $0.enableScreenContext = newValue }
+                        }
+                    }
+                    Text("Captures on-screen text via OCR to improve dictation formatting and meeting summaries. Screenshots are processed on-device and never saved.")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .padding(.horizontal, MuesliTheme.spacing16)
+                }
+
                 settingsSection("Meetings") {
                     settingsRow("Summary backend") {
                         settingsMenu(
