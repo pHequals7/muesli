@@ -132,7 +132,7 @@ struct SettingsView: View {
                             controller.updateConfig { $0.enableScreenContext = newValue }
                         }
                     }
-                    Text("Captures on-screen text via OCR to improve dictation formatting and meeting summaries. Screenshots are processed on-device and never saved.")
+                    Text("For dictation, reads app name and nearby text via the Accessibility API (no screenshots). For meetings, captures the focused window via on-device OCR. All processing stays on-device; screenshots are never saved.")
                         .font(MuesliTheme.caption())
                         .foregroundStyle(MuesliTheme.textTertiary)
                         .padding(.horizontal, MuesliTheme.spacing16)

@@ -6,41 +6,42 @@ import Vision
 struct DictationContext {
     let appName: String
     let bundleID: String
-    let textBeforeCursor: String
+    let documentContext: String
     let selectedText: String
     let url: String?
 }
 
 enum DictationContextCapture {
 
-    /// Captures focused app name + text around cursor via Accessibility API.
+    /// Captures focused app name + text context via Accessibility API.
     /// Lightweight and deterministic — no screenshots, no OCR.
     static func capture() -> DictationContext {
         let app = NSWorkspace.shared.frontmostApplication
         let appName = app?.localizedName ?? "Unknown"
         let bundleID = app?.bundleIdentifier ?? ""
 
-        var beforeText = ""
+        var docContext = ""
         var selectedText = ""
 
         if let app, let focusedElement = focusedUIElement(for: app) {
-            beforeText = axStringValue(focusedElement, attribute: kAXValueAttribute as String)
+            docContext = axStringValue(focusedElement, attribute: kAXValueAttribute as String)
             selectedText = axStringValue(focusedElement, attribute: kAXSelectedTextAttribute as String)
 
-            // Trim beforeText to last ~200 chars for token efficiency
-            if beforeText.count > 200 {
-                beforeText = "..." + String(beforeText.suffix(200))
+            // kAXValueAttribute returns the full element text.
+            // Trim to last ~200 chars for token efficiency.
+            if docContext.count > 200 {
+                docContext = "..." + String(docContext.suffix(200))
             }
         }
 
         let url = browserURL(for: app)
 
-        fputs("[muesli-native] dictation context: app=\(appName) beforeText=\(beforeText.count) chars selectedText=\(selectedText.count) chars url=\(url ?? "none")\n", stderr)
+        fputs("[muesli-native] dictation context: app=\(appName) docContext=\(docContext.count) chars selectedText=\(selectedText.count) chars url=\(url ?? "none")\n", stderr)
 
         return DictationContext(
             appName: appName,
             bundleID: bundleID,
-            textBeforeCursor: beforeText,
+            documentContext: docContext,
             selectedText: selectedText,
             url: url
         )
@@ -52,8 +53,8 @@ enum DictationContextCapture {
         if let url = ctx.url {
             parts += " (\(url))"
         }
-        if !ctx.textBeforeCursor.isEmpty {
-            parts += "\nText before cursor: \(ctx.textBeforeCursor)"
+        if !ctx.documentContext.isEmpty {
+            parts += "\nDocument context: \(ctx.documentContext)"
         }
         if !ctx.selectedText.isEmpty {
             parts += "\nSelected text: \(ctx.selectedText)"
@@ -65,8 +66,8 @@ enum DictationContextCapture {
     static func formatForStorage(_ ctx: DictationContext) -> String {
         var parts = "\(ctx.appName)|\(ctx.bundleID)"
         if let url = ctx.url { parts += "|\(url)" }
-        if !ctx.textBeforeCursor.isEmpty {
-            parts += "|before:\(String(ctx.textBeforeCursor.prefix(200)))"
+        if !ctx.documentContext.isEmpty {
+            parts += "|doc:\(ctx.documentContext)"
         }
         return parts
     }
@@ -78,7 +79,9 @@ enum DictationContextCapture {
         var focusedElement: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(axApp, kAXFocusedUIElementAttribute as CFString, &focusedElement)
         guard result == .success, let element = focusedElement else { return nil }
-        return (element as! AXUIElement)
+        // CFTypeRef from AXUIElementCopyAttributeValue is always AXUIElement here,
+        // but use unsafeBitCast since AXUIElement is a CFTypeRef alias, not a class.
+        return unsafeBitCast(element, to: AXUIElement.self)
     }
 
     private static func axStringValue(_ element: AXUIElement, attribute: String) -> String {
@@ -97,15 +100,14 @@ enum DictationContextCapture {
         guard browserBundles.contains(app.bundleIdentifier ?? "") else { return nil }
 
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
-        // Try to read the URL bar — typically the focused window's AXDocument or first AXTextField
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
               let window = windowRef else { return nil }
 
+        let axWindow = unsafeBitCast(window, to: AXUIElement.self)
         var urlValue: CFTypeRef?
-        if AXUIElementCopyAttributeValue(window as! AXUIElement, kAXDocumentAttribute as CFString, &urlValue) == .success,
+        if AXUIElementCopyAttributeValue(axWindow, kAXDocumentAttribute as CFString, &urlValue) == .success,
            let url = urlValue as? String, !url.isEmpty {
-            // Strip to domain + path for token efficiency
             if let parsed = URL(string: url) {
                 return "\(parsed.host ?? "")\(parsed.path)"
             }
@@ -169,7 +171,7 @@ enum ScreenContextCapture {
         }
     }
 
-    static func ocrImage(_ image: CGImage) async throws -> String {
+    private static func ocrImage(_ image: CGImage) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error {
@@ -205,6 +207,12 @@ actor MeetingScreenContextCollector {
         let ocrText: String
     }
 
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
     private var snapshots: [Snapshot] = []
     private var captureTask: Task<Void, Never>?
 
@@ -219,6 +227,7 @@ actor MeetingScreenContextCollector {
                         ocrText: String(context.ocrText.prefix(1000))
                     ))
                 }
+                // Cancellation wakes the sleep; Task.isCancelled gates the next iteration
                 try? await Task.sleep(for: .seconds(interval))
             }
         }
@@ -238,11 +247,8 @@ actor MeetingScreenContextCollector {
         }
         snapshots = []
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-
         let result = deduped.map { entry in
-            "[\(formatter.string(from: entry.timestamp))] \(entry.appName):\n\(entry.ocrText)"
+            "[\(Self.timeFormatter.string(from: entry.timestamp))] \(entry.appName):\n\(entry.ocrText)"
         }.joined(separator: "\n\n")
 
         return String(result.prefix(5000))
