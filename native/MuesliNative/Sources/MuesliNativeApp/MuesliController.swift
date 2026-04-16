@@ -1590,7 +1590,7 @@ final class MuesliController: NSObject {
             try recorder.start()
             dictationStartedAt = Date()
             capturedDictationContext = nil
-            if config.enableScreenContext && !isDictationTestMode {
+            if config.enableScreenContext && config.enablePostProcessor && !isDictationTestMode {
                 capturedDictationContext = DictationContextCapture.capture()
             }
             if !isDictationTestMode {
