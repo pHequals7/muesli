@@ -84,7 +84,8 @@ enum DictationContextCapture {
         // Try cursor-aware read via kAXSelectedTextRangeAttribute + kAXStringForRangeParameterizedAttribute
         var rangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
-           let rangeValue = rangeRef {
+           let rangeValue = rangeRef,
+           CFGetTypeID(rangeValue) == AXValueGetTypeID() {
             var cfRange = CFRange(location: 0, length: 0)
             if AXValueGetValue(rangeValue as! AXValue, .cfRange, &cfRange) {
                 let cursorPos = cfRange.location
