@@ -1678,7 +1678,7 @@ final class MuesliController: NSObject {
             try recorder.start()
             dictationStartedAt = Date()
             capturedDictationContext = nil
-            if config.enableScreenContext && config.enablePostProcessor {
+            if config.enableScreenContext && config.enablePostProcessor && !isDictationTestMode {
                 capturedDictationContext = DictationContextCapture.capture()
             }
             indicator.powerProvider = { [weak self] in

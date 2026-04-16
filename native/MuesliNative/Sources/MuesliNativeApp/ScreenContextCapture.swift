@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Vision
 
 // MARK: - Dictation context (Accessibility API — deterministic, low-token)
@@ -23,7 +24,7 @@ enum DictationContextCapture {
         var docContext = ""
         var selectedText = ""
 
-        if let app, let focusedElement = focusedUIElement(for: app) {
+        if let app, AXIsProcessTrusted(), let focusedElement = focusedUIElement(for: app) {
             docContext = axStringValue(focusedElement, attribute: kAXValueAttribute as String)
             selectedText = axStringValue(focusedElement, attribute: kAXSelectedTextAttribute as String)
 
@@ -78,10 +79,9 @@ enum DictationContextCapture {
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         var focusedElement: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(axApp, kAXFocusedUIElementAttribute as CFString, &focusedElement)
-        guard result == .success, let element = focusedElement else { return nil }
-        // CFTypeRef from AXUIElementCopyAttributeValue is always AXUIElement here,
-        // but use unsafeBitCast since AXUIElement is a CFTypeRef alias, not a class.
-        return unsafeBitCast(element, to: AXUIElement.self)
+        guard result == .success, let element = focusedElement,
+              CFGetTypeID(element) == AXUIElementGetTypeID() else { return nil }
+        return (element as! AXUIElement)
     }
 
     private static func axStringValue(_ element: AXUIElement, attribute: String) -> String {
@@ -102,9 +102,10 @@ enum DictationContextCapture {
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
-              let window = windowRef else { return nil }
+              let window = windowRef,
+              CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
 
-        let axWindow = unsafeBitCast(window, to: AXUIElement.self)
+        let axWindow = (window as! AXUIElement)
         var urlValue: CFTypeRef?
         if AXUIElementCopyAttributeValue(axWindow, kAXDocumentAttribute as CFString, &urlValue) == .success,
            let url = urlValue as? String, !url.isEmpty {
@@ -173,26 +174,29 @@ enum ScreenContextCapture {
 
     private static func ocrImage(_ image: CGImage) async throws -> String {
         try await withCheckedThrowingContinuation { continuation in
-            let request = VNRecognizeTextRequest { request, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
+            // Dispatch to background queue to avoid blocking the Swift cooperative thread pool
+            DispatchQueue.global(qos: .userInitiated).async {
+                let request = VNRecognizeTextRequest { request, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    let observations = request.results as? [VNRecognizedTextObservation] ?? []
+                    let text = observations
+                        .compactMap { $0.topCandidates(1).first?.string }
+                        .joined(separator: "\n")
+                    continuation.resume(returning: text)
                 }
-                let observations = request.results as? [VNRecognizedTextObservation] ?? []
-                let text = observations
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .joined(separator: "\n")
-                continuation.resume(returning: text)
-            }
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.usesCPUOnly = true
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = true
+                request.usesCPUOnly = true
 
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                continuation.resume(throwing: error)
+                let handler = VNImageRequestHandler(cgImage: image, options: [:])
+                do {
+                    try handler.perform([request])
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
@@ -233,6 +237,7 @@ actor MeetingScreenContextCollector {
         }
     }
 
+    @discardableResult
     func stopAndDrain() -> String {
         captureTask?.cancel()
         captureTask = nil

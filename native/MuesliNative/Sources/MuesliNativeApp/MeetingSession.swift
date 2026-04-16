@@ -195,7 +195,7 @@ final class MeetingSession {
 
     /// Abandon the recording — stop everything, delete temp files, don't transcribe.
     func discard() {
-        Task { let _ = await screenContextCollector.stopAndDrain() }
+        Task { await screenContextCollector.stopAndDrain() }
         let (rawRecorder, systemRecorder) = chunkRotationQueue.sync { () -> (PCMChunkRecorder?, PCMChunkRecorder?) in
             isRecording = false
             chunkTimingTracker.discard()
