@@ -81,7 +81,7 @@ enum MeetingSummaryClient {
         var prompt = "Meeting title: \(meetingTitle)\n\n"
 
         if let visualContext, !visualContext.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            prompt += "Visual context (on-screen text captured during the meeting):\n\(visualContext)\n\n"
+            prompt += "Visual context (on-screen text captured during the meeting):\n\(visualContext)\n---\n\n"
         }
 
         let trimmedNotes = existingNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
