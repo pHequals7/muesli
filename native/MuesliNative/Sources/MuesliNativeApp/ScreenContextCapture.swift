@@ -241,13 +241,16 @@ enum ScreenContextCapture {
     }
 }
 
-// MARK: - Meeting periodic capture
+// MARK: - Meeting periodic context capture (AX-based, no screenshots)
+//
+// Uses the Accessibility API instead of CGWindowListCreateImage to avoid
+// disrupting the active SCStream system audio capture during meetings.
 
 actor MeetingScreenContextCollector {
     private struct Snapshot {
         let timestamp: Date
         let appName: String
-        let ocrText: String
+        let contextText: String
     }
 
     private static let timeFormatter: DateFormatter = {
@@ -263,11 +266,13 @@ actor MeetingScreenContextCollector {
         captureTask?.cancel()
         captureTask = Task {
             while !Task.isCancelled {
-                if let context = await ScreenContextCapture.captureOnce() {
+                let ctx = DictationContextCapture.capture()
+                let text = DictationContextCapture.formatForPrompt(ctx)
+                if !text.isEmpty {
                     snapshots.append(Snapshot(
-                        timestamp: context.capturedAt,
-                        appName: context.appName,
-                        ocrText: String(context.ocrText.prefix(1000))
+                        timestamp: Date(),
+                        appName: ctx.appName,
+                        contextText: String(text.prefix(1000))
                     ))
                 }
                 // Cancellation wakes the sleep; Task.isCancelled gates the next iteration
@@ -284,7 +289,7 @@ actor MeetingScreenContextCollector {
 
         var deduped: [Snapshot] = []
         for snapshot in snapshots {
-            if let last = deduped.last, last.ocrText == snapshot.ocrText {
+            if let last = deduped.last, last.contextText == snapshot.contextText {
                 continue
             }
             deduped.append(snapshot)
@@ -292,7 +297,7 @@ actor MeetingScreenContextCollector {
         snapshots = []
 
         let result = deduped.map { entry in
-            "[\(Self.timeFormatter.string(from: entry.timestamp))] \(entry.appName):\n\(entry.ocrText)"
+            "[\(Self.timeFormatter.string(from: entry.timestamp))] \(entry.appName):\n\(entry.contextText)"
         }.joined(separator: "\n\n")
 
         return String(result.prefix(5000))
