@@ -108,7 +108,14 @@ enum DictationContextCapture {
             }
         }
 
-        // Fallback: read full value and truncate (not all apps support parameterized attributes)
+        // Fallback: read full value only if the document is small enough that the
+        // IPC cost is acceptable. Skip for large documents (>5000 chars) to avoid
+        // copying the entire text buffer across the process boundary.
+        var charCountRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXNumberOfCharactersAttribute as CFString, &charCountRef) == .success,
+           let count = charCountRef as? Int, count > 5000 {
+            return ""
+        }
         let full = axStringValue(element, attribute: kAXValueAttribute as String)
         if full.count > maxChars {
             return "..." + String(full.suffix(maxChars))
