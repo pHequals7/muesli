@@ -25,14 +25,8 @@ enum DictationContextCapture {
         var selectedText = ""
 
         if let app, AXIsProcessTrusted(), let focusedElement = focusedUIElement(for: app) {
-            docContext = axStringValue(focusedElement, attribute: kAXValueAttribute as String)
+            docContext = textBeforeCursor(focusedElement, maxChars: 200)
             selectedText = axStringValue(focusedElement, attribute: kAXSelectedTextAttribute as String)
-
-            // kAXValueAttribute returns the full element text.
-            // Trim to last ~200 chars for token efficiency.
-            if docContext.count > 200 {
-                docContext = "..." + String(docContext.suffix(200))
-            }
         }
 
         let url = browserURL(for: app)
@@ -82,6 +76,43 @@ enum DictationContextCapture {
         guard result == .success, let element = focusedElement,
               CFGetTypeID(element) == AXUIElementGetTypeID() else { return nil }
         return (element as! AXUIElement)
+    }
+
+    /// Reads up to `maxChars` of text before the cursor using the parameterized
+    /// AX string-for-range attribute. Falls back to suffix of full value if unsupported.
+    private static func textBeforeCursor(_ element: AXUIElement, maxChars: Int) -> String {
+        // Try cursor-aware read via kAXSelectedTextRangeAttribute + kAXStringForRangeParameterizedAttribute
+        var rangeRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+           let rangeValue = rangeRef {
+            var cfRange = CFRange(location: 0, length: 0)
+            if AXValueGetValue(rangeValue as! AXValue, .cfRange, &cfRange) {
+                let cursorPos = cfRange.location
+                let prefixLen = min(cursorPos, maxChars)
+                if prefixLen > 0 {
+                    var sliceRange = CFRange(location: cursorPos - prefixLen, length: prefixLen)
+                    let axRange: AXValue? = AXValueCreate(.cfRange, &sliceRange)
+                    if let axRange {
+                        var sliceRef: CFTypeRef?
+                        if AXUIElementCopyParameterizedAttributeValue(
+                            element,
+                            kAXStringForRangeParameterizedAttribute as CFString,
+                            axRange,
+                            &sliceRef
+                        ) == .success, let text = sliceRef as? String {
+                            return text
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: read full value and truncate (not all apps support parameterized attributes)
+        let full = axStringValue(element, attribute: kAXValueAttribute as String)
+        if full.count > maxChars {
+            return "..." + String(full.suffix(maxChars))
+        }
+        return full
     }
 
     private static func axStringValue(_ element: AXUIElement, attribute: String) -> String {
