@@ -15,6 +15,7 @@ set -euo pipefail
 
 BUNDLE_ID="${MUESLI_DEV_BUNDLE_ID:-com.muesli.dev}"
 APP_PROCESS_NAME="${MUESLI_DEV_PROCESS_NAME:-MuesliDev}"
+APP_BUNDLE_PATH="${MUESLI_DEV_APP_PATH:-/Applications/MuesliDev.app}"
 DRY_RUN=0
 FORCE=0
 
@@ -25,6 +26,7 @@ Reset macOS privacy permissions for a dev app bundle.
 Options:
   --bundle-id ID      Override the bundle identifier to reset.
   --process-name NAME Override the process name checked before reset.
+  --app-path PATH     Override the app bundle path checked before reset.
   --dry-run           Print the reset command without executing it.
   --force             Continue even if the app appears to be running.
   --help              Show this help text.
@@ -62,6 +64,11 @@ while [[ $# -gt 0 ]]; do
       APP_PROCESS_NAME="$2"
       shift 2
       ;;
+    --app-path)
+      [[ $# -ge 2 ]] || die "--app-path requires a value."
+      APP_BUNDLE_PATH="$2"
+      shift 2
+      ;;
     --dry-run)
       DRY_RUN=1
       shift
@@ -83,13 +90,14 @@ done
 command -v tccutil >/dev/null 2>&1 || die "tccutil is required but was not found."
 
 if [[ "$FORCE" -ne 1 ]]; then
-  if pgrep -x "$APP_PROCESS_NAME" >/dev/null 2>&1; then
-    die "$APP_PROCESS_NAME appears to be running. Quit it first or rerun with --force."
+  if pgrep -x "$APP_PROCESS_NAME" >/dev/null 2>&1 || pgrep -f "$APP_BUNDLE_PATH/Contents/MacOS/" >/dev/null 2>&1; then
+    die "$APP_PROCESS_NAME appears to be running from $APP_BUNDLE_PATH. Quit it first or rerun with --force."
   fi
 fi
 
 log "Resetting macOS privacy permissions."
 log "  Bundle ID: $BUNDLE_ID"
+log "  App path:  $APP_BUNDLE_PATH"
 log "  Scope:     All TCC permissions for this bundle"
 
 run_or_echo tccutil reset All "$BUNDLE_ID"

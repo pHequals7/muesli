@@ -5,10 +5,12 @@ import MuesliCore
 @MainActor
 final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private let controller: MuesliController
+    private let resumeProgress: OnboardingProgress?
     private var window: NSWindow?
 
-    init(controller: MuesliController) {
+    init(controller: MuesliController, resumeProgress: OnboardingProgress? = nil) {
         self.controller = controller
+        self.resumeProgress = resumeProgress
         super.init()
     }
 
@@ -16,7 +18,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         if window == nil { buildWindow() }
         window?.makeKeyAndOrderFront(nil)
         window?.center()
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.activate()
     }
 
     func close() {
@@ -38,7 +40,27 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.backgroundColor = NSColor(red: 0.067, green: 0.071, blue: 0.078, alpha: 1)
 
-        let rootView = OnboardingView(controller: controller, appState: controller.appState)
+        let rootView: OnboardingView
+        if let progress = resumeProgress {
+            let backend = BackendOption.all.first(where: {
+                $0.backend == progress.selectedBackendKey && $0.model == progress.selectedModelKey
+            }) ?? .parakeetMultilingual
+            let hotkey = HotkeyConfig(keyCode: progress.hotkeyKeyCode, label: progress.hotkeyLabel)
+            rootView = OnboardingView(
+                controller: controller,
+                appState: controller.appState,
+                initialStep: progress.currentStep,
+                initialUserName: progress.userName,
+                initialBackend: backend,
+                initialHotkey: hotkey,
+                initialSystemAudioRequested: progress.systemAudioRequested
+            )
+        } else {
+            rootView = OnboardingView(
+                controller: controller,
+                appState: controller.appState
+            )
+        }
         window.contentView = NSHostingView(rootView: rootView)
         self.window = window
     }

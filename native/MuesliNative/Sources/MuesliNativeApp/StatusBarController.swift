@@ -9,6 +9,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
     private let statusLabel = NSMenuItem(title: "Status: Idle", action: nil, keyEquivalent: "")
+    private var countdownOverride: String?
 
     init(controller: MuesliController, runtime: RuntimePaths) {
         self.controller = controller
@@ -25,14 +26,57 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     func refresh() {
         rebuildMenu()
+        updateMenuBarTitle()
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         rebuildMenu()
     }
 
+    func setCountdownOverride(_ text: String?) {
+        countdownOverride = text
+        if let text {
+            statusItem.button?.title = text
+        } else {
+            updateMenuBarTitle()
+        }
+    }
+
     func refreshIcon() {
         statusItem.button?.image = MenuBarIconRenderer.make(choice: controller.config.menuBarIcon)
+        updateMenuBarTitle()
+    }
+
+    func updateMenuBarTitle() {
+        if let countdownOverride {
+            statusItem.button?.title = countdownOverride
+            return
+        }
+        guard controller.config.showNextMeetingInMenuBar else {
+            statusItem.button?.title = ""
+            return
+        }
+
+        let now = Date()
+        let hidden = controller.appState.hiddenCalendarEventIDs
+        let endOfToday = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now)) ?? now
+        let nextEvent = controller.appState.upcomingCalendarEvents
+            .filter { !$0.isAllDay && $0.startDate > now && $0.startDate < endOfToday && !hidden.contains($0.id) }
+            .first
+
+        if let event = nextEvent {
+            let minutesUntil = Int(ceil(event.startDate.timeIntervalSince(now) / 60))
+            let truncatedTitle = event.title.count > 20
+                ? String(event.title.prefix(18)) + "…"
+                : event.title
+            if minutesUntil <= 60 {
+                statusItem.button?.title = " \(truncatedTitle) · \(formatTimeUntil(minutesUntil))"
+            } else {
+                statusItem.button?.title = " \(truncatedTitle)"
+            }
+        } else {
+            statusItem.button?.title = ""
+        }
     }
 
     private func build() {
@@ -42,11 +86,20 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             button.toolTip = AppIdentity.displayName
         }
         rebuildMenu()
+        updateMenuBarTitle()
         statusItem.menu = menu
     }
 
     private func rebuildMenu() {
         menu.removeAllItems()
+
+        // Upcoming calendar events
+        let hidden = controller.appState.hiddenCalendarEventIDs
+        let upcomingEvents = controller.appState.upcomingCalendarEvents.filter { !$0.isAllDay && !hidden.contains($0.id) }
+        if !upcomingEvents.isEmpty {
+            addUpcomingEventsSection(upcomingEvents)
+            menu.addItem(.separator())
+        }
 
         menu.addItem(actionItem(title: "Open \(AppIdentity.displayName)", action: #selector(MuesliController.openHistoryWindow as (MuesliController) -> () -> Void)))
         let meetingTitle = controller.isMeetingRecording() ? "Stop Meeting Recording" : "Start Meeting Recording"
@@ -73,30 +126,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
         menu.setSubmenu(recentMenu, for: recentItem)
         menu.addItem(recentItem)
-
-        let meetingItem = NSMenuItem(title: "Meeting Transcripts", action: nil, keyEquivalent: "")
-        let meetingMenu = NSMenu()
-        let meetingRows = controller.recentMeetings()
-        if meetingRows.isEmpty {
-            let empty = NSMenuItem(title: "No meetings yet", action: nil, keyEquivalent: "")
-            empty.isEnabled = false
-            meetingMenu.addItem(empty)
-        } else {
-            for row in meetingRows {
-                let title = controller.truncate(row.title, limit: 18)
-                let transcript = controller.truncate(row.rawTranscript, limit: 30)
-                let item = NSMenuItem(
-                    title: "\(title): \(transcript)",
-                    action: #selector(MuesliController.copyRecentMeeting(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = controller
-                item.representedObject = row.rawTranscript
-                meetingMenu.addItem(item)
-            }
-        }
-        menu.setSubmenu(meetingMenu, for: meetingItem)
-        menu.addItem(meetingItem)
 
         let backendItem = NSMenuItem(title: "Transcription Backend", action: nil, keyEquivalent: "")
         let backendMenu = NSMenu()
@@ -132,6 +161,112 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(statusLabel)
         menu.addItem(.separator())
         menu.addItem(actionItem(title: "Quit", action: #selector(MuesliController.quitApp)))
+    }
+
+    private func addUpcomingEventsSection(_ events: [UnifiedCalendarEvent]) {
+        let now = Date()
+        let calendar = Calendar.current
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "HH:mm"
+
+        // Group: next up (within 1 hour) vs today (rest of day)
+        var nextUpEvents: [UnifiedCalendarEvent] = []
+        var todayEvents: [UnifiedCalendarEvent] = []
+
+        for event in events {
+            guard event.startDate > now else { continue }
+            if calendar.isDateInToday(event.startDate) {
+                if event.startDate.timeIntervalSince(now) <= 3600 {
+                    nextUpEvents.append(event)
+                } else {
+                    todayEvents.append(event)
+                }
+            }
+        }
+
+        if !nextUpEvents.isEmpty {
+            let firstEvent = nextUpEvents[0]
+            let minutesUntil = Int(ceil(firstEvent.startDate.timeIntervalSince(now) / 60))
+            let header = NSMenuItem(title: "Starts in \(formatTimeUntil(minutesUntil))", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            let headerAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+            header.attributedTitle = NSAttributedString(string: "Starts in \(formatTimeUntil(minutesUntil))", attributes: headerAttrs)
+            menu.addItem(header)
+
+            for event in nextUpEvents {
+                let timeStr = "\(timeFormatter.string(from: event.startDate)) – \(timeFormatter.string(from: event.endDate))"
+                let item = NSMenuItem(
+                    title: "\(event.title)\n\(timeStr)",
+                    action: #selector(MuesliController.startMeetingFromCalendarMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = controller
+                item.representedObject = event.title
+
+                let titleAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                    .foregroundColor: NSColor.labelColor,
+                ]
+                let timeAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 11),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ]
+                let attributed = NSMutableAttributedString(string: event.title, attributes: titleAttrs)
+                attributed.append(NSAttributedString(string: "\n\(timeStr)", attributes: timeAttrs))
+                item.attributedTitle = attributed
+                menu.addItem(item)
+            }
+        }
+
+        if !todayEvents.isEmpty {
+            let header = NSMenuItem(title: "Today", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            let headerAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+            header.attributedTitle = NSAttributedString(string: "Today", attributes: headerAttrs)
+            menu.addItem(header)
+
+            for event in todayEvents.prefix(5) {
+                let timeStr = "\(timeFormatter.string(from: event.startDate)) – \(timeFormatter.string(from: event.endDate))"
+                let item = NSMenuItem(
+                    title: "\(event.title)\n\(timeStr)",
+                    action: #selector(MuesliController.startMeetingFromCalendarMenuItem(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = controller
+                item.representedObject = event.title
+
+                let titleAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                    .foregroundColor: NSColor.labelColor,
+                ]
+                let timeAttrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 11),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ]
+                let attributed = NSMutableAttributedString(string: event.title, attributes: titleAttrs)
+                attributed.append(NSAttributedString(string: "\n\(timeStr)", attributes: timeAttrs))
+                item.attributedTitle = attributed
+                menu.addItem(item)
+            }
+        }
+    }
+
+    private func formatTimeUntil(_ minutes: Int) -> String {
+        if minutes < 60 {
+            return "\(minutes)m"
+        }
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        if remainingMinutes == 0 {
+            return "\(hours)h"
+        }
+        return "\(hours)h \(remainingMinutes)m"
     }
 
     private func actionItem(title: String, action: Selector) -> NSMenuItem {

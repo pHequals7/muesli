@@ -80,13 +80,15 @@ private enum MeetingTranscriptRecoveryResult {
 }
 
 final class MeetingSession {
+    private static let logger = Logger(subsystem: "com.muesli.native", category: "MeetingSession")
+
     private let title: String
     private let calendarEventID: String?
     private let backend: BackendOption
     private let runtime: RuntimePaths
     private let config: AppConfig
     private let transcriptionCoordinator: TranscriptionCoordinator
-    private let systemAudioRecorder = SystemAudioRecorder()
+    private let systemAudioRecorder: SystemAudioCapturing
     private let fullSessionMicRecorder = MicrophoneRecorder()
     private let neuralAec = MeetingNeuralAec()
 
@@ -107,6 +109,7 @@ final class MeetingSession {
     private var systemChunkTimingTracker = MeetingChunkTimingTracker()
     private var systemChunkRecorder: PCMChunkRecorder?
     var onProgress: ((MeetingProcessingStage) -> Void)?
+    private let screenContextCollector = MeetingScreenContextCollector()
 
     /// Current mic power level for waveform visualization.
     func currentPower() -> Float {
@@ -130,15 +133,10 @@ final class MeetingSession {
         self.runtime = runtime
         self.config = config
         self.transcriptionCoordinator = transcriptionCoordinator
-    }
-
-    private var serializedCustomWords: [[String: Any]] {
-        config.customWords.map { word in
-            var dict: [String: Any] = ["word": word.word]
-            if let replacement = word.replacement {
-                dict["replacement"] = replacement
-            }
-            return dict
+        if config.useCoreAudioTap {
+            self.systemAudioRecorder = CoreAudioSystemRecorder()
+        } else {
+            self.systemAudioRecorder = SystemAudioRecorder()
         }
     }
 
@@ -146,8 +144,8 @@ final class MeetingSession {
         let vadManager = await transcriptionCoordinator.getVadManager()
         let now = Date()
 
-        // Preload neural AEC model in background so it's ready at stop time
-        Task { await neuralAec.preload() }
+        // AEC must be loaded before audio pipeline starts (streaming mode)
+        await neuralAec.preload()
 
         chunkRotationQueue.sync {
             startTime = now
@@ -197,10 +195,15 @@ final class MeetingSession {
         } else {
             fputs("[meeting] VAD not available, using max-duration fallback only\n", stderr)
         }
+        if config.enableScreenContext {
+            // OCR screenshots are safe when using CoreAudio tap (no SCStream conflict)
+            await screenContextCollector.startPeriodicCapture(useOCR: config.useCoreAudioTap)
+        }
     }
 
     /// Abandon the recording — stop everything, delete temp files, don't transcribe.
     func discard() {
+        Task { await screenContextCollector.stopAndDrain() }
         let (rawRecorder, systemRecorder) = chunkRotationQueue.sync { () -> (PCMChunkRecorder?, PCMChunkRecorder?) in
             isRecording = false
             chunkTimingTracker.discard()
@@ -249,6 +252,16 @@ final class MeetingSession {
         systemAudioRecorder.onPCMSamples = nil
         let (meetingStart, lastChunkTiming, lastRawMicURL, lastSystemChunkTiming, lastSystemChunkURL) = chunkRotationQueue.sync { () -> (Date, MeetingChunkTimingSnapshot?, URL?, MeetingChunkTimingSnapshot?, URL?) in
             isRecording = false
+
+            // Flush partial AEC frame before stopping chunk recorder
+            let flushed = self.neuralAec.flushStreamingMic()
+            if !flushed.isEmpty {
+                let flushedInt16 = flushed.map { sample -> Int16 in
+                    Int16(max(-1.0, min(1.0, sample)) * 32767)
+                }
+                self.rawMicChunkRecorder?.append(flushedInt16)
+            }
+
             let meetingStart = self.startTime ?? Date()
             let lastRawMicURL = rawMicChunkRecorder?.stop()
             let lastSystemChunkURL = systemChunkRecorder?.stop()
@@ -287,7 +300,7 @@ final class MeetingSession {
             let chunkDuration = lastSystemChunkTiming?.durationSeconds ?? 0
             fputs("[meeting] transcribing final system chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
             do {
-                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastSystemChunkURL, backend: backend, customWords: serializedCustomWords)
+                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastSystemChunkURL, backend: backend)
                 let normalizedSegments = normalizeSystemTranscription(
                     result: result,
                     startTime: chunkOffset,
@@ -389,78 +402,27 @@ final class MeetingSession {
         fputs("[meeting] \(micSegments.count) mic chunks transcribed during meeting\n", stderr)
         fputs("[meeting] \(systemSegments.count) system chunks transcribed during meeting\n", stderr)
 
-        // Run neural AEC on full-session recordings to recover local speech
-        onProgress?(.cleaningAudio)
-        if let fullSessionMicURL, let systemAudioURL {
-            do {
-                let micSamples = try AudioConverter().resampleAudioFile(fullSessionMicURL)
-                let systemSamples = try AudioConverter().resampleAudioFile(systemAudioURL)
-                if let cleanedSamples = await neuralAec.cleanMicAudio(
-                    micSamples: micSamples,
-                    systemSamples: systemSamples
-                ) {
-                    // Use offline VAD on cleaned audio to find speech regions,
-                    // then transcribe each region individually for proper timestamps.
-                    var aecSegments: [SpeechSegment] = []
-                    let sampleRate = 16_000
-                    if let vadManager = await transcriptionCoordinator.getVadManager() {
-                        let speechRegions = try await vadManager.segmentSpeech(
-                            cleanedSamples,
-                            config: VadSegmentationConfig(maxSpeechDuration: 30.0, speechPadding: 0.15)
+        // Speaker-embedding bleed detection: compare mic chunk embeddings against
+        // system speaker embeddings from diarization. Drop mic segments that match
+        // a system speaker (bleed) and keep segments that don't match (user speech).
+        if let diarizationSegments, !diarizationSegments.isEmpty, let fullSessionMicURL {
+            if let diarizerManager = await transcriptionCoordinator.getDiarizerManager() {
+                do {
+                    let micSamples = try AudioConverter().resampleAudioFile(fullSessionMicURL)
+                    let centroids = MeetingBleedDetector.systemSpeakerCentroids(from: diarizationSegments)
+                    if !centroids.isEmpty {
+                        let bleedResult = MeetingBleedDetector.filterBleed(
+                            micSegments: micSegments,
+                            fullMicSamples: micSamples,
+                            systemSpeakerCentroids: centroids,
+                            diarizerManager: diarizerManager
                         )
-                        fputs("[meeting] neural AEC: \(speechRegions.count) speech regions detected in cleaned audio\n", stderr)
-
-                        for (i, region) in speechRegions.enumerated() {
-                            let startIdx = max(0, region.startSample(sampleRate: sampleRate))
-                            let endIdx = min(cleanedSamples.count, region.endSample(sampleRate: sampleRate))
-                            guard endIdx > startIdx else { continue }
-
-                            do {
-                                let regionSamples = Array(cleanedSamples[startIdx..<endIdx])
-                                let regionURL = try WavWriter.writeTemporaryWAV(samples: regionSamples)
-                                defer { try? FileManager.default.removeItem(at: regionURL) }
-
-                                fputs("[meeting] neural AEC: transcribing region \(i+1)/\(speechRegions.count) (\(String(format: "%.1f", region.startTime))-\(String(format: "%.1f", region.endTime))s, \(regionSamples.count) samples)\n", stderr)
-
-                                let regionResult = try await transcriptionCoordinator.transcribeMeetingChunk(
-                                    at: regionURL,
-                                    backend: backend,
-                                    customWords: serializedCustomWords
-                                )
-                                let normalized = MicTurnNormalizer.normalize(
-                                    result: regionResult,
-                                    startTime: region.startTime,
-                                    endTime: region.endTime
-                                )
-                                aecSegments.append(contentsOf: normalized)
-                            } catch {
-                                fputs("[meeting] neural AEC: region \(i+1) failed: \(error)\n", stderr)
-                            }
-                        }
-                    } else {
-                        // No VAD — fall back to full-session transcription
-                        let cleanedURL = try WavWriter.writeTemporaryWAV(samples: cleanedSamples)
-                        defer { try? FileManager.default.removeItem(at: cleanedURL) }
-                        let totalDuration = durationSeconds(from: meetingStart, to: endTime)
-                        let cleanedResult = try await transcriptionCoordinator.transcribeMeeting(
-                            at: cleanedURL,
-                            backend: backend,
-                            customWords: serializedCustomWords
-                        )
-                        aecSegments = MicTurnNormalizer.normalize(
-                            result: cleanedResult,
-                            startTime: 0,
-                            endTime: totalDuration
-                        )
+                        fputs("[meeting] bleed detection: kept \(bleedResult.keptSegments.count), dropped \(bleedResult.droppedCount) mic segments\n", stderr)
+                        micSegments = bleedResult.keptSegments
                     }
-
-                    if !aecSegments.isEmpty {
-                        fputs("[meeting] neural AEC produced \(aecSegments.count) cleaned mic segments\n", stderr)
-                        micSegments = aecSegments
-                    }
+                } catch {
+                    fputs("[meeting] bleed detection failed, keeping all mic segments: \(error)\n", stderr)
                 }
-            } catch {
-                fputs("[meeting] neural AEC skipped: \(error)\n", stderr)
             }
         }
 
@@ -501,12 +463,16 @@ final class MeetingSession {
             id: config.defaultMeetingTemplateID,
             customTemplates: config.customMeetingTemplates
         )
+        let visualContext = await screenContextCollector.stopAndDrain()
+        Self.logger.info("visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(self.config.useCoreAudioTap)")
+        fputs("[meeting] visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(config.useCoreAudioTap)\n", stderr)
         onProgress?(.summarizingNotes)
         let formattedNotes = await MeetingSummaryClient.summarize(
             transcript: rawTranscript,
             meetingTitle: generatedTitle,
             config: config,
-            template: templateSnapshot
+            template: templateSnapshot,
+            visualContext: visualContext.isEmpty ? nil : visualContext
         )
 
         return MeetingSessionResult(
@@ -595,7 +561,7 @@ final class MeetingSession {
                 if Task.isCancelled {
                     return []
                 }
-                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend, customWords: self.serializedCustomWords)
+                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend)
                 if !result.text.isEmpty {
                     fputs("[meeting] system chunk transcribed: \"\(String(result.text.prefix(60)))...\"\n", stderr)
                     let normalizedSegments = self.normalizeSystemTranscription(
@@ -661,6 +627,7 @@ final class MeetingSession {
             vadController = nil
             systemVadController = nil
         }
+        neuralAec.resetForStreaming()
         streamingMicRecorder.onAudioBuffer = nil
 
         streamingMicRecorder.onPCMSamples = { [weak self] samples in
@@ -678,12 +645,22 @@ final class MeetingSession {
             guard let self, self.isRecording else { return }
 
             self.retainedRecordingWriter?.appendMic(rawSamples)
-            self.rawMicChunkRecorder?.append(rawSamples)
             self.chunkTimingTracker.append(sampleCount: rawSamples.count)
 
+            let floatSamples = rawSamples.map { Float($0) / 32767.0 }
+
+            // VAD always sees raw audio for reliable speech boundary detection
             if let vadController = self.vadController {
-                let floatSamples = rawSamples.map { Float($0) / 32767.0 }
                 vadController.processAudio(floatSamples)
+            }
+
+            // AEC: clean mic using position-aligned system reference
+            let cleanedFloat = self.neuralAec.processStreamingMic(floatSamples)
+            if !cleanedFloat.isEmpty {
+                let cleanedInt16 = cleanedFloat.map { sample -> Int16 in
+                    Int16(max(-1.0, min(1.0, sample)) * 32767)
+                }
+                self.rawMicChunkRecorder?.append(cleanedInt16)
             }
         }
     }
@@ -698,8 +675,10 @@ final class MeetingSession {
             self.systemChunkRecorder?.append(samples)
             self.systemChunkTimingTracker.append(sampleCount: samples.count)
 
+            let floatSamples = samples.map { Float($0) / 32767.0 }
+            self.neuralAec.feedSystemSamples(floatSamples)
+
             if let systemVadController = self.systemVadController {
-                let floatSamples = samples.map { Float($0) / 32767.0 }
                 systemVadController.processAudio(floatSamples)
             }
         }
@@ -738,8 +717,7 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeetingChunk(
                 at: url,
-                backend: backend,
-                customWords: serializedCustomWords
+                backend: backend
             )
             if !result.text.isEmpty {
                 fputs("[meeting] mic chunk transcribed (raw): \"\(String(result.text.prefix(60)))...\"\n", stderr)
@@ -888,8 +866,7 @@ final class MeetingSession {
 
                     let result = try await transcriptionCoordinator.transcribeMeeting(
                         at: segmentURL,
-                        backend: backend,
-                        customWords: serializedCustomWords
+                        backend: backend
                     )
                     repairedSegments.append(contentsOf: MicTurnNormalizer.normalize(
                         result: result,
@@ -969,8 +946,7 @@ final class MeetingSession {
 
                     let result = try await transcriptionCoordinator.transcribeMeeting(
                         at: segmentURL,
-                        backend: backend,
-                        customWords: serializedCustomWords
+                        backend: backend
                     )
                     repairedSegments.append(contentsOf: normalizeSystemTranscription(
                         result: result,
@@ -1000,8 +976,7 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeeting(
                 at: fullSessionMicURL,
-                backend: backend,
-                customWords: serializedCustomWords
+                backend: backend
             )
             return MicTurnNormalizer.normalize(
                 result: result,
@@ -1022,8 +997,7 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeeting(
                 at: systemAudioURL,
-                backend: backend,
-                customWords: serializedCustomWords
+                backend: backend
             )
             return normalizeSystemTranscription(
                 result: result,

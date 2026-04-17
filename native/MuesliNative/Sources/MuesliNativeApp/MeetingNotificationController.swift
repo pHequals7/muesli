@@ -17,11 +17,13 @@ final class MeetingNotificationController {
         title: String,
         subtitle: String,
         actionLabel: String = "Start Recording",
+        dismissAfter: TimeInterval? = nil,
         onStartRecording: @escaping () -> Void,
         onDismiss: (() -> Void)? = nil
     ) {
         close()
 
+        let duration = dismissAfter ?? Self.dismissDuration
         self.onStartRecording = onStartRecording
         self.onDismiss = onDismiss
 
@@ -66,7 +68,7 @@ final class MeetingNotificationController {
         let shrink = CABasicAnimation(keyPath: "bounds.size.width")
         shrink.fromValue = width
         shrink.toValue = 0
-        shrink.duration = Self.dismissDuration
+        shrink.duration = duration
         shrink.timingFunction = CAMediaTimingFunction(name: .linear)
         shrink.fillMode = .forwards
         shrink.isRemovedOnCompletion = false
@@ -120,7 +122,7 @@ final class MeetingNotificationController {
         self.panel = panel
 
         // Auto-dismiss
-        dismissTimer = Timer.scheduledTimer(withTimeInterval: Self.dismissDuration, repeats: false) { [weak self] _ in
+        dismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.animateOut {
                     self?.close()

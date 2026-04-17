@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy &middot; Muesli</title>
+  <meta name="description" content="Privacy policy for Muesli, a local-first AI dictation and meeting transcription app for macOS.">
+  <meta name="theme-color" content="#111214">
+  <link rel="icon" type="image/png" href="./favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --void: #111214;
+      --text: rgba(255,255,255,0.88);
+      --text-dim: rgba(255,255,255,0.5);
+      --text-faint: rgba(255,255,255,0.3);
+      --accent: #6BA3F7;
+      --system: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --serif: 'Cormorant Garamond', 'Georgia', serif;
+      --mono: 'IBM Plex Mono', 'Menlo', monospace;
+    }
+
+    html, body {
+      background: var(--void);
+      color: var(--text);
+      font-family: var(--serif);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 80px 24px 120px;
+    }
+
+    .back {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-faint);
+      text-decoration: none;
+      margin-bottom: 48px;
+      transition: color 0.2s;
+    }
+    .back:hover { color: var(--text-dim); }
+
+    h1 {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-size: 2.4rem;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .updated {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-faint);
+      margin-bottom: 48px;
+    }
+
+    h2 {
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: 1.3rem;
+      margin-top: 40px;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    p, li {
+      font-family: var(--serif);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    ul {
+      padding-left: 20px;
+      margin-bottom: 16px;
+    }
+
+    li { margin-bottom: 6px; }
+
+    strong { color: var(--text); font-weight: 500; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .highlight {
+      background: rgba(107,163,247,0.08);
+      border-left: 2px solid rgba(107,163,247,0.3);
+      padding: 16px 20px;
+      border-radius: 4px;
+      margin: 24px 0;
+    }
+    .highlight p { margin-bottom: 0; }
+
+    footer {
+      text-align: center;
+      padding: 40px 0;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--text-faint);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <a href="./" class="back">&larr; freedspeech.xyz</a>
+
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: April 10, 2026</p>
+
+  <div class="highlight">
+    <p><strong>Muesli is local-first.</strong> All speech-to-text processing runs on your Mac. Audio never leaves your device. We do not operate servers that receive, store, or process your data.</p>
+  </div>
+
+  <h2>What Muesli Does</h2>
+  <p>Muesli is a macOS application for dictation and meeting transcription. It uses on-device machine learning models (CoreML / Apple Neural Engine) to convert speech to text entirely on your Mac.</p>
+
+  <h2>Data That Stays on Your Device</h2>
+  <p>The following data is created and stored locally on your Mac. It is never transmitted to any external server:</p>
+  <ul>
+    <li><strong>Audio recordings</strong> &mdash; microphone and system audio captured during dictation and meetings</li>
+    <li><strong>Transcripts and meeting notes</strong> &mdash; stored in a local SQLite database</li>
+    <li><strong>Configuration and preferences</strong> &mdash; stored in a local JSON file</li>
+    <li><strong>Speech-to-text models</strong> &mdash; downloaded once from public model repositories (HuggingFace) and cached locally</li>
+  </ul>
+
+  <h2>Optional Cloud Services</h2>
+  <p>Muesli offers optional integrations that connect to external services. These are opt-in and require explicit user action:</p>
+  <ul>
+    <li><strong>Meeting summarization (OpenAI API / OpenRouter)</strong> &mdash; if configured, meeting transcripts are sent to the selected API provider to generate summaries. This is governed by the respective provider's privacy policy.</li>
+    <li><strong>Meeting summarization (ChatGPT subscription)</strong> &mdash; if you sign in with your ChatGPT account, transcripts are sent to OpenAI's API for summarization using your existing subscription.</li>
+    <li><strong>Sparkle update checks</strong> &mdash; Muesli checks for new versions via an appcast feed hosted on GitHub. No personal data is transmitted.</li>
+  </ul>
+
+  <h2>Google Calendar Integration</h2>
+  <p>Muesli can optionally connect to your Google Calendar to display upcoming meetings in the status bar and auto-detect meeting start times. When you connect Google Calendar:</p>
+  <ul>
+    <li>Muesli requests <strong>read-only access</strong> to your calendar events (event titles, times, and durations)</li>
+    <li>Calendar data is fetched directly from Google's API to your Mac &mdash; it does not pass through any intermediary server</li>
+    <li>Calendar data is used only for displaying upcoming meetings and is not stored persistently</li>
+    <li>OAuth tokens are stored in your macOS Keychain, protected by the operating system</li>
+    <li>You can revoke access at any time from your <a href="https://myaccount.google.com/permissions">Google Account permissions</a> page</li>
+  </ul>
+
+  <h2>macOS Permissions</h2>
+  <p>Muesli requests the following macOS permissions, each for a specific purpose:</p>
+  <ul>
+    <li><strong>Microphone</strong> &mdash; to capture your voice for dictation and meeting transcription</li>
+    <li><strong>Screen Recording</strong> &mdash; to capture system audio during meetings (via ScreenCaptureKit)</li>
+    <li><strong>Accessibility</strong> &mdash; to paste transcribed text into other applications</li>
+    <li><strong>Input Monitoring</strong> &mdash; to detect the global dictation hotkey</li>
+    <li><strong>Calendar</strong> &mdash; to read upcoming events from your local macOS calendar (EventKit)</li>
+  </ul>
+
+  <h2>Anonymous Usage Analytics</h2>
+  <p>Muesli uses <a href="https://telemetrydeck.com">TelemetryDeck</a> to collect minimal, anonymized usage signals (e.g., which features are used, app launch counts). TelemetryDeck is privacy-first by design &mdash; it does not collect IP addresses, device identifiers, or any information that could identify you personally. No audio, transcripts, calendar data, or personal content is ever included in analytics. You can learn more about TelemetryDeck's privacy practices on their <a href="https://telemetrydeck.com/privacy">privacy page</a>.</p>
+
+  <h2>No Personal Data Collection</h2>
+  <p><strong>Muesli does not collect, transmit, or store any personal data on external servers.</strong> Apart from the anonymous usage signals described above, no data leaves your device. The application is fully functional without an internet connection (except for optional cloud summarization and calendar sync).</p>
+
+  <h2>Open Source</h2>
+  <p>Muesli's source code is publicly available on <a href="https://github.com/pHequals7/muesli">GitHub</a> under the MIT license. You can inspect exactly what the application does with your data.</p>
+
+  <h2>Children's Privacy</h2>
+  <p>Muesli is not directed at children under 13. We do not knowingly collect data from children.</p>
+
+  <h2>Changes to This Policy</h2>
+  <p>If this policy changes, the updated version will be posted here with a revised date. Muesli does not have a mechanism to notify users of policy changes since we do not collect contact information.</p>
+
+  <h2>Contact</h2>
+  <p>For questions about this privacy policy, open an issue on <a href="https://github.com/pHequals7/muesli/issues">GitHub</a> or reach out to the maintainer via the repository.</p>
+</div>
+
+<footer>muesli &middot; local-first &middot; open source</footer>
+
+</body>
+</html>

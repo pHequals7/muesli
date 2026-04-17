@@ -216,6 +216,7 @@ struct MeetingDetailView: View {
             Text("Transcript").tag(MeetingDocumentMode.transcript)
         }
         .pickerStyle(.segmented)
+        .tint(MuesliTheme.accent)
         .frame(width: 220)
         .disabled(isEditingNotes)
     }
@@ -360,6 +361,8 @@ struct MeetingDetailView: View {
         HStack {
             Spacer()
 
+            exportMenu(for: meeting)
+
             Button(action: {
                 controller.copyToClipboard(activeCopyText(for: meeting))
             }) {
@@ -384,6 +387,45 @@ struct MeetingDetailView: View {
             .buttonStyle(.plain)
         }
         .frame(maxWidth: 980, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func exportMenu(for meeting: MeetingRecord) -> some View {
+        let currentContent: MeetingExportContent = documentMode == .transcript ? .transcript : .notes
+        let currentLabel = documentMode == .transcript ? "Export Transcript" : "Export Notes"
+        Menu {
+            Button {
+                MeetingExporter.export(meeting: meeting, content: currentContent)
+            } label: {
+                Label(currentLabel, systemImage: documentMode == .transcript ? "text.quote" : "doc.text")
+            }
+            Button {
+                MeetingExporter.export(meeting: meeting, content: .fullMeeting)
+            } label: {
+                Label("Export Full Meeting", systemImage: "doc.on.doc")
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Export")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(MuesliTheme.textPrimary)
+            .padding(.horizontal, MuesliTheme.spacing12)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .fill(MuesliTheme.accent.opacity(0.18))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.accent.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(isEditingNotes)
     }
 
     private func templateMenuItem(title: String, systemImage: String, isSelected: Bool) -> some View {

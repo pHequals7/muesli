@@ -206,6 +206,116 @@ struct MeetingSummaryBackendOption: Equatable {
     static let all: [MeetingSummaryBackendOption] = [.openAI, .openRouter, .chatGPT]
 }
 
+struct PostProcessorOption: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let sizeLabel: String
+    let description: String
+    let downloadURL: URL
+    let filename: String
+
+    var cacheDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/muesli/models/postproc-\(id)", isDirectory: true)
+    }
+
+    var modelURL: URL {
+        cacheDirectory.appendingPathComponent(filename)
+    }
+
+    var isDownloaded: Bool {
+        FileManager.default.fileExists(atPath: modelURL.path)
+    }
+
+    // Fine-tuned Qwen3-0.6B trained on Muesli dictation correction data.
+    // HF repo must be public (or token-gated) before distributing alpha builds.
+    static let finetunedV2 = PostProcessorOption(
+        id: "qwen3-postproc-v2",
+        label: "Post-Proc v2 (Finetuned)",
+        sizeLabel: "~390 MB",
+        description: "Fine-tuned on Muesli dictation data. Best for filler removal, deletion cues, and spoken list formatting.",
+        downloadURL: URL(string: "https://huggingface.co/phequals/qwen3-postproc-v2/resolve/main/qwen3-postproc-v2-q4_k_m.gguf")!,
+        filename: "qwen3-postproc-v2-q4_k_m.gguf"
+    )
+
+    // Vanilla Qwen3.5-0.8B. Stable for basic cleanup; does not reliably convert spoken list cues.
+    static let qwen35_0_8b = PostProcessorOption(
+        id: "qwen35-0.8b",
+        label: "Qwen3.5 0.8B",
+        sizeLabel: "~533 MB",
+        description: "Vanilla Qwen3.5-0.8B. Good for typo correction and filler removal. Spoken list formatting is unreliable.",
+        downloadURL: URL(string: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf")!,
+        filename: "Qwen3.5-0.8B-Q4_K_M.gguf"
+    )
+
+    // Fine-tuned Qwen3.5-0.8B v3 trained on Muesli dictation correction data.
+    static let finetunedV3 = PostProcessorOption(
+        id: "qwen35-postproc-v3",
+        label: "Post-Proc v3 (Finetuned)",
+        sizeLabel: "~505 MB",
+        description: "Fine-tuned Qwen3.5-0.8B on Muesli dictation data. Improved over v2 on filler removal, deletion cues, and spoken list formatting.",
+        downloadURL: URL(string: "https://huggingface.co/phequals/qwen35-postproc-v3-gguf/resolve/main/qwen35-postproc-v3-Q4_K_M.gguf")!,
+        filename: "qwen35-postproc-v3-Q4_K_M.gguf"
+    )
+
+    static let all: [PostProcessorOption] = [.finetunedV3, .finetunedV2, .qwen35_0_8b]
+    static let defaultOption: PostProcessorOption = .finetunedV3
+
+    static var downloaded: [PostProcessorOption] {
+        all.filter(\.isDownloaded)
+    }
+
+    static var downloadedIDs: Set<String> {
+        Set(downloaded.map(\.id))
+    }
+
+    static func resolve(id: String) -> PostProcessorOption {
+        all.first { $0.id == id } ?? defaultOption
+    }
+
+    static func firstDownloaded(excluding excludedID: String? = nil) -> PostProcessorOption? {
+        firstDownloaded(excluding: excludedID, downloadedIDs: downloadedIDs)
+    }
+
+    static func firstDownloaded(excluding excludedID: String? = nil, downloadedIDs: Set<String>) -> PostProcessorOption? {
+        all.first { option in
+            option.id != excludedID && downloadedIDs.contains(option.id)
+        }
+    }
+
+    static func resolveDownloaded(id: String) -> PostProcessorOption? {
+        resolveDownloaded(id: id, downloadedIDs: downloadedIDs)
+    }
+
+    static func resolveDownloaded(id: String, downloadedIDs: Set<String>) -> PostProcessorOption? {
+        let resolved = resolve(id: id)
+        if downloadedIDs.contains(resolved.id) { return resolved }
+        return firstDownloaded(downloadedIDs: downloadedIDs)
+    }
+
+    static func runtimeOption(id: String) -> PostProcessorOption? {
+        runtimeOption(
+            id: id,
+            downloadedIDs: downloadedIDs,
+            hasDevOverride: Qwen3PostProcessorConfig.devOverrideURL() != nil
+        )
+    }
+
+    static func runtimeOption(id: String, downloadedIDs: Set<String>, hasDevOverride: Bool) -> PostProcessorOption? {
+        let configured = resolve(id: id)
+        if downloadedIDs.contains(configured.id) || hasDevOverride { return configured }
+        return firstDownloaded(downloadedIDs: downloadedIDs)
+    }
+
+    static let defaultSystemPrompt = """
+    Clean up speech-to-text transcription. Only make changes when there is a clear error. If the text is already correct, output it exactly as-is.
+
+    You may: fix obvious misspellings, remove filler words (um, uh, like), apply 'scratch that' deletions, and format numbered or bullet lists when dictated.
+
+    Do not: paraphrase, reword, add words, remove meaningful words, change the meaning in any way, wrap the output in markdown, code fences, tags, labels, or commentary, or repeat the output more than once. Preserve the speaker's original phrasing.
+    """
+}
+
 struct CustomWord: Codable, Equatable, Identifiable {
     var id = UUID()
     var word: String
@@ -280,6 +390,16 @@ struct AppConfig: Codable {
     var soundEnabled: Bool = true
     var recordingColorHex: String = "1e1e2e"   // Catppuccin Mocha base, without #
     var menuBarIcon: String = "muesli"
+    var showNextMeetingInMenuBar: Bool = true
+    var maraudersMapUnlocked: Bool = false
+    var maraudersMapAudioClip: String = "bbc_world_news"
+    var maraudersMapCustomAudioPath: String?
+    var hiddenCalendarEventIDs: [String] = []
+    var enablePostProcessor: Bool = false
+    var activePostProcessorId: String = PostProcessorOption.defaultOption.id
+    var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
+    var enableScreenContext: Bool = false
+    var useCoreAudioTap: Bool = true
 
     enum CodingKeys: String, CodingKey {
         case dictationHotkey = "dictation_hotkey"
@@ -314,6 +434,16 @@ struct AppConfig: Codable {
         case soundEnabled = "sound_enabled"
         case recordingColorHex = "recording_color_hex"
         case menuBarIcon = "menu_bar_icon"
+        case showNextMeetingInMenuBar = "show_next_meeting_in_menu_bar"
+        case maraudersMapUnlocked = "marauders_map_unlocked"
+        case maraudersMapAudioClip = "marauders_map_audio_clip"
+        case maraudersMapCustomAudioPath = "marauders_map_custom_audio_path"
+        case hiddenCalendarEventIDs = "hidden_calendar_event_ids"
+        case enablePostProcessor = "enable_post_processor"
+        case activePostProcessorId = "active_post_processor_id"
+        case postProcessorSystemPrompt = "post_processor_system_prompt"
+        case enableScreenContext = "enable_screen_context"
+        case useCoreAudioTap = "use_core_audio_tap"
     }
 
     init() {}
@@ -353,6 +483,16 @@ struct AppConfig: Codable {
         soundEnabled = (try? c.decode(Bool.self, forKey: .soundEnabled)) ?? defaults.soundEnabled
         recordingColorHex = (try? c.decode(String.self, forKey: .recordingColorHex)) ?? defaults.recordingColorHex
         menuBarIcon = (try? c.decode(String.self, forKey: .menuBarIcon)) ?? defaults.menuBarIcon
+        showNextMeetingInMenuBar = (try? c.decode(Bool.self, forKey: .showNextMeetingInMenuBar)) ?? defaults.showNextMeetingInMenuBar
+        maraudersMapUnlocked = (try? c.decode(Bool.self, forKey: .maraudersMapUnlocked)) ?? defaults.maraudersMapUnlocked
+        maraudersMapAudioClip = (try? c.decode(String.self, forKey: .maraudersMapAudioClip)) ?? defaults.maraudersMapAudioClip
+        maraudersMapCustomAudioPath = try? c.decode(String.self, forKey: .maraudersMapCustomAudioPath)
+        hiddenCalendarEventIDs = (try? c.decode([String].self, forKey: .hiddenCalendarEventIDs)) ?? defaults.hiddenCalendarEventIDs
+        enablePostProcessor = (try? c.decode(Bool.self, forKey: .enablePostProcessor)) ?? defaults.enablePostProcessor
+        activePostProcessorId = (try? c.decode(String.self, forKey: .activePostProcessorId)) ?? defaults.activePostProcessorId
+        postProcessorSystemPrompt = (try? c.decode(String.self, forKey: .postProcessorSystemPrompt)) ?? defaults.postProcessorSystemPrompt
+        enableScreenContext = (try? c.decode(Bool.self, forKey: .enableScreenContext)) ?? defaults.enableScreenContext
+        useCoreAudioTap = (try? c.decode(Bool.self, forKey: .useCoreAudioTap)) ?? defaults.useCoreAudioTap
     }
 }
 

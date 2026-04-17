@@ -496,41 +496,37 @@ struct MeetingDetectorTests {
         #expect(d.evaluate(signals) != nil)  // triggers again
     }
 
-    // MARK: - Camera detection (Priority 0)
+    // MARK: - Camera detection (Priority 0 — requires mic + camera + meeting app)
 
-    @Test("camera active alone triggers detection")
-    func cameraAloneTriggers() {
+    @Test("camera alone without mic does NOT trigger")
+    func cameraAloneNoMicNoTrigger() {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: false,
             cameraActive: true,
             calendarEvent: nil,
-            runningApps: []
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
-        let result = d.evaluate(signals)
-        #expect(result != nil)
-        #expect(result?.appName == "Meeting")
+        #expect(d.evaluate(signals) == nil)
     }
 
-    @Test("camera active + calendar event includes event title")
-    func cameraPlusCalendar() {
+    @Test("camera + mic without meeting app does NOT trigger")
+    func cameraPlusMicNoAppNoTrigger() {
         let d = makeDetector()
         let signals = MeetingSignals(
-            micActive: false,
+            micActive: true,
             cameraActive: true,
-            calendarEvent: CalendarEventContext(id: "evt1", title: "Design Review"),
+            calendarEvent: nil,
             runningApps: []
         )
-        let result = d.evaluate(signals)
-        #expect(result != nil)
-        #expect(result?.meetingTitle == "Design Review")
+        #expect(d.evaluate(signals) == nil)
     }
 
-    @Test("camera active + Zoom running uses Zoom as app name")
-    func cameraPlusZoom() {
+    @Test("camera + mic + Zoom triggers")
+    func cameraPlusMicPlusZoom() {
         let d = makeDetector()
         let signals = MeetingSignals(
-            micActive: false,
+            micActive: true,
             cameraActive: true,
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
@@ -540,28 +536,43 @@ struct MeetingDetectorTests {
         #expect(result?.appName == "Zoom")
     }
 
-    @Test("camera active + Chrome background triggers (no frontmost required)")
-    func cameraPlusChromeBackground() {
+    @Test("camera + mic + Chrome frontmost triggers")
+    func cameraPlusMicPlusChromeFrontmost() {
         let d = makeDetector()
         let signals = MeetingSignals(
-            micActive: false,
+            micActive: true,
             cameraActive: true,
             calendarEvent: nil,
-            runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: false)]
+            runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: true)]
         )
-        // Camera is strong enough signal — browser doesn't need to be frontmost
         let result = d.evaluate(signals)
         #expect(result != nil)
+        #expect(result?.appName == "Chrome")
+    }
+
+    @Test("camera + mic + calendar includes event title")
+    func cameraPlusMicPlusCalendar() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: true,
+            calendarEvent: CalendarEventContext(id: "evt1", title: "Design Review"),
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
+        )
+        let result = d.evaluate(signals)
+        #expect(result != nil)
+        #expect(result?.meetingTitle == "Design Review")
+        #expect(result?.appName == "Zoom")
     }
 
     @Test("camera detection only triggers once (dedup)")
     func cameraDedup() {
         let d = makeDetector()
         let signals = MeetingSignals(
-            micActive: false,
+            micActive: true,
             cameraActive: true,
             calendarEvent: nil,
-            runningApps: []
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
         #expect(d.evaluate(signals) != nil)
         #expect(d.evaluate(signals) == nil)  // already detected
@@ -571,24 +582,22 @@ struct MeetingDetectorTests {
     func cameraIdleReset() {
         let d = makeDetector()
         let cameraOn = MeetingSignals(
-            micActive: false,
+            micActive: true,
             cameraActive: true,
             calendarEvent: nil,
-            runningApps: []
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)]
         )
         #expect(d.evaluate(cameraOn) != nil)
 
-        // Camera off for threshold count
         let idle = MeetingSignals(micActive: false, cameraActive: false, calendarEvent: nil, runningApps: [])
         for _ in 0..<MeetingDetector.idleResetThreshold {
             _ = d.evaluate(idle)
         }
 
-        // Camera back on — should trigger again
         #expect(d.evaluate(cameraOn) != nil)
     }
 
-    @Test("camera active takes priority over mic-only signals")
+    @Test("camera + mic + app takes priority over mic-only signals")
     func cameraPriorityOverMic() {
         let d = makeDetector()
         let signals = MeetingSignals(
@@ -604,5 +613,17 @@ struct MeetingDetectorTests {
 
         // Calendar should NOT re-trigger (camera detection already marked it)
         #expect(d.evaluate(signals) == nil)
+    }
+
+    @Test("WhatsApp detected as dedicated meeting app")
+    func whatsAppDetected() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false)]
+        )
+        #expect(d.evaluate(signals)?.appName == "WhatsApp")
     }
 }

@@ -142,8 +142,10 @@ struct TranscriptFormatterTests {
         #expect(result.contains("Others: can you hear me okay"))
     }
 
-    @Test("formatter drops pure echoed mic duplicates when system carries the same content")
-    func dropsPureEchoedMicDuplicates() {
+    @Test("formatter passes through mic segments without text-based bleed filtering")
+    func passesThoughMicSegmentsWithoutBleedFiltering() {
+        // Bleed detection is now handled upstream by MeetingBleedDetector
+        // (speaker-embedding comparison). The formatter passes all mic segments through.
         let meetingStart = Date(timeIntervalSince1970: 0)
         let mic = [
             SpeechSegment(start: 1.0, end: 3.0, text: "can you hear me okay"),
@@ -158,32 +160,8 @@ struct TranscriptFormatterTests {
             meetingStart: meetingStart
         )
 
-        #expect(!result.contains("You: can you hear me okay"))
-        #expect(result.contains("Others: can you hear me okay"))
-    }
-
-    @Test("formatter trims echoed suffix from mic when user spoke before system overlap")
-    func trimsEchoedMicSuffix() {
-        let meetingStart = Date(timeIntervalSince1970: 0)
-        let mic = [
-            SpeechSegment(
-                start: 0.0,
-                end: 4.0,
-                text: "Okay I am recording this test can you hear me okay"
-            ),
-        ]
-        let system = [
-            SpeechSegment(start: 1.2, end: 4.0, text: "can you hear me okay"),
-        ]
-
-        let result = TranscriptFormatter.merge(
-            micSegments: mic,
-            systemSegments: system,
-            meetingStart: meetingStart
-        )
-
-        #expect(result.contains("You: Okay I am"))
-        #expect(!result.contains("You: Okay I am recording this test can you hear me okay"))
+        // Both mic and system segments appear — no text-based filtering
+        #expect(result.contains("You: can you hear me okay"))
         #expect(result.contains("Others: can you hear me okay"))
     }
 

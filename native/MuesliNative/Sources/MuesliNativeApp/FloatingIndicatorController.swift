@@ -317,6 +317,16 @@ final class FloatingIndicatorController {
         setState(state, config: config)
     }
 
+    /// Refresh the idle icon to match the user's selected menu bar icon.
+    func refreshIcon() {
+        let config = configStore.load()
+        let fallback = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)) ?? NSImage()
+        let newImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? fallback
+        newImage.isTemplate = false
+        micIconView?.image = newImage
+    }
+
     /// Flash a brief warning message on the indicator pill, then snap back to idle.
     func showWarning(_ message: String, icon: String = "⚡", duration: TimeInterval = 2.5) {
         guard state == .idle else { return }
@@ -649,11 +659,14 @@ final class FloatingIndicatorController {
         contentView.layer?.addSublayer(tint)
         tintLayer = tint
 
-        // waveform.badge.microphone — idle (static) and recording (animated).
-        let symConfig = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
-        let micImage = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
-            .withSymbolConfiguration(symConfig)
-        let micView = NSImageView(image: micImage ?? NSImage())
+        // Idle icon — uses the user's selected menu bar icon from config.
+        // Falls back to waveform.badge.microphone if the configured icon can't be loaded.
+        let config = configStore.load()
+        let fallbackImage = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)) ?? NSImage()
+        let idleImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? fallbackImage
+        idleImage.isTemplate = false // we tint manually via contentTintColor
+        let micView = NSImageView(image: idleImage)
         micView.contentTintColor = .white
         micView.imageScaling = .scaleProportionallyDown
         micView.isHidden = true

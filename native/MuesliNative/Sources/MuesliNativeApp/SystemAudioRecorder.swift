@@ -3,7 +3,7 @@ import Foundation
 import ScreenCaptureKit
 import MuesliCore
 
-final class SystemAudioRecorder: NSObject, SCStreamOutput {
+final class SystemAudioRecorder: NSObject, SCStreamOutput, SystemAudioCapturing {
     var onPCMSamples: (([Int16]) -> Void)?
 
     private var stream: SCStream?

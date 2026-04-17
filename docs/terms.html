@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terms of Service &middot; Muesli</title>
+  <meta name="description" content="Terms of service for Muesli, a local-first AI dictation and meeting transcription app for macOS.">
+  <meta name="theme-color" content="#111214">
+  <link rel="icon" type="image/png" href="./favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=IBM+Plex+Mono:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --void: #111214;
+      --text: rgba(255,255,255,0.88);
+      --text-dim: rgba(255,255,255,0.5);
+      --text-faint: rgba(255,255,255,0.3);
+      --accent: #6BA3F7;
+      --system: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --serif: 'Cormorant Garamond', 'Georgia', serif;
+      --mono: 'IBM Plex Mono', 'Menlo', monospace;
+    }
+
+    html, body {
+      background: var(--void);
+      color: var(--text);
+      font-family: var(--serif);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 80px 24px 120px;
+    }
+
+    .back {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--text-faint);
+      text-decoration: none;
+      margin-bottom: 48px;
+      transition: color 0.2s;
+    }
+    .back:hover { color: var(--text-dim); }
+
+    h1 {
+      font-family: var(--serif);
+      font-weight: 300;
+      font-size: 2.4rem;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .updated {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      color: var(--text-faint);
+      margin-bottom: 48px;
+    }
+
+    h2 {
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: 1.3rem;
+      margin-top: 40px;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    p, li {
+      font-family: var(--serif);
+      font-size: 1.05rem;
+      line-height: 1.7;
+      color: var(--text-dim);
+      margin-bottom: 12px;
+    }
+
+    ul {
+      padding-left: 20px;
+      margin-bottom: 16px;
+    }
+
+    li { margin-bottom: 6px; }
+
+    strong { color: var(--text); font-weight: 500; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .highlight {
+      background: rgba(107,163,247,0.08);
+      border-left: 2px solid rgba(107,163,247,0.3);
+      padding: 16px 20px;
+      border-radius: 4px;
+      margin: 24px 0;
+    }
+    .highlight p { margin-bottom: 0; }
+
+    footer {
+      text-align: center;
+      padding: 40px 0;
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--text-faint);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <a href="./" class="back">&larr; freedspeech.xyz</a>
+
+  <h1>Terms of Service</h1>
+  <p class="updated">Last updated: April 10, 2026</p>
+
+  <div class="highlight">
+    <p><strong>Muesli is free, open-source software.</strong> You may use, modify, and distribute it under the MIT license. These terms cover your use of the application and optional connected services.</p>
+  </div>
+
+  <h2>Acceptance of Terms</h2>
+  <p>By downloading, installing, or using Muesli, you agree to these Terms of Service. If you do not agree, do not use the application.</p>
+
+  <h2>Description of Service</h2>
+  <p>Muesli is a macOS application for on-device dictation and meeting transcription. It uses local machine learning models to convert speech to text entirely on your Mac. Muesli also offers optional integrations with third-party services (OpenAI, OpenRouter, ChatGPT, Google Calendar) that you may choose to enable.</p>
+
+  <h2>License</h2>
+  <p>Muesli is distributed under the <a href="https://opensource.org/licenses/MIT">MIT License</a>. The full source code is available on <a href="https://github.com/pHequals7/muesli">GitHub</a>. You are free to use, copy, modify, merge, publish, distribute, sublicense, and sell copies of the software, subject to the conditions of the MIT License.</p>
+
+  <h2>User Responsibilities</h2>
+  <ul>
+    <li>You are responsible for your use of Muesli, including any audio you record and transcriptions you generate</li>
+    <li>You must comply with all applicable laws regarding recording conversations, including consent laws in your jurisdiction</li>
+    <li>You must not use Muesli to record conversations without the knowledge and consent of all participants where required by law</li>
+    <li>You are responsible for securing your device and any data Muesli stores locally</li>
+  </ul>
+
+  <h2>Third-Party Services</h2>
+  <p>Muesli integrates with optional third-party services. Your use of these services is subject to their respective terms:</p>
+  <ul>
+    <li><strong>OpenAI API / ChatGPT</strong> &mdash; governed by <a href="https://openai.com/policies/terms-of-use">OpenAI's Terms of Use</a></li>
+    <li><strong>OpenRouter</strong> &mdash; governed by <a href="https://openrouter.ai/terms">OpenRouter's Terms of Service</a></li>
+    <li><strong>Google Calendar</strong> &mdash; governed by <a href="https://policies.google.com/terms">Google's Terms of Service</a></li>
+  </ul>
+  <p>Muesli is not responsible for the availability, accuracy, or policies of these third-party services.</p>
+
+  <h2>Google Calendar Integration</h2>
+  <p>When you connect Google Calendar, Muesli requests read-only access to your calendar events. Muesli's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements. You can revoke access at any time from your <a href="https://myaccount.google.com/permissions">Google Account permissions</a> page.</p>
+
+  <h2>Disclaimer of Warranties</h2>
+  <p>Muesli is provided <strong>"as is"</strong> without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. The accuracy of speech-to-text transcriptions depends on audio quality, language, and model capabilities. Transcriptions should not be relied upon as verbatim records without verification.</p>
+
+  <h2>Limitation of Liability</h2>
+  <p>In no event shall the authors or copyright holders of Muesli be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.</p>
+
+  <h2>Changes to These Terms</h2>
+  <p>These terms may be updated from time to time. The updated version will be posted here with a revised date. Continued use of Muesli after changes constitutes acceptance of the new terms.</p>
+
+  <h2>Contact</h2>
+  <p>For questions about these terms, open an issue on <a href="https://github.com/pHequals7/muesli/issues">GitHub</a> or reach out to the maintainer via the repository.</p>
+</div>
+
+<footer>muesli &middot; local-first &middot; open source</footer>
+
+</body>
+</html>

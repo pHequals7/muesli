@@ -3,6 +3,7 @@ import AppKit
 @testable import MuesliNativeApp
 
 @Suite("SoundController")
+@MainActor
 struct SoundControllerTests {
 
     @Test("playDictationStart with enabled=false does not throw")

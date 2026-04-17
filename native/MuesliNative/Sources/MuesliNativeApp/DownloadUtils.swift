@@ -46,5 +46,8 @@ func downloadWithRetry(
             lastError = error
         }
     }
-    throw DownloadError.retriesExhausted(url.lastPathComponent, lastError!)
+    let underlying = lastError ?? NSError(domain: "DownloadError", code: 0, userInfo: [
+        NSLocalizedDescriptionKey: "No download attempts were made",
+    ])
+    throw DownloadError.retriesExhausted(url.lastPathComponent, underlying)
 }

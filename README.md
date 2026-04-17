@@ -38,18 +38,21 @@ Start a meeting recording → Muesli captures your mic (You) and system audio (O
 - **Meeting recording** — Captures mic + system audio (including Bluetooth/AirPods) via ScreenCaptureKit.
 - **VAD-driven chunk rotation** — Silero VAD detects natural speech boundaries in real-time, splitting mic audio at pauses instead of fixed intervals. No mid-sentence cuts.
 - **Speaker diarization** — Identifies individual speakers in system audio (Speaker 1, Speaker 2, etc.) using FluidAudio's pyannote-based CoreML diarization model.
-- **Camera-based meeting detection** — Instantly detects when your webcam turns on (CoreMediaIO event listener). Camera active = meeting detected, no matter which app.
+- **Camera-based meeting detection** — Detects when your webcam + mic activate in a recognized meeting app (Zoom, Chrome, Teams, FaceTime, Slack, WhatsApp). Camera alone (e.g. Photo Booth) won't trigger false positives.
+- **Google Calendar integration** — Connect your Google Calendar to see upcoming meetings in the Coming Up section and status bar. Calendar events drive pre-meeting countdowns and auto-detection.
+- **Meeting export** — Export meeting notes or transcripts as PDF (paginated US Letter) or Markdown. Format picker in the save panel, auto-opens the exported file.
+- **Meeting templates** — Built-in and custom templates for meeting notes. Choose a template before or after recording — re-summarize any meeting with a different template.
+- **Dismiss calendar events** — Hide irrelevant events from Coming Up, status bar, and menu bar. Dismissed events are pruned automatically.
 - **Filler word removal** — Automatically strips "uh", "um", "er", "hmm" and verbal disfluencies.
 - **AI meeting notes** — BYOK with OpenAI or OpenRouter, or sign in with your ChatGPT Plus/Pro subscription (no API key needed). Auto-generated meeting titles. Re-summarize any meeting.
 - **ChatGPT OAuth** — Sign in with your existing ChatGPT subscription via browser-based OAuth (PKCE). Tokens stored in the app support directory with owner-only file permissions.
 - **Personal dictionary** — Add custom words and replacement pairs. Jaro-Winkler fuzzy matching auto-corrects transcription output.
 - **Model management** — Download, delete, and switch between models from the Models tab. Background downloads that don't block the app.
-- **Meeting auto-detection** — Detects when Zoom, Chrome, Teams, FaceTime, or Slack activates the mic or camera. Shows a notification to start recording.
 - **Configurable hotkeys** — Choose any modifier key (Cmd, Option, Ctrl, Fn, Shift) for dictation.
-- **Onboarding** — First-launch wizard with model selection, permissions setup, hotkey configuration, and optional API key entry.
-- **Dark & light mode** — Adaptive theme with toggle in Settings.
-- **SwiftUI dashboard** — Dictation history, meeting notes (Notes-style split view), dictionary, models, shortcuts, settings, about page.
-- **Floating indicator** — Draggable pill showing recording state, waveform animation, click-to-stop for meetings.
+- **Onboarding** — First-launch wizard with model selection, real OS permission verification, hotkey configuration, app restart for Accessibility activation, live dictation test to verify the full pipeline works, and optional API key entry. Progress saved on every step — survives crashes and manual quits.
+- **Dark & light mode** — Adaptive theme with toggle in sidebar.
+- **SwiftUI dashboard** — Dictation history, meeting notes (Notes-style split view), meeting folders, dictionary, models, shortcuts, settings, about page.
+- **Floating indicator** — Frosted glass pill with dynamic waveform, accent color customization, and click-to-stop for meetings.
 
 ---
 
@@ -221,7 +224,8 @@ Muesli needs these macOS permissions (guided during onboarding):
 | **System Audio Recording** | Capture call audio from Zoom/Meet/Teams |
 | **Accessibility** | Simulate Cmd+V to paste transcribed text |
 | **Input Monitoring** | Detect hotkey presses globally |
-| **Calendar** *(optional)* | Auto-detect upcoming meetings |
+| **Camera** *(implicit)* | Detect webcam activation for meeting detection |
+| **Calendar** *(optional)* | Show upcoming meetings from Google Calendar |
 
 ---
 
@@ -244,9 +248,12 @@ Muesli needs these macOS permissions (guided during onboarding):
 │  ├── SystemAudioRecorder (ScreenCaptureKit)           │
 │  ├── MeetingSession (VAD-driven chunked transcription)│
 │  ├── MeetingSummaryClient (OpenAI / OpenRouter / ChatGPT) │
-│  ├── FloatingIndicatorController (UI pill)            │
+│  ├── MeetingExporter (PDF + Markdown export)          │
+│  ├── GoogleCalendarAuthManager (OAuth + Calendar API)  │
+│  ├── MeetingTemplates (built-in + custom templates)   │
+│  ├── FloatingIndicatorController (frosted glass pill)  │
 │  └── SwiftUI Dashboard (dictations, meetings,         │
-│       dictionary, models, shortcuts, settings)        │
+│       folders, dictionary, models, shortcuts, settings)│
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -267,6 +274,8 @@ Everything runs in-process. No subprocesses, no IPC, no Python runtime.
 | Camera detection | CoreMediaIO property listeners (event-driven) |
 | System audio | ScreenCaptureKit (`SCStream`) |
 | Meeting notes | OpenAI / OpenRouter (BYOK) or ChatGPT subscription (OAuth) |
+| Calendar | Google Calendar API (OAuth 2.0) |
+| Export | PDF (NSPrintOperation, paginated US Letter) + Markdown |
 | Word correction | Jaro-Winkler similarity (native Swift) |
 | Storage | SQLite (WAL mode) |
 | Signing | Developer ID + hardened runtime (notarization ready) |
@@ -285,7 +294,7 @@ swift test --package-path native/MuesliNative
 ./scripts/test_packaged_cli.sh
 ```
 
-168 tests covering model configuration, custom word matching, filler removal, transcription routing, data persistence, CLI contract/path-resolution logic, speaker diarization alignment, token consolidation, camera-based meeting detection, and ChatGPT OAuth logic.
+381 tests covering model configuration, custom word matching, filler removal, transcription routing, data persistence, CLI contract/path-resolution logic, speaker diarization alignment, token consolidation, camera-based meeting detection, ChatGPT OAuth logic, meeting export, and meeting navigation.
 
 Current test scope:
 

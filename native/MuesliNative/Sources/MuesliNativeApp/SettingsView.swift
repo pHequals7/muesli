@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import MuesliCore
 
@@ -39,11 +40,27 @@ struct SettingsView: View {
 
     @State private var chatGPTSignInError: String?
     @State private var isSigningInChatGPT = false
+    @State private var googleCalSignInError: String?
+    @State private var isSigningInGoogleCal = false
     @State private var pendingDataDestruction: PendingDataDestruction?
     @State private var recordingColorInput: String = ""
+    @State private var isPreviewingClip = false
+    @State private var availableBackendOptions: [BackendOption] = []
+    @State private var downloadedPostProcOptions: [PostProcessorOption] = []
+    @State private var permissionPollTimer: Timer?
+    @State private var micGranted = false
+    @State private var accessibilityGranted = false
+    @State private var inputMonitoringGranted = false
+    @State private var screenRecordingGranted = false
+    @State private var systemAudioGranted = false
+    @State private var isCheckingSystemAudioPermission = false
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
+
+    private var displayedBackendOptions: [BackendOption] {
+        availableBackendOptions.isEmpty ? [appState.selectedBackend] : availableBackendOptions
+    }
 
     var body: some View {
         ScrollView {
@@ -73,17 +90,62 @@ struct SettingsView: View {
                     }
                 }
 
+                permissionsSection
+
                 settingsSection("Transcription") {
                     settingsRow("Backend") {
                         settingsMenu(
                             selection: appState.selectedBackend.label,
-                            options: BackendOption.all.map(\.label)
+                            options: displayedBackendOptions.map(\.label)
                         ) { label in
-                            if let option = BackendOption.all.first(where: { $0.label == label }) {
+                            if let option = displayedBackendOptions.first(where: { $0.label == label }) {
                                 controller.selectBackend(option)
                             }
                         }
                     }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("AI transcript cleanup") {
+                        settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
+                            controller.setPostProcessorEnabled(newValue)
+                        }
+                    }
+                    if appState.config.enablePostProcessor && !downloadedPostProcOptions.isEmpty {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Cleanup model") {
+                            let selection = downloadedPostProcOptions.contains(where: { $0.id == appState.activePostProcessor.id })
+                                ? appState.activePostProcessor.label
+                                : (downloadedPostProcOptions.first?.label ?? "")
+                            settingsMenu(
+                                selection: selection,
+                                options: downloadedPostProcOptions.map(\.label)
+                            ) { label in
+                                if let option = downloadedPostProcOptions.first(where: { $0.label == label }) {
+                                    controller.selectPostProcessor(option)
+                                }
+                            }
+                        }
+                    } else if appState.config.enablePostProcessor {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Cleanup model") {
+                            Text("Download a cleanup model in Models")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(MuesliTheme.textTertiary)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: controlWidth, alignment: .trailing)
+                        }
+                    }
+                }
+
+                settingsSection("Context") {
+                    settingsRow("Screen context") {
+                        settingsSwitch(isOn: appState.config.enableScreenContext) { newValue in
+                            controller.updateConfig { $0.enableScreenContext = newValue }
+                        }
+                    }
+                    Text("Reads app name and nearby text via the Accessibility API to improve dictation formatting and meeting summaries. No screenshots. All processing stays on-device.")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .padding(.horizontal, MuesliTheme.spacing16)
                 }
 
                 settingsSection("Meetings") {
@@ -114,6 +176,7 @@ struct SettingsView: View {
                                             .foregroundStyle(.white)
                                             .lineLimit(1)
                                     }
+                                    .frame(maxWidth: .infinity)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
                                     .background(MuesliTheme.success)
@@ -148,6 +211,7 @@ struct SettingsView: View {
                                                 .foregroundStyle(.white)
                                                 .lineLimit(1)
                                         }
+                                        .frame(maxWidth: .infinity)
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 4)
                                         .background(MuesliTheme.accent)
@@ -243,6 +307,98 @@ struct SettingsView: View {
                     }
                 }
 
+                if appState.isGoogleCalendarAvailable {
+                    settingsSection("Calendar") {
+                        settingsRow("Google Calendar") {
+                            if appState.isGoogleCalendarAuthenticated {
+                                Button {
+                                    controller.signOutGoogleCalendar()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "calendar")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.white)
+                                        Text("Connected · Disconnect")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.white)
+                                            .lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(MuesliTheme.success)
+                                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                                }
+                                .buttonStyle(.plain)
+                            } else if isSigningInGoogleCal {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Connecting...")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(MuesliTheme.textSecondary)
+                                }
+                            } else if !appState.isGoogleCalendarVerified {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "calendar.badge.plus")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.white.opacity(0.4))
+                                        Text("Connect Google Calendar")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundStyle(.white.opacity(0.4))
+                                            .lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(MuesliTheme.textTertiary.opacity(0.3))
+                                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+
+                                    Text("Google OAuth verification pending")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(MuesliTheme.textTertiary)
+                                }
+                            } else {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Button {
+                                        isSigningInGoogleCal = true
+                                        googleCalSignInError = nil
+                                        Task {
+                                            let error = await controller.signInWithGoogleCalendar()
+                                            isSigningInGoogleCal = false
+                                            googleCalSignInError = error
+                                        }
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: "calendar.badge.plus")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.white)
+                                            Text("Connect Google Calendar")
+                                                .font(.system(size: 11, weight: .medium))
+                                                .foregroundStyle(.white)
+                                                .lineLimit(1)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(MuesliTheme.accent)
+                                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    if let googleCalSignInError {
+                                        Text(googleCalSignInError)
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.red)
+                                            .lineLimit(2)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 settingsSection("Appearance") {
                     settingsRow("Menu bar icon") {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -291,6 +447,79 @@ struct SettingsView: View {
                             controller.updateConfig { $0.soundEnabled = newValue }
                         }
                     }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Show next meeting in menu bar") {
+                        settingsSwitch(isOn: appState.config.showNextMeetingInMenuBar) { newValue in
+                            controller.updateConfig { $0.showNextMeetingInMenuBar = newValue }
+                        }
+                    }
+                }
+
+                if appState.config.maraudersMapUnlocked {
+                    settingsSection("Marauder\u{2019}s Map") {
+                        settingsRow("Meeting countdown audio") {
+                            HStack(spacing: MuesliTheme.spacing8) {
+                                settingsMenu(
+                                    selection: SoundController.labelForClip(
+                                        id: appState.config.maraudersMapAudioClip,
+                                        customPath: appState.config.maraudersMapCustomAudioPath
+                                    ),
+                                    options: SoundController.maraudersMapClipLabels
+                                ) { label in
+                                    if label == "Custom\u{2026}" {
+                                        pickCustomAudioFile()
+                                    } else if let preset = SoundController.maraudersMapPresets
+                                        .first(where: { $0.label == label }) {
+                                        SoundController.stopMaraudersMapClip()
+                                        isPreviewingClip = false
+                                        controller.updateConfig {
+                                            $0.maraudersMapAudioClip = preset.id
+                                            $0.maraudersMapCustomAudioPath = nil
+                                        }
+                                        controller.updateMaraudersMapAudioClip()
+                                    }
+                                }
+                                Button {
+                                    if isPreviewingClip {
+                                        SoundController.stopMaraudersMapClip()
+                                        isPreviewingClip = false
+                                    } else {
+                                        SoundController.playMaraudersMapClip(
+                                            id: appState.config.maraudersMapAudioClip,
+                                            customPath: appState.config.maraudersMapCustomAudioPath
+                                        ) {
+                                            isPreviewingClip = false
+                                        }
+                                        isPreviewingClip = true
+                                    }
+                                } label: {
+                                    Image(systemName: isPreviewingClip ? "stop.fill" : "play.fill")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(MuesliTheme.textSecondary)
+                                        .frame(width: 24, height: 24)
+                                }
+                                .buttonStyle(.plain)
+                                .contentShape(Rectangle())
+                            }
+                        }
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("") {
+                            Button {
+                                SoundController.stopMaraudersMapClip()
+                                isPreviewingClip = false
+                                controller.resetMaraudersMap()
+                            } label: {
+                                Text("Mischief Managed")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(MuesliTheme.textSecondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .onDisappear {
+                        SoundController.stopMaraudersMapClip()
+                        isPreviewingClip = false
+                    }
                 }
 
                 settingsSection("Data") {
@@ -309,6 +538,22 @@ struct SettingsView: View {
             .padding(MuesliTheme.spacing32)
         }
         .background(MuesliTheme.backgroundBase)
+        .onAppear {
+            refreshDownloadedModelOptions()
+            startPermissionPolling()
+        }
+        .onDisappear {
+            stopPermissionPolling()
+        }
+        .onChange(of: appState.selectedTab) { _, tab in
+            if tab == .settings {
+                refreshDownloadedModelOptions()
+                refreshPermissionStatuses()
+            }
+        }
+        .onChange(of: appState.selectedBackend) { _, _ in
+            refreshAvailableBackendOptions()
+        }
         .alert(
             pendingDataDestruction?.title ?? "Confirm Destructive Action",
             isPresented: Binding(
@@ -333,6 +578,19 @@ struct SettingsView: View {
         } message: {
             Text(pendingDataDestruction?.message ?? "")
         }
+    }
+
+    private func refreshDownloadedModelOptions() {
+        refreshAvailableBackendOptions()
+        downloadedPostProcOptions = PostProcessorOption.downloaded
+    }
+
+    private func refreshAvailableBackendOptions() {
+        var options = BackendOption.downloaded
+        if !options.contains(where: { $0 == appState.selectedBackend }) {
+            options.insert(appState.selectedBackend, at: 0)
+        }
+        availableBackendOptions = options
     }
 
     private static let accentPresets: [(hex: String, name: String)] = [
@@ -368,6 +626,173 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Marauder's Map
+
+    private func pickCustomAudioFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an audio clip"
+        panel.allowedContentTypes = [.mp3, .mpeg4Audio, .wav, .aiff]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let appSupportBase = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            fputs("[muesli-native] Could not resolve Application Support directory\n", stderr)
+            return
+        }
+
+        do {
+            let supportDir = appSupportBase
+                .appendingPathComponent(Bundle.main.infoDictionary?["MuesliSupportDirectoryName"] as? String ?? "Muesli")
+            let destPath = try SoundController.importCustomClip(from: url, supportDir: supportDir)
+            controller.updateConfig {
+                $0.maraudersMapAudioClip = SoundController.customClipID
+                $0.maraudersMapCustomAudioPath = destPath
+            }
+            controller.updateMaraudersMapAudioClip()
+        } catch {
+            fputs("[muesli-native] Failed to import custom audio: \(error)\n", stderr)
+        }
+    }
+
+    // MARK: - Permissions
+
+    private var permissionsSection: some View {
+        settingsSection("Permissions") {
+            permissionStatusRow(
+                "Microphone",
+                granted: micGranted,
+                action: { AVCaptureDevice.requestAccess(for: .audio) { _ in } },
+                pane: "Privacy_Microphone"
+            )
+            Divider().background(MuesliTheme.surfaceBorder)
+            permissionStatusRow(
+                "Accessibility",
+                granted: accessibilityGranted,
+                action: {
+                    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                    AXIsProcessTrustedWithOptions(opts)
+                },
+                pane: "Privacy_Accessibility"
+            )
+            Divider().background(MuesliTheme.surfaceBorder)
+            permissionStatusRow(
+                "Input Monitoring",
+                granted: inputMonitoringGranted,
+                action: {
+                    if !CGRequestListenEventAccess() {
+                        openPrivacyPane("Privacy_ListenEvent")
+                    }
+                },
+                pane: "Privacy_ListenEvent"
+            )
+            Divider().background(MuesliTheme.surfaceBorder)
+            permissionStatusRow(
+                "Screen Recording",
+                granted: screenRecordingGranted,
+                action: { CGRequestScreenCaptureAccess() },
+                pane: "Privacy_ScreenCapture"
+            )
+            if appState.config.useCoreAudioTap {
+                Divider().background(MuesliTheme.surfaceBorder)
+                permissionStatusRow(
+                    "System Audio",
+                    granted: systemAudioGranted,
+                    action: {
+                        Task { await CoreAudioSystemRecorder.requestSystemAudioAccess() }
+                    },
+                    pane: "Privacy_ScreenCapture"
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func permissionStatusRow(_ name: String, granted: Bool, action: @escaping () -> Void, pane: String) -> some View {
+        HStack {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(granted ? MuesliTheme.success : MuesliTheme.recording)
+                    .frame(width: 8, height: 8)
+                Text(name)
+                    .font(MuesliTheme.body())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+            }
+            Spacer()
+            if granted {
+                Text("Granted")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuesliTheme.success)
+            } else {
+                Button("Grant") {
+                    action()
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(MuesliTheme.accent)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .background(MuesliTheme.accentSubtle)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            }
+            Button {
+                openPrivacyPane(pane)
+            } label: {
+                Image(systemName: "arrow.up.forward.square")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .help("Open in System Settings")
+        }
+        .frame(minHeight: 32)
+    }
+
+    private func openPrivacyPane(_ pane: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func startPermissionPolling() {
+        refreshPermissionStatuses()
+        permissionPollTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            refreshPermissionStatuses()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        permissionPollTimer = timer
+    }
+
+    private func stopPermissionPolling() {
+        permissionPollTimer?.invalidate()
+        permissionPollTimer = nil
+    }
+
+    private func refreshPermissionStatuses() {
+        micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        accessibilityGranted = AXIsProcessTrusted()
+        inputMonitoringGranted = CGPreflightListenEventAccess()
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        refreshSystemAudioPermissionIfNeeded()
+    }
+
+    private func refreshSystemAudioPermissionIfNeeded() {
+        guard appState.config.useCoreAudioTap, !isCheckingSystemAudioPermission else { return }
+        isCheckingSystemAudioPermission = true
+
+        Task {
+            let granted = await Task.detached(priority: .utility) {
+                CoreAudioSystemRecorder.checkSystemAudioPermission()
+            }.value
+            await MainActor.run {
+                self.systemAudioGranted = granted
+                self.isCheckingSystemAudioPermission = false
+            }
+        }
+    }
+
     // MARK: - Layout Primitives
 
     @ViewBuilder
@@ -392,16 +817,22 @@ struct SettingsView: View {
         }
     }
 
-    /// Standardized row: label on left, control on right, consistent 36pt height
+    /// Standardized row: label on left, control on right.
+    /// Controls share a fixed-width column so they all right-align consistently.
     @ViewBuilder
     private func settingsRow(_ label: String, @ViewBuilder control: () -> some View) -> some View {
-        HStack {
+        HStack(alignment: .center) {
             Text(label)
                 .font(MuesliTheme.body())
                 .foregroundStyle(MuesliTheme.textPrimary)
-            Spacer()
-            control()
-                .frame(width: controlWidth, alignment: .trailing)
+                .layoutPriority(1)
+            Spacer(minLength: 20)
+            ZStack(alignment: .trailing) {
+                // Invisible spacer forces the ZStack to exactly controlWidth
+                Color.clear.frame(width: controlWidth, height: 1)
+                control()
+                    .frame(maxWidth: controlWidth)
+            }
         }
         .frame(minHeight: 32)
     }
@@ -410,62 +841,55 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func settingsSwitch(isOn: Bool, onChange: @escaping (Bool) -> Void) -> some View {
-        Toggle("", isOn: Binding(get: { isOn }, set: { onChange($0) }))
-            .toggleStyle(.switch)
-            .tint(MuesliTheme.accent)
-            .labelsHidden()
+        HStack {
+            Spacer()
+            Toggle("", isOn: Binding(get: { isOn }, set: { onChange($0) }))
+                .toggleStyle(.switch)
+                .tint(MuesliTheme.accent)
+                .labelsHidden()
+        }
     }
 
     @ViewBuilder
     private func settingsMenu(selection: String, options: [String], onChange: @escaping (String) -> Void) -> some View {
-        Picker("", selection: Binding(get: { selection }, set: { onChange($0) })) {
-            ForEach(options, id: \.self) { Text($0).tag($0) }
-        }
-        .pickerStyle(.menu)
-        .frame(maxWidth: .infinity)
+        FixedWidthPopUp(selection: selection, options: options, onChange: onChange)
+            .frame(height: 24)
     }
 
     @ViewBuilder
     private func meetingTemplateMenu(selectionID: String, onChange: @escaping (String) -> Void) -> some View {
-        Picker(
-            "",
-            selection: Binding(
-                get: { selectionID },
-                set: { onChange($0) }
-            )
-        ) {
-            Text(MeetingTemplates.auto.title)
-                .tag(MeetingTemplates.autoID)
-            Section("Built-in Templates") {
-                ForEach(controller.builtInMeetingTemplates()) { template in
-                    Text(template.title)
-                        .tag(template.id)
-                }
+        let allItems: [(id: String, label: String)] = {
+            var items: [(String, String)] = [(MeetingTemplates.autoID, MeetingTemplates.auto.title)]
+            items += controller.builtInMeetingTemplates().map { ($0.id, $0.title) }
+            items += controller.customMeetingTemplates().map { ($0.id, $0.name) }
+            return items
+        }()
+        let selectedLabel = allItems.first(where: { $0.id == selectionID })?.label ?? "Auto"
+        FixedWidthPopUp(
+            selection: selectedLabel,
+            options: allItems.map(\.label),
+            onSelectIndex: { index in
+                guard index >= 0 && index < allItems.count else { return }
+                onChange(allItems[index].id)
             }
-
-            if !controller.customMeetingTemplates().isEmpty {
-                Section("Custom Templates") {
-                    ForEach(controller.customMeetingTemplates()) { template in
-                        Text(template.name)
-                            .tag(template.id)
-                    }
-                }
-            }
-        }
-        .pickerStyle(.menu)
-        .frame(maxWidth: .infinity)
+        )
+        .frame(height: 24)
     }
 
     @ViewBuilder
     private func settingsModelMenu(currentModel: String, presets: [SummaryModelPreset], onChange: @escaping (String) -> Void) -> some View {
-        Picker("", selection: Binding(
-            get: { currentModel.isEmpty ? (presets.first?.id ?? "") : currentModel },
-            set: { onChange($0 == presets.first?.id ? "" : $0) }
-        )) {
-            ForEach(presets, id: \.id) { Text($0.label).tag($0.id) }
-        }
-        .pickerStyle(.menu)
-        .frame(maxWidth: .infinity)
+        let effectiveModel = currentModel.isEmpty ? (presets.first?.id ?? "") : currentModel
+        let selectedLabel = presets.first(where: { $0.id == effectiveModel })?.label ?? presets.first?.label ?? ""
+        FixedWidthPopUp(
+            selection: selectedLabel,
+            options: presets.map(\.label),
+            onSelectIndex: { index in
+                guard index >= 0 && index < presets.count else { return }
+                let selectedId = presets[index].id
+                onChange(selectedId == presets.first?.id ? "" : selectedId)
+            }
+        )
+        .frame(height: 24)
     }
 
     @ViewBuilder
@@ -489,6 +913,7 @@ struct SettingsView: View {
             Text(title)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isDestructive ? MuesliTheme.recording : MuesliTheme.textPrimary)
+                .frame(maxWidth: .infinity)
                 .padding(.horizontal, MuesliTheme.spacing16)
                 .padding(.vertical, MuesliTheme.spacing8)
                 .background(isDestructive ? MuesliTheme.recording.opacity(0.1) : MuesliTheme.surfacePrimary)
@@ -546,6 +971,63 @@ class EditableNSSecureTextField: NSSecureTextField {
             }
         }
         return super.performKeyEquivalent(with: event)
+    }
+}
+
+/// NSPopUpButton wrapper that respects width constraints (SwiftUI Picker with .menu style ignores them).
+struct FixedWidthPopUp: NSViewRepresentable {
+    let selection: String
+    let options: [String]
+    /// Reports the selected index, avoiding label collision issues.
+    let onSelectionIndex: (Int) -> Void
+
+    init(selection: String, options: [String], onChange: @escaping (String) -> Void) {
+        self.selection = selection
+        self.options = options
+        self.onSelectionIndex = { index in
+            guard index >= 0 && index < options.count else { return }
+            onChange(options[index])
+        }
+    }
+
+    init(selection: String, options: [String], onSelectIndex: @escaping (Int) -> Void) {
+        self.selection = selection
+        self.options = options
+        self.onSelectionIndex = onSelectIndex
+    }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.removeAllItems()
+        button.addItems(withTitles: options)
+        button.selectItem(withTitle: selection)
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectionChanged(_:))
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        let currentTitles = button.itemTitles
+        if currentTitles != options {
+            button.removeAllItems()
+            button.addItems(withTitles: options)
+        }
+        if button.titleOfSelectedItem != selection {
+            button.selectItem(withTitle: selection)
+        }
+        context.coordinator.onSelectionIndex = onSelectionIndex
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(onSelectionIndex: onSelectionIndex) }
+
+    class Coordinator: NSObject {
+        var onSelectionIndex: (Int) -> Void
+        init(onSelectionIndex: @escaping (Int) -> Void) { self.onSelectionIndex = onSelectionIndex }
+        @objc func selectionChanged(_ sender: NSPopUpButton) {
+            onSelectionIndex(sender.indexOfSelectedItem)
+        }
     }
 }
 
@@ -615,4 +1097,3 @@ private extension NSColor {
         return String(format: "%02x%02x%02x", r, g, b)
     }
 }
-

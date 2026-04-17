@@ -40,11 +40,17 @@ final class AppState {
     // Config-driven state
     var selectedBackend: BackendOption = .whisper
     var selectedMeetingSummaryBackend: MeetingSummaryBackendOption = .openAI
+    var activePostProcessor: PostProcessorOption = PostProcessorOption.defaultOption
     var config: AppConfig = AppConfig()
 
     // Live status
     var isMeetingRecording: Bool = false
     var isChatGPTAuthenticated: Bool = false
+    var isGoogleCalendarAvailable: Bool = false
+    var isGoogleCalendarVerified: Bool = false
+    var isGoogleCalendarAuthenticated: Bool = false
+    var upcomingCalendarEvents: [UnifiedCalendarEvent] = []
+    var hiddenCalendarEventIDs: Set<String> = []
 
     // Dictation pagination & filtering
     var dictationPageSize: Int = 50

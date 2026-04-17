@@ -7,28 +7,86 @@ struct OnboardingView: View {
     let controller: MuesliController
     let appState: AppState
 
-    @State private var currentStep = 0
-    @State private var userName = ""
-    @State private var selectedBackend: BackendOption = .parakeetMultilingual
+    @State private var currentStep: Int
+    @State private var userName: String
+    @State private var selectedBackend: BackendOption
     @State private var summaryBackend: MeetingSummaryBackendOption = .openRouter
     @State private var apiKey = ""
     @State private var isSigningInChatGPT = false
     @State private var chatGPTSignInDone = false
     @State private var chatGPTSignInError: String?
 
-    // Permission states — pre-filled from OS on appear, then set to true after delay on Grant click
+    // Permission states — polled from OS every second
     @State private var micGranted = false
     @State private var accessibilityGranted = false
     @State private var inputMonitoringGranted = false
     @State private var screenRecordingGranted = false
-    @State private var pendingPermissions: Set<String> = []
+    @State private var systemAudioGranted = false
+    @State private var permissionPollTimer: Timer?
+    @State private var isCheckingSystemAudioPermission = false
+    @State private var grantingPermissionName: String?
+    @State private var recentlyGrantedPermissionName: String?
 
     // Hotkey recorder
-    @State private var selectedHotkey: HotkeyConfig = .default
+    @State private var selectedHotkey: HotkeyConfig
     @State private var isRecordingHotkey = false
     @State private var hotkeyEventMonitor: Any?
 
-    private let totalSteps = 5
+    // Model selection
+    @State private var showMoreModels = false
+
+    // Dictation test
+    @State private var isDictationTesting = false
+    @State private var dictationTestResult: String?
+    @State private var dictationTestError: String?
+    @State private var isModelStillDownloading = false
+    @State private var modelPollTimer: Timer?
+
+    // Google Calendar
+    @State private var isSigningInGoogleCal = false
+    @State private var googleCalSignInDone = false
+    @State private var googleCalSignInError: String?
+
+    private let totalSteps = 7
+    static let dictationTestStep = 4
+
+    init(
+        controller: MuesliController,
+        appState: AppState,
+        initialStep: Int = 0,
+        initialUserName: String = "",
+        initialBackend: BackendOption = .parakeetMultilingual,
+        initialHotkey: HotkeyConfig = .default,
+        initialSystemAudioRequested: Bool = false
+    ) {
+        self.controller = controller
+        self.appState = appState
+        // Pre-populate permission states so resumed onboarding reflects grants
+        // that happened before the deliberate restart.
+        let initialMicGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        let initialAccessibilityGranted = AXIsProcessTrusted()
+        let initialInputMonitoringGranted = CGPreflightListenEventAccess()
+        let initialScreenRecordingGranted = CGPreflightScreenCaptureAccess()
+        let initialSystemAudioGranted = initialSystemAudioRequested || CoreAudioSystemRecorder.checkSystemAudioPermission()
+        let initialPermissionsGranted = initialMicGranted
+            && initialAccessibilityGranted
+            && initialInputMonitoringGranted
+            && initialScreenRecordingGranted
+            && (!appState.config.useCoreAudioTap || initialSystemAudioGranted)
+        let effectiveInitialStep = initialStep >= Self.dictationTestStep && !initialPermissionsGranted
+            ? 3
+            : initialStep
+
+        _currentStep = State(initialValue: effectiveInitialStep)
+        _userName = State(initialValue: initialUserName)
+        _selectedBackend = State(initialValue: initialBackend)
+        _selectedHotkey = State(initialValue: initialHotkey)
+        _micGranted = State(initialValue: initialMicGranted)
+        _accessibilityGranted = State(initialValue: initialAccessibilityGranted)
+        _inputMonitoringGranted = State(initialValue: initialInputMonitoringGranted)
+        _screenRecordingGranted = State(initialValue: initialScreenRecordingGranted)
+        _systemAudioGranted = State(initialValue: initialSystemAudioGranted)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,9 +94,11 @@ struct OnboardingView: View {
                 switch currentStep {
                 case 0: welcomeStep
                 case 1: modelStep
-                case 2: permissionsStep
-                case 3: hotkeyStep
-                case 4: meetingSummaryStep
+                case 2: hotkeyStep
+                case 3: permissionsStep
+                case 4: dictationTestStep
+                case 5: meetingSummaryStep
+                case 6: googleCalendarStep
                 default: EmptyView()
                 }
             }
@@ -86,6 +146,15 @@ struct OnboardingView: View {
         }
         .background(MuesliTheme.backgroundBase)
         .preferredColorScheme(.dark)
+        .onAppear {
+            saveProgress(atStep: currentStep)
+        }
+        .onChange(of: currentStep) { _, step in
+            saveProgress(atStep: step)
+        }
+        .onChange(of: userName) { _, _ in
+            saveProgress(atStep: currentStep)
+        }
     }
 
     // MARK: - Primary Button
@@ -106,26 +175,26 @@ struct OnboardingView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { currentStep = 3 }
             }
         case 3:
-            onboardingButton("Continue", enabled: true) {
-                withAnimation(.easeInOut(duration: 0.2)) { currentStep = 4 }
+            onboardingButton("Continue", enabled: allPermissionsGranted) {
+                saveProgressAndRestart()
             }
         case 4:
             HStack(spacing: MuesliTheme.spacing12) {
-                Button("Skip") {
-                    finishOnboarding(withKey: false)
+                skipButton { withAnimation(.easeInOut(duration: 0.2)) { currentStep = 5 } }
+                onboardingButton("Continue", enabled: dictationTestResult != nil) {
+                    withAnimation(.easeInOut(duration: 0.2)) { currentStep = 5 }
                 }
-                .buttonStyle(.plain)
-                .font(MuesliTheme.body())
-                .foregroundStyle(MuesliTheme.textSecondary)
-                .padding(.horizontal, MuesliTheme.spacing16)
-                .padding(.vertical, MuesliTheme.spacing8)
-                .background(MuesliTheme.surfacePrimary)
-                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                .overlay(
-                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                        .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-                )
-
+            }
+        case 5:
+            HStack(spacing: MuesliTheme.spacing12) {
+                skipButton { withAnimation(.easeInOut(duration: 0.2)) { currentStep = 6 } }
+                onboardingButton("Continue", enabled: true) {
+                    withAnimation(.easeInOut(duration: 0.2)) { currentStep = 6 }
+                }
+            }
+        case 6:
+            HStack(spacing: MuesliTheme.spacing12) {
+                skipButton { finishOnboarding(withKey: true) }
                 onboardingButton("Finish", enabled: true) {
                     finishOnboarding(withKey: true)
                 }
@@ -148,6 +217,22 @@ struct OnboardingView: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+
+    @ViewBuilder
+    private func skipButton(action: @escaping () -> Void) -> some View {
+        Button("Skip", action: action)
+            .buttonStyle(.plain)
+            .font(MuesliTheme.body())
+            .foregroundStyle(MuesliTheme.textSecondary)
+            .padding(.horizontal, MuesliTheme.spacing16)
+            .padding(.vertical, MuesliTheme.spacing8)
+            .background(MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
     }
 
     // MARK: - Step 1: Welcome
@@ -175,7 +260,11 @@ struct OnboardingView: View {
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textTertiary)
 
-                OnboardingTextField(text: $userName, placeholder: "Enter your name")
+                OnboardingTextField(text: $userName, placeholder: "Enter your name", onSubmit: {
+                    if !userName.trimmingCharacters(in: .whitespaces).isEmpty {
+                        withAnimation(.easeInOut(duration: 0.2)) { currentStep = 1 }
+                    }
+                })
                     .frame(width: 280, height: 32)
             }
 
@@ -193,7 +282,7 @@ struct OnboardingView: View {
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
-                Text("Pick a model to get started. You can download more from the Models tab later.")
+                Text("We recommend Parakeet v3 for the best experience.\nYou can download more models later.")
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -202,8 +291,28 @@ struct OnboardingView: View {
 
             ScrollView {
                 VStack(spacing: MuesliTheme.spacing8) {
-                    ForEach(BackendOption.all, id: \.model) { option in
-                        modelCard(option: option)
+                    modelCard(option: .parakeetMultilingual)
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showMoreModels.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Other models")
+                                .font(MuesliTheme.caption())
+                            Image(systemName: showMoreModels ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, MuesliTheme.spacing4)
+
+                    if showMoreModels {
+                        ForEach(BackendOption.all.filter { !$0.recommended }, id: \.model) { option in
+                            modelCard(option: option)
+                        }
                     }
                 }
                 .padding(.horizontal, MuesliTheme.spacing32)
@@ -263,98 +372,180 @@ struct OnboardingView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Step 3: Permissions
+    // MARK: - Step 3: Permissions (sequential, one at a time)
+
+    /// The ordered list of permissions to grant during onboarding.
+    /// Screen Recording is handled specially: granting it may terminate the app,
+    /// so that grant path saves progress directly to the post-restart dictation
+    /// test. If macOS does not terminate, the normal Continue button performs
+    /// the single deliberate restart.
+    private var permissionSteps: [(icon: String, name: String, description: String, granted: Bool, action: () -> Void)] {
+        var steps: [(String, String, String, Bool, () -> Void)] = [
+            ("mic.fill", "Microphone", "Record audio for dictation and meetings", micGranted, {
+                AVCaptureDevice.requestAccess(for: .audio) { _ in }
+            }),
+            ("hand.raised.fill", "Accessibility", "Paste transcribed text into other apps", accessibilityGranted, {
+                let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                AXIsProcessTrustedWithOptions(opts)
+            }),
+            ("keyboard.fill", "Input Monitoring", "Detect hotkey for push-to-talk dictation", inputMonitoringGranted, {
+                if !CGRequestListenEventAccess() {
+                    self.openSystemSettings("Privacy_ListenEvent")
+                }
+            }),
+        ]
+        if appState.config.useCoreAudioTap {
+            steps.append(("speaker.wave.2.fill", "System Audio", "Capture meeting audio from other participants", systemAudioGranted, {
+                Task {
+                    await CoreAudioSystemRecorder.requestSystemAudioAccess()
+                    await resolveSystemAudioPermissionAfterRequest()
+                }
+            }))
+            steps.append(("rectangle.dashed.badge.record", "Screen Recording", "Capture screen content for richer meeting context", screenRecordingGranted, {
+                requestScreenRecordingDuringOnboarding()
+            }))
+        } else {
+            steps.append(("rectangle.dashed.badge.record", "Screen & System Audio", "Capture system audio and screen content during meetings", screenRecordingGranted, {
+                requestScreenRecordingDuringOnboarding()
+            }))
+        }
+        return steps
+    }
+
+    /// Index of the current permission being requested.
+    private var currentPermissionIndex: Int {
+        for (i, step) in permissionSteps.enumerated() {
+            if !step.granted { return i }
+        }
+        return permissionSteps.count
+    }
 
     private var permissionsStep: some View {
-        VStack(spacing: MuesliTheme.spacing24) {
+        let steps = permissionSteps
+        let idx = currentPermissionIndex
+        let total = steps.count
+        let confirmationIndex = recentlyGrantedPermissionName.flatMap { grantedName in
+            steps.firstIndex { $0.name == grantedName }
+        }
+        let displayIndex = confirmationIndex ?? idx
+
+        return VStack(spacing: MuesliTheme.spacing24) {
             Spacer()
 
-            VStack(spacing: MuesliTheme.spacing8) {
-                Text("System Permissions")
-                    .font(MuesliTheme.title1())
-                    .foregroundStyle(MuesliTheme.textPrimary)
+            if displayIndex < total {
+                let step = steps[displayIndex]
+                let isConfirmingGrant = recentlyGrantedPermissionName == step.name
 
-                Text("Muesli needs a few macOS permissions to work properly. You can grant these now or later.")
-                    .font(MuesliTheme.body())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-            }
+                VStack(spacing: MuesliTheme.spacing8) {
+                    Text("Permission \(displayIndex + 1) of \(total)")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .textCase(.uppercase)
 
-            VStack(spacing: 0) {
-                permissionRow(
-                    icon: "mic.fill",
-                    name: "Microphone",
-                    description: "Record audio for dictation and meetings",
-                    granted: micGranted,
-                    pending: pendingPermissions.contains("mic"),
-                    action: {
-                        AVCaptureDevice.requestAccess(for: .audio) { _ in }
-                        grantAfterDelay("mic") { micGranted = true }
-                    }
-                )
-                Divider().background(MuesliTheme.surfaceBorder)
-                permissionRow(
-                    icon: "hand.raised.fill",
-                    name: "Accessibility",
-                    description: "Paste transcribed text into other apps",
-                    granted: accessibilityGranted,
-                    pending: pendingPermissions.contains("accessibility"),
-                    action: {
-                        openSystemSettings("Privacy_Accessibility")
-                        grantAfterDelay("accessibility") { accessibilityGranted = true }
-                    }
-                )
-                Divider().background(MuesliTheme.surfaceBorder)
-                permissionRow(
-                    icon: "keyboard.fill",
-                    name: "Input Monitoring",
-                    description: "Detect hotkey for push-to-talk dictation",
-                    granted: inputMonitoringGranted,
-                    pending: pendingPermissions.contains("input"),
-                    action: {
-                        if !CGPreflightListenEventAccess() {
-                            CGRequestListenEventAccess()
+                    Text(step.name)
+                        .font(MuesliTheme.title1())
+                        .foregroundStyle(MuesliTheme.textPrimary)
+
+                    Text(step.description)
+                        .font(MuesliTheme.body())
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                Image(systemName: step.icon)
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(isConfirmingGrant ? MuesliTheme.success : MuesliTheme.accent)
+                    .frame(height: 64)
+
+                Button {
+                    grantingPermissionName = step.name
+                    recentlyGrantedPermissionName = nil
+                    saveProgress(atStep: currentStep)
+                    step.action()
+                } label: {
+                    HStack(spacing: 6) {
+                        if isConfirmingGrant {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
                         }
-                        // Delay opening Settings to avoid race with permission dialog
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            openSystemSettings("Privacy_ListenEvent")
-                        }
-                        grantAfterDelay("input") { inputMonitoringGranted = true }
+                        Text(isConfirmingGrant ? "Granted" : "Grant Permission")
+                            .font(.system(size: 14, weight: .semibold))
                     }
-                )
-                Divider().background(MuesliTheme.surfaceBorder)
-                permissionRow(
-                    icon: "rectangle.dashed.badge.record",
-                    name: "Screen Recording",
-                    description: "Capture system audio during meetings",
-                    granted: screenRecordingGranted,
-                    pending: pendingPermissions.contains("screen"),
-                    action: {
-                        openSystemSettings("Privacy_ScreenCapture")
-                        grantAfterDelay("screen") { screenRecordingGranted = true }
-                    }
-                )
-            }
-            .background(MuesliTheme.backgroundRaised)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
-                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-            )
-            .frame(width: 460)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, MuesliTheme.spacing24)
+                    .padding(.vertical, MuesliTheme.spacing12)
+                    .background(isConfirmingGrant ? MuesliTheme.success : MuesliTheme.accent)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                }
+                .buttonStyle(.plain)
+                .disabled(isConfirmingGrant)
+                .animation(.easeInOut(duration: 0.2), value: isConfirmingGrant)
 
-            Text("Make sure to toggle on permissions in System Settings when prompted.")
-                .font(MuesliTheme.caption())
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .multilineTextAlignment(.center)
+                // Progress dots
+                HStack(spacing: 6) {
+                    ForEach(0..<total, id: \.self) { i in
+                        Circle()
+                            .fill(progressDotColor(
+                                index: i,
+                                currentIndex: displayIndex,
+                                isConfirmingGrant: isConfirmingGrant
+                            ))
+                            .frame(width: 8, height: 8)
+                    }
+                }
+
+                Button {
+                    openSystemSettings(systemSettingsPane(for: displayIndex))
+                } label: {
+                    Text("Not seeing a prompt? Open System Settings")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.accent)
+                }
+                .buttonStyle(.plain)
+            } else {
+                // All granted
+                VStack(spacing: MuesliTheme.spacing8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(MuesliTheme.success)
+
+                    Text("All permissions granted")
+                        .font(MuesliTheme.title1())
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                }
+            }
 
             Spacer()
         }
         .frame(maxWidth: .infinity)
-        .onAppear { refreshPermissions() }
+        .onAppear { startPermissionPolling() }
+        .onDisappear { stopPermissionPolling() }
     }
 
-    private func permissionRow(icon: String, name: String, description: String, granted: Bool, pending: Bool, action: @escaping () -> Void) -> some View {
+    private func systemSettingsPane(for permissionIndex: Int) -> String {
+        let steps = permissionSteps
+        guard permissionIndex < steps.count else { return "Privacy_Microphone" }
+        switch steps[permissionIndex].name {
+        case "Microphone": return "Privacy_Microphone"
+        case "Accessibility": return "Privacy_Accessibility"
+        case "Input Monitoring": return "Privacy_ListenEvent"
+        case "Screen Recording", "Screen & System Audio": return "Privacy_ScreenCapture"
+        case "System Audio": return "Privacy_ScreenCapture"
+        default: return "Privacy_Microphone"
+        }
+    }
+
+    private func progressDotColor(index: Int, currentIndex: Int, isConfirmingGrant: Bool) -> Color {
+        if index < currentIndex || (isConfirmingGrant && index == currentIndex) {
+            return MuesliTheme.success
+        }
+        if index == currentIndex {
+            return MuesliTheme.accent
+        }
+        return MuesliTheme.surfaceBorder
+    }
+
+    private func permissionRow(icon: String, name: String, description: String, granted: Bool, action: @escaping () -> Void) -> some View {
         HStack(spacing: MuesliTheme.spacing12) {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
@@ -377,10 +568,6 @@ struct OnboardingView: View {
                     .font(.system(size: 18))
                     .foregroundStyle(MuesliTheme.success)
                     .transition(.scale.combined(with: .opacity))
-            } else if pending {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(width: 18, height: 18)
             } else {
                 Button("Grant") {
                     action()
@@ -399,14 +586,27 @@ struct OnboardingView: View {
         .animation(.easeInOut(duration: 0.25), value: granted)
     }
 
-    private func grantAfterDelay(_ key: String, grant: @escaping () -> Void) {
-        pendingPermissions.insert(key)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation {
-                pendingPermissions.remove(key)
-                grant()
-            }
+    private var allPermissionsGranted: Bool {
+        let core = micGranted && accessibilityGranted && inputMonitoringGranted
+        if appState.config.useCoreAudioTap {
+            return core && systemAudioGranted && screenRecordingGranted
         }
+        return core && screenRecordingGranted
+    }
+
+    private func startPermissionPolling() {
+        refreshPermissions()
+        permissionPollTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            withAnimation { refreshPermissions() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        permissionPollTimer = timer
+    }
+
+    private func stopPermissionPolling() {
+        permissionPollTimer?.invalidate()
+        permissionPollTimer = nil
     }
 
     private func refreshPermissions() {
@@ -414,6 +614,109 @@ struct OnboardingView: View {
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        refreshSystemAudioPermissionIfNeeded()
+
+        if let grantingPermissionName, isPermissionGranted(named: grantingPermissionName) {
+            notePermissionGranted(grantingPermissionName)
+        }
+    }
+
+    private func refreshSystemAudioPermissionIfNeeded() {
+        guard appState.config.useCoreAudioTap, !isCheckingSystemAudioPermission else { return }
+        isCheckingSystemAudioPermission = true
+
+        Task {
+            let granted = await Task.detached(priority: .utility) {
+                CoreAudioSystemRecorder.checkSystemAudioPermission()
+            }.value
+            await MainActor.run {
+                self.systemAudioGranted = granted
+                self.isCheckingSystemAudioPermission = false
+                if let grantingPermissionName, self.isPermissionGranted(named: grantingPermissionName) {
+                    self.notePermissionGranted(grantingPermissionName)
+                }
+            }
+        }
+    }
+
+    private func resolveSystemAudioPermissionAfterRequest() async {
+        let granted = await Task.detached(priority: .utility) {
+            CoreAudioSystemRecorder.checkSystemAudioPermission()
+        }.value
+        await MainActor.run {
+            self.systemAudioGranted = granted
+            if granted {
+                self.notePermissionGranted("System Audio")
+            }
+            self.saveProgress(atStep: self.currentStep)
+        }
+    }
+
+    private func isPermissionGranted(named permissionName: String) -> Bool {
+        switch permissionName {
+        case "Microphone":
+            return micGranted
+        case "Accessibility":
+            return accessibilityGranted
+        case "Input Monitoring":
+            return inputMonitoringGranted
+        case "System Audio":
+            return systemAudioGranted
+        case "Screen Recording", "Screen & System Audio":
+            return screenRecordingGranted
+        default:
+            return false
+        }
+    }
+
+    @MainActor
+    private func notePermissionGranted(_ permissionName: String) {
+        guard recentlyGrantedPermissionName != permissionName else { return }
+        grantingPermissionName = nil
+        recentlyGrantedPermissionName = permissionName
+        saveProgress(atStep: currentStep)
+        NSApp.activate(ignoringOtherApps: true)
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(850))
+            if recentlyGrantedPermissionName == permissionName {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    recentlyGrantedPermissionName = nil
+                }
+            }
+        }
+    }
+
+    private func saveProgress(atStep step: Int? = nil) {
+        let progress = OnboardingProgress(
+            currentStep: step ?? currentStep,
+            userName: userName,
+            selectedBackendKey: selectedBackend.backend,
+            selectedModelKey: selectedBackend.model,
+            hotkeyKeyCode: selectedHotkey.keyCode,
+            hotkeyLabel: selectedHotkey.label,
+            systemAudioRequested: systemAudioGranted
+        )
+        OnboardingProgress.save(progress)
+    }
+
+    private func saveProgressAndRestart() {
+        saveProgress(atStep: Self.dictationTestStep)
+        controller.relaunchApp()
+    }
+
+    private func requestScreenRecordingDuringOnboarding() {
+        saveProgress(atStep: Self.dictationTestStep)
+        CGRequestScreenCaptureAccess()
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            screenRecordingGranted = CGPreflightScreenCaptureAccess()
+            if screenRecordingGranted {
+                notePermissionGranted(appState.config.useCoreAudioTap ? "Screen Recording" : "Screen & System Audio")
+                saveProgress(atStep: Self.dictationTestStep)
+            }
+        }
     }
 
     private func openSystemSettings(_ pane: String) {
@@ -506,7 +809,133 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 5: Meeting Summaries
+    // MARK: - Step 5: Dictation Test
+
+    private var dictationTestStep: some View {
+        VStack(spacing: MuesliTheme.spacing24) {
+            Spacer()
+
+            VStack(spacing: MuesliTheme.spacing8) {
+                Text("Test Dictation")
+                    .font(MuesliTheme.title1())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+
+                Text("Hold **\(selectedHotkey.label)** and say something, then release.\nYour words should appear below.")
+                    .font(MuesliTheme.body())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+
+                Text("Try saying: \"testing this one out\"")
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(MuesliTheme.accent)
+                    .padding(.top, 2)
+            }
+
+            if isModelStillDownloading {
+                VStack(spacing: MuesliTheme.spacing8) {
+                    ProgressView()
+                        .controlSize(.regular)
+                    Text("Waiting for model download to finish...")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+            } else {
+                VStack(spacing: MuesliTheme.spacing16) {
+                    Text(dictationTestResult ?? "Your transcription will appear here...")
+                        .font(dictationTestResult != nil ? .system(size: 14, design: .monospaced) : .system(size: 13, design: .rounded))
+                        .foregroundStyle(dictationTestResult != nil ? MuesliTheme.textPrimary : MuesliTheme.textTertiary)
+                        .italic(dictationTestResult == nil)
+                        .frame(maxWidth: 400, minHeight: 60, alignment: .topLeading)
+                        .padding(MuesliTheme.spacing16)
+                        .background(MuesliTheme.backgroundRaised)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                                .strokeBorder(dictationTestResult != nil ? MuesliTheme.success.opacity(0.5) : MuesliTheme.surfaceBorder, lineWidth: 1)
+                        )
+
+                    if isDictationTesting {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Listening... release \(selectedHotkey.label) when done")
+                                .font(MuesliTheme.caption())
+                                .foregroundStyle(MuesliTheme.textSecondary)
+                        }
+                    } else if dictationTestResult == nil {
+                        HStack(spacing: 6) {
+                            Image(systemName: "keyboard")
+                                .font(.system(size: 14))
+                            Text("Hold \(selectedHotkey.label) to start")
+                                .font(MuesliTheme.body())
+                        }
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                    }
+
+                    if let dictationTestError {
+                        Text(dictationTestError)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
+
+                    if dictationTestResult != nil {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(MuesliTheme.success)
+                            Text("Dictation is working!")
+                                .font(MuesliTheme.body())
+                                .foregroundStyle(MuesliTheme.success)
+                        }
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            checkModelDownloadStatus()
+            controller.startHotkeyMonitor()
+            controller.dictationTestRecordingStarted = {
+                withAnimation { isDictationTesting = true }
+                dictationTestError = nil
+            }
+            controller.dictationTestCallback = { text in
+                if text.isEmpty {
+                    dictationTestError = "No speech detected. Try again."
+                } else {
+                    withAnimation { dictationTestResult = text }
+                }
+                isDictationTesting = false
+            }
+        }
+        .onDisappear {
+            modelPollTimer?.invalidate()
+            modelPollTimer = nil
+            // Cancel any in-flight recording before clearing callbacks to prevent
+            // the transcription Task from falling through to the production paste path
+            controller.cancelTestDictation()
+            controller.dictationTestCallback = nil
+            controller.dictationTestRecordingStarted = nil
+            // Stop hotkey monitor when leaving dictation test to prevent real dictation
+            controller.stopHotkeyMonitor()
+        }
+    }
+
+    private func checkModelDownloadStatus() {
+        isModelStillDownloading = !selectedBackend.isDownloaded
+        guard isModelStillDownloading else { return }
+        modelPollTimer?.invalidate()
+        modelPollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
+            if selectedBackend.isDownloaded {
+                withAnimation { isModelStillDownloading = false }
+                timer.invalidate()
+            }
+        }
+    }
+
+    // MARK: - Step 6: Meeting Summaries
 
     private var meetingSummaryStep: some View {
         VStack(spacing: MuesliTheme.spacing24) {
@@ -666,7 +1095,104 @@ struct OnboardingView: View {
         withAnimation(.easeInOut(duration: 0.2)) { currentStep = 2 }
     }
 
+    private var googleCalendarStep: some View {
+        VStack(spacing: MuesliTheme.spacing24) {
+            Spacer()
+
+            VStack(spacing: MuesliTheme.spacing8) {
+                Text("Google Calendar")
+                    .font(MuesliTheme.title1())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+
+                Text("Connect Google Calendar to see upcoming meetings.\nYou can set this up later in Settings.")
+                    .font(MuesliTheme.body())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: MuesliTheme.spacing12) {
+                if googleCalSignInDone {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(MuesliTheme.success)
+                        Text("Google Calendar connected")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+                    }
+                } else if isSigningInGoogleCal {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Connecting...")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textSecondary)
+                    }
+                } else if appState.isGoogleCalendarAvailable && !appState.isGoogleCalendarVerified {
+                    VStack(spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar.badge.plus")
+                                .font(.system(size: 14))
+                            Text("Connect Google Calendar")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(.white.opacity(0.4))
+                        .padding(.horizontal, MuesliTheme.spacing16)
+                        .padding(.vertical, MuesliTheme.spacing8)
+                        .background(MuesliTheme.textTertiary.opacity(0.3))
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+
+                        Text("Google OAuth verification pending")
+                            .font(MuesliTheme.caption())
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                    }
+                } else if appState.isGoogleCalendarAvailable {
+                    Button {
+                        isSigningInGoogleCal = true
+                        googleCalSignInError = nil
+                        Task {
+                            let error = await controller.signInWithGoogleCalendar()
+                            isSigningInGoogleCal = false
+                            if let error {
+                                googleCalSignInError = error
+                            } else {
+                                googleCalSignInDone = true
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar.badge.plus")
+                                .font(.system(size: 14))
+                            Text("Connect Google Calendar")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, MuesliTheme.spacing16)
+                        .padding(.vertical, MuesliTheme.spacing8)
+                        .background(MuesliTheme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    }
+                    .buttonStyle(.plain)
+
+                    if let googleCalSignInError {
+                        Text(googleCalSignInError)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                    }
+                } else {
+                    Text("Google Calendar credentials not configured.")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, MuesliTheme.spacing32)
+    }
+
     private func finishOnboarding(withKey: Bool) {
+        OnboardingProgress.clear()
         controller.completeOnboarding(
             userName: userName.trimmingCharacters(in: .whitespaces),
             backend: selectedBackend,
@@ -703,6 +1229,7 @@ class EditableNSTextField: NSTextField {
 struct OnboardingTextField: NSViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    var onSubmit: (() -> Void)?
 
     func makeNSView(context: Context) -> EditableNSTextField {
         let field = EditableNSTextField()
@@ -723,19 +1250,29 @@ struct OnboardingTextField: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onSubmit: onSubmit)
     }
 
     class Coordinator: NSObject, NSTextFieldDelegate {
         @Binding var text: String
+        let onSubmit: (() -> Void)?
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, onSubmit: (() -> Void)?) {
             _text = text
+            self.onSubmit = onSubmit
         }
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             text = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                onSubmit?()
+                return true
+            }
+            return false
         }
     }
 }
