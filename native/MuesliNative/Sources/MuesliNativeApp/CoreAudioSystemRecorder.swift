@@ -26,6 +26,8 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
     private var aggregateDeviceID: AudioDeviceID = kAudioObjectUnknown
     private var audioUnit: AudioUnit?
     private let processingQueue = DispatchQueue(label: "com.muesli.system-audio-tap")
+    private var renderBuffer: UnsafeMutableRawPointer?
+    private var renderBufferCapacity = 0
 
     private var outputFile: FileHandle?
     private var outputURL: URL?
@@ -33,6 +35,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
     private(set) var isRecording = false
 
     private static let targetSampleRate: Double = 16_000
+    private static let maxRenderFrames: UInt32 = 4096
 
     /// Source format from the tap (queried at setup time).
     private var sourceSampleRate: Double = 48_000
@@ -83,6 +86,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
             AudioComponentInstanceDispose(au)
         }
         audioUnit = nil
+        releaseRenderBuffer()
 
         if aggregateDeviceID != kAudioObjectUnknown {
             AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
@@ -206,6 +210,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
             sourceSampleRate = nativeFormat.mSampleRate
             sourceChannels = nativeFormat.mChannelsPerFrame
             fputs("[system-audio] tap format: \(sourceSampleRate)Hz, \(sourceChannels)ch\n", stderr)
+            allocateRenderBuffer(for: sourceChannels)
 
             // Request float32 interleaved on the output scope of bus 1
             var outFormat = AudioStreamBasicDescription(
@@ -255,9 +260,9 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
 
         let channels = Int(recorder.sourceChannels)
         let byteSize = Int(inNumberFrames) * channels * MemoryLayout<Float>.size
-        let rawBuf = UnsafeMutableRawPointer.allocate(
-            byteCount: byteSize, alignment: MemoryLayout<Float>.alignment
-        )
+        guard let rawBuf = recorder.renderBuffer, byteSize <= recorder.renderBufferCapacity else {
+            return kAudio_ParamError
+        }
 
         var bufferList = AudioBufferList(
             mNumberBuffers: 1,
@@ -271,14 +276,10 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
         let status = AudioUnitRender(
             au, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, &bufferList
         )
-        guard status == noErr else {
-            rawBuf.deallocate()
-            return status
-        }
+        guard status == noErr else { return status }
 
         // Copy rendered data and dispatch off the audio thread for conversion + I/O
         let data = Data(bytes: rawBuf, count: byteSize)
-        rawBuf.deallocate()
 
         let frameCount = Int(inNumberFrames)
         let srcRate = recorder.sourceSampleRate
@@ -514,6 +515,21 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
         }
     }
 
+    private func allocateRenderBuffer(for channels: UInt32) {
+        releaseRenderBuffer()
+        renderBufferCapacity = Int(Self.maxRenderFrames) * Int(channels) * MemoryLayout<Float>.size
+        renderBuffer = UnsafeMutableRawPointer.allocate(
+            byteCount: renderBufferCapacity,
+            alignment: MemoryLayout<Float>.alignment
+        )
+    }
+
+    private func releaseRenderBuffer() {
+        renderBuffer?.deallocate()
+        renderBuffer = nil
+        renderBufferCapacity = 0
+    }
+
     private func cleanupFailedStart() {
         isRecording = false
         onPCMSamples = nil
@@ -524,6 +540,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
             AudioComponentInstanceDispose(au)
         }
         audioUnit = nil
+        releaseRenderBuffer()
 
         if aggregateDeviceID != kAudioObjectUnknown {
             AudioHardwareDestroyAggregateDevice(aggregateDeviceID)
