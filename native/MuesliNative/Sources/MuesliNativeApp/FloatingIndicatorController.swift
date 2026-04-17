@@ -459,7 +459,10 @@ final class FloatingIndicatorController {
         isShowingLoading = false
         loadingSpinner?.stopAnimation(nil)
         loadingSpinner?.isHidden = true
-        setState(.idle, config: configStore.load())
+        // Only reset to idle if no dictation started during the warmup window
+        if state == .idle || state == .preparing {
+            setState(.idle, config: configStore.load())
+        }
     }
 
     func setHovered(_ hovered: Bool) {
