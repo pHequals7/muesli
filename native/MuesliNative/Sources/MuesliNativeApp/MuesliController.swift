@@ -453,6 +453,9 @@ final class MuesliController: NSObject {
         }
         Task { [weak self] in
             guard let self else { return }
+            await MainActor.run {
+                self.statusBarController?.setStatus("Loading \(option.label)...")
+            }
             let ppOption = self.runtimePostProcessorOption()
             if #available(macOS 15, *) {
                 if let ppOption {
@@ -467,6 +470,7 @@ final class MuesliController: NSObject {
                 enablePostProcessor: self.config.enablePostProcessor && ppOption != nil
             )
             await MainActor.run {
+                self.statusBarController?.setStatus("Idle")
                 self.statusBarController?.refresh()
                 self.historyWindowController?.updateBackendLabel()
             }

@@ -54,6 +54,17 @@ actor WhisperKitTranscriber {
         return (text: text, processingTime: elapsed)
     }
 
+    /// Run a short silent transcription to trigger CoreML compilation.
+    /// First-run compilation takes 10-30s; subsequent loads are instant.
+    func warmup() async throws {
+        guard let whisperKit else { return }
+        let silence = [Float](repeating: 0, count: 16000) // 1 second of silence at 16kHz
+        let start = CFAbsoluteTimeGetCurrent()
+        let _: [TranscriptionResult] = try await whisperKit.transcribe(audioArray: silence)
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        fputs("[whisperkit] warmup transcription took \(String(format: "%.1f", elapsed))s\n", stderr)
+    }
+
     func shutdown() {
         whisperKit = nil
         loadedModel = nil
