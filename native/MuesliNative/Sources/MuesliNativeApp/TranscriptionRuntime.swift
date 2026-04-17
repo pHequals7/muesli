@@ -169,9 +169,10 @@ actor TranscriptionCoordinator {
                 try await whisperTranscriber.loadModel(modelName: backend.model, progress: progress)
                 // Warmup ANE/GPU so first dictation doesn't pay CoreML compilation cost
                 fputs("[muesli-native] WhisperKit warmup: running silent audio for CoreML compilation...\n", stderr)
-                progress?(0.95, "Warming up model...")
+                progress?(0.9, "Warming up model...")
                 try await whisperTranscriber.warmup()
                 fputs("[muesli-native] WhisperKit warmup complete\n", stderr)
+                progress?(1.0, nil)
             } catch {
                 fputs("[muesli-native] WhisperKit preload failed: \(error)\n", stderr)
             }
