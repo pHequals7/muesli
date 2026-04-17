@@ -15,7 +15,7 @@ struct SpeechTranscriptionResult: Sendable {
 
 actor TranscriptionCoordinator {
     private let fluidTranscriber = FluidAudioTranscriber()
-    private let whisperTranscriber = WhisperCppTranscriber()
+    private let whisperTranscriber = WhisperKitTranscriber()
     private var _nemotronTranscriber: Any?
     private var _qwen3Transcriber: Any?
     private var _qwen3PostProcessor: Any?
@@ -417,7 +417,7 @@ actor TranscriptionCoordinator {
     private func route(url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
         switch backend.backend {
         case "whisper":
-            return try await transcribeWithWhisperCpp(url: url)
+            return try await transcribeWithWhisperKit(url: url)
         case "nemotron":
             return try await transcribeWithNemotron(url: url)
         case "qwen":
@@ -447,12 +447,12 @@ actor TranscriptionCoordinator {
         )
     }
 
-    // MARK: - whisper.cpp (Whisper on Metal/CPU)
+    // MARK: - WhisperKit (Whisper on ANE/GPU via CoreML)
 
-    private func transcribeWithWhisperCpp(url: URL) async throws -> SpeechTranscriptionResult {
-        fputs("[muesli-native] transcribing with whisper.cpp: \(url.lastPathComponent)\n", stderr)
+    private func transcribeWithWhisperKit(url: URL) async throws -> SpeechTranscriptionResult {
+        fputs("[muesli-native] transcribing with WhisperKit: \(url.lastPathComponent)\n", stderr)
         let result = try await whisperTranscriber.transcribe(wavURL: url)
-        fputs("[muesli-native] whisper.cpp result: \(result.text.prefix(80)) (took \(String(format: "%.3f", result.processingTime))s)\n", stderr)
+        fputs("[muesli-native] WhisperKit result: \(result.text.prefix(80)) (took \(String(format: "%.3f", result.processingTime))s)\n", stderr)
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return SpeechTranscriptionResult(
             text: text,

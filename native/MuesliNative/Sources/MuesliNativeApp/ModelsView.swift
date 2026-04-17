@@ -917,10 +917,7 @@ struct ModelsView: View {
         let fm = FileManager.default
         switch option.backend {
         case "whisper":
-            let filename = option.model.hasSuffix(".bin") ? option.model : "\(option.model).bin"
-            let path = fm.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cache/muesli/models/\(filename)")
-            try? fm.removeItem(at: path)
+            WhisperKitTranscriber.deleteModel(option.model)
         case "nemotron":
             let path = fm.homeDirectoryForCurrentUser
                 .appendingPathComponent(".cache/muesli/models/nemotron-560ms")
@@ -977,10 +974,7 @@ struct ModelsView: View {
     private func isModelDownloaded(_ option: BackendOption, fm: FileManager) -> Bool {
         switch option.backend {
         case "whisper":
-            let filename = option.model.hasSuffix(".bin") ? option.model : "\(option.model).bin"
-            let path = fm.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cache/muesli/models/\(filename)")
-            return fm.fileExists(atPath: path.path)
+            return WhisperKitTranscriber.isModelDownloaded(option.model)
         case "nemotron":
             let path = fm.homeDirectoryForCurrentUser
                 .appendingPathComponent(".cache/muesli/models/nemotron-560ms/encoder/encoder_int8.mlmodelc")

@@ -77,11 +77,12 @@ struct BackendOptionTests {
         #expect(!BackendOption.experimental.contains(.cohereTranscribe))
     }
 
-    @Test("Whisper models reference ggml format")
-    func whisperGgmlModels() {
-        #expect(BackendOption.whisperSmall.model.hasPrefix("ggml-"))
-        #expect(BackendOption.whisperMedium.model.hasPrefix("ggml-"))
-        #expect(BackendOption.whisperLargeTurbo.model.hasPrefix("ggml-"))
+    @Test("Whisper models use WhisperKit CoreML identifiers")
+    func whisperKitModels() {
+        // WhisperKit models use short variant names, not ggml- prefixed binaries
+        #expect(BackendOption.whisperSmall.model == "small.en")
+        #expect(BackendOption.whisperMedium.model == "medium.en")
+        #expect(BackendOption.whisperLargeTurbo.model.contains("large"))
     }
 }
 

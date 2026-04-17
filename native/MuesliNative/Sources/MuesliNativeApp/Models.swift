@@ -29,28 +29,28 @@ struct BackendOption: Equatable {
 
     static let whisperSmall = BackendOption(
         backend: "whisper",
-        model: "ggml-small.en-q5_1",
+        model: "small.en",
         label: "Whisper Small",
-        sizeLabel: "~190 MB",
-        description: "Fast, English-optimized. Quantized for smaller download.",
+        sizeLabel: "~250 MB",
+        description: "Fast, English-optimized. Runs on Apple Neural Engine via CoreML.",
         recommended: false
     )
 
     static let whisperMedium = BackendOption(
         backend: "whisper",
-        model: "ggml-medium.en",
+        model: "medium.en",
         label: "Whisper Medium",
         sizeLabel: "~1.5 GB",
-        description: "Better accuracy, English-only. Good balance of speed and quality.",
+        description: "Better accuracy, English-only. Runs on Apple Neural Engine via CoreML.",
         recommended: false
     )
 
     static let whisperLargeTurbo = BackendOption(
         backend: "whisper",
-        model: "ggml-large-v3-turbo-q5_0",
+        model: "large-v3-v20240930_626MB",
         label: "Whisper Large Turbo",
-        sizeLabel: "~600 MB",
-        description: "Highest accuracy, multilingual. Quantized for faster inference.",
+        sizeLabel: "~626 MB",
+        description: "Highest accuracy, multilingual. Quantized CoreML for faster inference.",
         recommended: false
     )
 
@@ -121,10 +121,7 @@ struct BackendOption: Equatable {
         let fm = FileManager.default
         switch backend {
         case "whisper":
-            let filename = model.hasSuffix(".bin") ? model : "\(model).bin"
-            let path = fm.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cache/muesli/models/\(filename)")
-            return fm.fileExists(atPath: path.path)
+            return WhisperKitTranscriber.isModelDownloaded(model)
         case "fluidaudio":
             let supportDir = fm.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support/FluidAudio/Models")
