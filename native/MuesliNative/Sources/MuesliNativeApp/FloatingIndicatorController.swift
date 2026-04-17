@@ -98,6 +98,8 @@ final class FloatingIndicatorController {
     var isToggleDictation = false
     private var stopLayer: CALayer?
     private var transcribingTitle = "Transcribing"
+    private var loadingSpinner: NSProgressIndicator?
+    private var isShowingLoading = false
     var hotkeyLabel: String = "Left Cmd"
 
     init(configStore: ConfigStore) {
@@ -376,6 +378,88 @@ final class FloatingIndicatorController {
             guard let self, self.state == .idle else { return }
             self.setState(.idle, config: self.configStore.load())
         }
+    }
+
+    func showLoading(_ message: String) {
+        let config = configStore.load()
+        if panel == nil { createPanel(config: config) }
+        guard let panel, let contentView, let textLabel else { return }
+
+        isShowingLoading = true
+        let loadingSize = NSSize(width: 180, height: 36)
+        let center = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
+        guard let screen = NSScreen.main?.visibleFrame else { return }
+        let x = min(max(center.x - loadingSize.width / 2, screen.minX), screen.maxX - loadingSize.width)
+        let y = min(max(center.y - loadingSize.height / 2, screen.minY), screen.maxY - loadingSize.height)
+        let targetFrame = NSRect(x: x, y: y, width: loadingSize.width, height: loadingSize.height)
+
+        // Create spinner if needed
+        if loadingSpinner == nil {
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.isIndeterminate = true
+            spinner.appearance = NSAppearance(named: .darkAqua)
+            contentView.addSubview(spinner)
+            loadingSpinner = spinner
+        }
+
+        let spinnerSize: CGFloat = 16
+        let gap: CGFloat = 8
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .medium)]
+        let textW = ceil((message as NSString).size(withAttributes: attrs).width) + 2
+        let totalW = spinnerSize + gap + textW
+        let startX = (loadingSize.width - totalW) / 2
+
+        micIconView?.isHidden = true
+        wandIconView?.isHidden = true
+        iconLabel?.isHidden = true
+        glassView?.isHidden = false
+        tintLayer?.isHidden = false
+        tintLayer?.backgroundColor = NSColor.colorWith(hexString: "1e1e2e", alpha: 0.72).cgColor
+        tintLayer?.frame = CGRect(origin: .zero, size: loadingSize)
+        tintLayer?.cornerRadius = loadingSize.height / 2
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+
+            panel.animator().setFrame(targetFrame, display: true)
+            panel.animator().alphaValue = 1.0
+            contentView.animator().frame = NSRect(origin: .zero, size: loadingSize)
+            contentView.layer?.cornerRadius = loadingSize.height / 2
+            contentView.layer?.backgroundColor = NSColor.clear.cgColor
+            contentView.layer?.borderWidth = 1.0
+            contentView.layer?.borderColor = NSColor.colorWith(hex: 0xFFFFFF, alpha: 0.16).cgColor
+
+            loadingSpinner?.frame = NSRect(
+                x: startX, y: (loadingSize.height - spinnerSize) / 2,
+                width: spinnerSize, height: spinnerSize
+            )
+            loadingSpinner?.isHidden = false
+            loadingSpinner?.startAnimation(nil)
+
+            textLabel.stringValue = message
+            textLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            textLabel.textColor = NSColor.colorWith(hex: 0xFFFFFF, alpha: 0.82)
+            textLabel.frame = NSRect(
+                x: startX + spinnerSize + gap,
+                y: (loadingSize.height - 14) / 2,
+                width: textW, height: 14
+            )
+            textLabel.isHidden = false
+            textLabel.animator().alphaValue = 1
+        }
+        panel.orderFrontRegardless()
+    }
+
+    func hideLoading() {
+        guard isShowingLoading else { return }
+        isShowingLoading = false
+        loadingSpinner?.stopAnimation(nil)
+        loadingSpinner?.isHidden = true
+        setState(.idle, config: configStore.load())
     }
 
     func setHovered(_ hovered: Bool) {
