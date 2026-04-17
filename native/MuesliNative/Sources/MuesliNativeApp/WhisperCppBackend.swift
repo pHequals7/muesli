@@ -72,38 +72,22 @@ actor WhisperKitTranscriber {
 
     // MARK: - Model Storage
 
-    /// WhisperKit stores models under ~/Documents/huggingface/ by default.
-    /// Check if a model variant directory exists.
+    /// WhisperKit stores models under ~/Documents/huggingface/models/argmaxinc/whisperkit-coreml/.
+    /// Each model variant is a direct subdirectory (e.g. openai_whisper-small.en/).
     static func isModelDownloaded(_ modelName: String) -> Bool {
         let fm = FileManager.default
-        let base = fm.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml")
-        // WhisperKit uses snapshot directories — check if any snapshot contains our model folder
-        guard let snapshots = try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else {
-            return false
-        }
         let fullName = modelName.hasPrefix("openai_whisper-") ? modelName : "openai_whisper-\(modelName)"
-        for snapshot in snapshots {
-            let modelDir = snapshot.appendingPathComponent(fullName)
-            if fm.fileExists(atPath: modelDir.path) {
-                return true
-            }
-        }
-        return false
+        let modelDir = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml/\(fullName)")
+        return fm.fileExists(atPath: modelDir.path)
     }
 
     /// Delete cached model files for a WhisperKit model variant.
     static func deleteModel(_ modelName: String) {
         let fm = FileManager.default
-        let base = fm.homeDirectoryForCurrentUser
-            .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml")
-        guard let snapshots = try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil) else {
-            return
-        }
         let fullName = modelName.hasPrefix("openai_whisper-") ? modelName : "openai_whisper-\(modelName)"
-        for snapshot in snapshots {
-            let modelDir = snapshot.appendingPathComponent(fullName)
-            try? fm.removeItem(at: modelDir)
-        }
+        let modelDir = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml/\(fullName)")
+        try? fm.removeItem(at: modelDir)
     }
 }
