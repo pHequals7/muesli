@@ -335,7 +335,7 @@ struct MeetingsView: View {
 
                                 Spacer()
 
-                                if let meetingURL = event.meetingURL {
+                                if let meetingURL = event.meetingURL, !appState.isMeetingRecording {
                                     Button {
                                         controller.joinAndRecord(title: event.title, meetingURL: meetingURL, endDate: event.endDate)
                                     } label: {

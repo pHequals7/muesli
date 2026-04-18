@@ -1701,6 +1701,9 @@ final class MuesliController: NSObject {
             return
         }
 
+        // Don't replace a visible calendar notification with a detection notification
+        guard !isShowingCalendarNotification else { return }
+
         guard !isMeetingRecording(), !isStartingMeetingRecording, let detection = currentMeetingDetection else {
             dismissPresentedMeetingDetection()
             return
