@@ -161,6 +161,7 @@ MUESLI_APP_NAME=MuesliCanary \
 MUESLI_BUNDLE_ID=com.muesli.canary \
 MUESLI_SUPPORT_DIR_NAME=MuesliCanary \
 MUESLI_DISPLAY_NAME="MuesliCanary" \
+MUESLI_SPARKLE_FEED_URL="" \
 "$ROOT/scripts/build_native_app.sh" debug
 
 log ""

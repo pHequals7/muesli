@@ -114,7 +114,7 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>$APP_DISPLAY_NAME reads calendar events to help with meeting recordings.</string>
   <key>SUFeedURL</key>
-  <string>https://pHequals7.github.io/muesli/appcast.xml</string>
+  <string>${MUESLI_SPARKLE_FEED_URL:-https://pHequals7.github.io/muesli/appcast.xml}</string>
   <key>SUPublicEDKey</key>
   <string>${MUESLI_SPARKLE_EDKEY:-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}</string>
   <key>SUEnableAutomaticChecks</key>
