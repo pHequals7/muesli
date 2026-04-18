@@ -809,7 +809,6 @@ final class MuesliController: NSObject {
     private func showMeetingStartingNowNotification(title: String, meetingURL: URL?, endDate: Date?) {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         isShowingCalendarNotification = true
-        meetingNotification.onClose = { [weak self] in self?.isShowingCalendarNotification = false }
 
         meetingNotification.show(
             title: "Meeting starting now",
@@ -843,7 +842,8 @@ final class MuesliController: NSObject {
                 let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
                 self.micActivityMonitor.suppress(for: remaining)
                 self.micActivityMonitor.refreshState()
-            }
+            },
+            onClose: { [weak self] in self?.isShowingCalendarNotification = false }
         )
     }
 
@@ -2061,7 +2061,6 @@ final class MuesliController: NSObject {
                 let meetingURL = event?.meetingURL
                 let endDate = event?.endDate
                 self.isShowingCalendarNotification = true
-                self.meetingNotification.onClose = { [weak self] in self?.isShowingCalendarNotification = false }
                 self.meetingNotification.show(
                     title: "Meeting starting now",
                     subtitle: title,
@@ -2093,7 +2092,8 @@ final class MuesliController: NSObject {
                         let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
                         self.micActivityMonitor.suppress(for: remaining)
                         self.micActivityMonitor.refreshState()
-                    }
+                    },
+                    onClose: { [weak self] in self?.isShowingCalendarNotification = false }
                 )
             }
         )
@@ -2139,7 +2139,6 @@ final class MuesliController: NSObject {
             return
         }
         isShowingCalendarNotification = true
-        meetingNotification.onClose = { [weak self] in self?.isShowingCalendarNotification = false }
 
         let minutesUntil = Int(ceil(event.startDate.timeIntervalSinceNow / 60))
         let timeLabel: String
@@ -2171,7 +2170,6 @@ final class MuesliController: NSObject {
             onJoinOnly: meetingURL != nil ? { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                // Suppress detection for the rest of this calendar event
                 let remaining = calendarEndDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
                 self.micActivityMonitor.suppress(for: remaining)
                 self.micActivityMonitor.refreshState()
@@ -2180,11 +2178,11 @@ final class MuesliController: NSObject {
             onDismiss: { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                // Suppress detection for the rest of this calendar event
                 let remaining = calendarEndDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
                 self.micActivityMonitor.suppress(for: remaining)
                 self.micActivityMonitor.refreshState()
-            }
+            },
+            onClose: { [weak self] in self?.isShowingCalendarNotification = false }
         )
     }
 

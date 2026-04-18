@@ -24,9 +24,13 @@ final class MeetingNotificationController {
         onStartRecording: @escaping () -> Void,
         onJoinAndRecord: (() -> Void)? = nil,
         onJoinOnly: (() -> Void)? = nil,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        onClose: (() -> Void)? = nil
     ) {
         close()
+        // Assign onClose AFTER close() so the previous panel's teardown
+        // doesn't immediately fire the new callback.
+        self.onClose = onClose
 
         let duration = dismissAfter ?? Self.dismissDuration
         self.onStartRecording = onStartRecording
@@ -183,8 +187,6 @@ final class MeetingNotificationController {
             ctx.duration = 0.25
             panel.animator().alphaValue = 1
         }
-        fputs("[meeting-notify] panel shown: \(title) | \(subtitle)\n", stderr)
-
         self.panel = panel
 
         // Auto-dismiss
@@ -200,7 +202,6 @@ final class MeetingNotificationController {
     var onClose: (() -> Void)?
 
     func close() {
-        fputs("[meeting-notify] close() — panel was \(panel != nil ? "visible" : "nil")\n", stderr)
         dismissTimer?.invalidate()
         dismissTimer = nil
         progressLayer?.removeAllAnimations()

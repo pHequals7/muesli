@@ -79,11 +79,12 @@ final class CalendarMonitor {
         // Create a fresh EKEventStore each time to avoid stale cache.
         // EKEventStore instances cache calendar data and don't automatically
         // reflect external changes (e.g., events moved in Google Calendar).
-        store = EKEventStore()
+        // Uses a local instance to avoid racing with currentEvent()/currentOrNearbyEvent().
+        let freshStore = EKEventStore()
         let now = Date()
         guard let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now) else { return [] }
-        let predicate = store.predicateForEvents(withStart: now, end: future, calendars: nil)
-        let events = store.events(matching: predicate)
+        let predicate = freshStore.predicateForEvents(withStart: now, end: future, calendars: nil)
+        let events = freshStore.events(matching: predicate)
         return events.compactMap { event in
             guard let startDate = event.startDate, let endDate = event.endDate else { return nil }
             guard !event.isAllDay else { return nil }
