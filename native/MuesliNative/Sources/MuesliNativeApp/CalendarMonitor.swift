@@ -11,17 +11,43 @@ struct UpcomingMeetingEvent {
 
 final class CalendarMonitor {
     private let store = EKEventStore()
+    private var changeObserver: NSObjectProtocol?
+
+    /// Called when EventKit detects a calendar change (event added, moved, deleted).
+    /// Delivered via NotificationCenter — immune to App Nap timer suspension.
+    var onCalendarChanged: (() -> Void)?
 
     func start() {
-        store.requestFullAccessToEvents { granted, error in
+        store.requestFullAccessToEvents { [weak self] granted, error in
             if !granted {
                 fputs("[calendar] calendar access denied: \(error?.localizedDescription ?? "none")\n", stderr)
+                return
+            }
+            DispatchQueue.main.async {
+                self?.registerForChanges()
             }
         }
     }
 
     func stop() {
-        // No-op: notification polling is handled by MuesliController.
+        if let changeObserver {
+            NotificationCenter.default.removeObserver(changeObserver)
+            self.changeObserver = nil
+        }
+    }
+
+    private func registerForChanges() {
+        // EKEventStoreChangedNotification fires whenever any calendar event
+        // is added, modified, or deleted — including synced changes from
+        // Google Calendar, iCloud, Exchange, etc. This is push-based and
+        // works regardless of App Nap or LSUIElement status.
+        changeObserver = NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged,
+            object: store,
+            queue: .main
+        ) { [weak self] _ in
+            self?.onCalendarChanged?()
+        }
     }
 
     /// Returns the current calendar event if one is happening right now.

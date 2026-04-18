@@ -85,7 +85,7 @@ final class MuesliController: NSObject {
     private let chatGPTAuth = ChatGPTAuthManager.shared
     private let googleCalAuth = GoogleCalendarAuthManager.shared
     private let googleCalClient = GoogleCalendarClient()
-    private var calendarRefreshTimer: Timer?
+    private var calendarCheckTimer: Timer?
     private var meetingStartingNowTimers = [String: Timer]()
     private var notifiedUpcomingEventIDs = Set<String>()
 
@@ -240,7 +240,7 @@ final class MuesliController: NSObject {
         // Defer permission-triggering monitors until after onboarding
         if config.hasCompletedOnboarding {
             calendarMonitor.start()
-            startCalendarRefreshTimer()
+            startCalendarMonitoring()
             if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
             micActivityMonitor.start()
         }
@@ -725,16 +725,34 @@ final class MuesliController: NSObject {
         statusBarController?.updateMenuBarTitle()
     }
 
-    func startCalendarRefreshTimer() {
-        calendarRefreshTimer?.invalidate()
-
-        calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+    func startCalendarMonitoring() {
+        // Event-driven: refresh when macOS reports calendar changes.
+        // EKEventStoreChangedNotification is delivered via NotificationCenter,
+        // which is immune to App Nap timer suspension in LSUIElement apps.
+        calendarMonitor.onCalendarChanged = { [weak self] in
             guard let self else { return }
             Task { @MainActor in
                 await self.refreshUpcomingCalendarEvents()
                 self.checkUpcomingCalendarNotifications()
             }
         }
+
+        // 60s fallback timer: polls Google Calendar API (sync token makes this
+        // efficient) and checks the notification window for time-based triggers.
+        // EKEventStoreChangedNotification handles EventKit reactively, but Google
+        // Calendar OAuth has no push mechanism — this timer is the only way to
+        // pick up new/moved events from the API. May be suspended by App Nap on
+        // macOS 26, but combined with the EventKit push path, most cases are covered.
+        calendarCheckTimer?.invalidate()
+        calendarCheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.refreshUpcomingCalendarEvents()
+                self.checkUpcomingCalendarNotifications()
+            }
+        }
+
+        // Run first cycle immediately
         Task { @MainActor in
             await self.refreshUpcomingCalendarEvents()
             self.checkUpcomingCalendarNotifications()
@@ -756,6 +774,14 @@ final class MuesliController: NSObject {
 
         let now = Date()
         let fiveMinutesFromNow = now.addingTimeInterval(5 * 60)
+
+        // Prune stale entries (events that started more than 1 hour ago)
+        let cutoff = now.addingTimeInterval(-3600)
+        notifiedUpcomingEventIDs = notifiedUpcomingEventIDs.filter { key in
+            guard let tsString = key.split(separator: "|").last,
+                  let ts = TimeInterval(tsString) else { return false }
+            return Date(timeIntervalSince1970: ts) > cutoff
+        }
 
         let candidates = appState.upcomingCalendarEvents.filter {
             !$0.isAllDay && $0.startDate > now && $0.startDate <= fiveMinutesFromNow
@@ -791,14 +817,6 @@ final class MuesliController: NSObject {
             }
 
             return // Show one notification at a time
-        }
-
-        // Prune stale entries (events that started more than 1 hour ago)
-        let cutoff = now.addingTimeInterval(-3600)
-        notifiedUpcomingEventIDs = notifiedUpcomingEventIDs.filter { key in
-            guard let tsString = key.split(separator: "|").last,
-                  let ts = TimeInterval(tsString) else { return false }
-            return Date(timeIntervalSince1970: ts) > cutoff
         }
     }
 
@@ -957,7 +975,7 @@ final class MuesliController: NSObject {
 
         // Start monitors that were deferred during onboarding
         calendarMonitor.start()
-        startCalendarRefreshTimer()
+        startCalendarMonitoring()
         micActivityMonitor.start()
 
         onboardingWindowController?.close()
@@ -2062,45 +2080,18 @@ final class MuesliController: NSObject {
             },
             onCountdownFinished: { [weak self] info in
                 guard let self, !self.isMeetingRecording() else { return }
-                let title = info.title
-                // Cancel Path 1's scheduled "starting now" timer for this event
+                // Cancel the scheduled "starting now" timer for this event
                 let event = self.appState.upcomingCalendarEvents.first(where: { $0.id == info.id })
                 if let event {
                     let key = self.notificationKey(id: event.id, startDate: event.startDate)
                     self.meetingStartingNowTimers[key]?.invalidate()
                     self.meetingStartingNowTimers.removeValue(forKey: key)
                 }
-                let meetingURL = event?.meetingURL
-                let endDate = event?.endDate
-                self.isShowingCalendarNotification = true
-                self.meetingNotification.show(
-                    title: "Meeting starting now",
-                    subtitle: title,
-                    meetingURL: meetingURL,
-                    onStartRecording: { [weak self] in
-                        guard let self else { return }
-                        self.isShowingCalendarNotification = false
-                        self.startMeetingRecording(title: title)
-                        self.scheduleMeetingEndNotification(endDate: endDate, title: title)
-                    },
-                    onJoinAndRecord: meetingURL != nil ? { [weak self] in
-                        guard let self else { return }
-                        self.isShowingCalendarNotification = false
-                        self.joinAndRecord(title: title, meetingURL: meetingURL!, endDate: endDate)
-                    } : nil,
-                    onJoinOnly: meetingURL != nil ? { [weak self] in
-                        guard let self else { return }
-                        self.isShowingCalendarNotification = false
-                        self.joinOnly(meetingURL: meetingURL!, endDate: endDate)
-                    } : nil,
-                    onDismiss: { [weak self] in
-                        guard let self else { return }
-                        self.isShowingCalendarNotification = false
-                        let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
-                        self.micActivityMonitor.suppress(for: remaining)
-                        self.micActivityMonitor.refreshState()
-                    },
-                    onClose: { [weak self] in self?.isShowingCalendarNotification = false }
+                // Reuse the same notification method as the timer path
+                self.showMeetingStartingNowNotification(
+                    title: info.title,
+                    meetingURL: event?.meetingURL,
+                    endDate: event?.endDate
                 )
             }
         )
