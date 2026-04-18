@@ -337,9 +337,7 @@ struct MeetingsView: View {
 
                                 if let meetingURL = event.meetingURL {
                                     Button {
-                                        NSWorkspace.shared.open(meetingURL)
-                                        controller.startMeetingRecording(title: event.title)
-                                        controller.scheduleMeetingEndNotification(endDate: event.endDate, title: event.title)
+                                        controller.joinAndRecord(title: event.title, meetingURL: meetingURL, endDate: event.endDate)
                                     } label: {
                                         HStack(spacing: 4) {
                                             Image(systemName: "video.fill")
