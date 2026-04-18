@@ -761,7 +761,6 @@ final class MuesliController: NSObject {
         let candidates = appState.upcomingCalendarEvents.filter {
             !$0.isAllDay && $0.startDate > now && $0.startDate <= fiveMinutesFromNow
         }
-
         for event in candidates {
             let key = notificationKey(id: event.id, startDate: event.startDate)
             guard !notifiedUpcomingEventIDs.contains(key) else { continue }
