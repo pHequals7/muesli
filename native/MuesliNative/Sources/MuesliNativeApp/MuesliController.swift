@@ -728,7 +728,6 @@ final class MuesliController: NSObject {
     func startCalendarRefreshTimer() {
         calendarRefreshTimer?.invalidate()
 
-        // 30s timer: refresh events from EventKit + Google Calendar, then check for notifications
         calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
