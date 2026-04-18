@@ -2080,13 +2080,15 @@ final class MuesliController: NSObject {
             },
             onCountdownFinished: { [weak self] info in
                 guard let self, !self.isMeetingRecording() else { return }
-                // Cancel the scheduled "starting now" timer for this event
-                let event = self.appState.upcomingCalendarEvents.first(where: { $0.id == info.id })
-                if let event {
-                    let key = self.notificationKey(id: event.id, startDate: event.startDate)
-                    self.meetingStartingNowTimers[key]?.invalidate()
+                // Cancel any scheduled "starting now" timer for this event.
+                // Match by event ID prefix so deleted/cancelled events (no longer
+                // in upcomingCalendarEvents) still get their timers cancelled.
+                let prefix = "\(info.id)|"
+                for (key, timer) in self.meetingStartingNowTimers where key.hasPrefix(prefix) {
+                    timer.invalidate()
                     self.meetingStartingNowTimers.removeValue(forKey: key)
                 }
+                let event = self.appState.upcomingCalendarEvents.first(where: { $0.id == info.id })
                 // Reuse the same notification method as the timer path
                 self.showMeetingStartingNowNotification(
                     title: info.title,
@@ -2114,7 +2116,7 @@ final class MuesliController: NSObject {
     private func handleUpcomingMeeting(_ event: UpcomingMeetingEvent) {
         // Look up end date and meeting URL from unified calendar events
         let calendarEvent = appState.upcomingCalendarEvents
-            .first(where: { $0.id == event.id || $0.title == event.title })
+            .first(where: { $0.id == event.id })
         let calendarEndDate = calendarEvent?.endDate
         let meetingURL = event.meetingURL ?? calendarEvent?.meetingURL
 
@@ -2183,7 +2185,6 @@ final class MuesliController: NSObject {
         let delay = endDate.timeIntervalSinceNow
         guard delay > 0 else { return }
 
-        fputs("[muesli-native] meeting end notification scheduled in \(Int(delay))s for \"\(title)\"\n", stderr)
         meetingEndTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             guard let self, self.isMeetingRecording() else { return }
             DispatchQueue.main.async {

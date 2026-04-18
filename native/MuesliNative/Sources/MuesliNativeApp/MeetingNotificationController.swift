@@ -293,7 +293,7 @@ enum MeetingPlatform {
     func loadIcon() -> NSImage? {
         switch self {
         case .zoom:
-            if let url = Bundle.main.url(forResource: "zoom-app", withExtension: "svg"),
+            if let url = Bundle.main.url(forResource: "zoom-app", withExtension: "png"),
                let image = NSImage(contentsOf: url) {
                 return image
             }
