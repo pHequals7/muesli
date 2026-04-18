@@ -10,7 +10,7 @@ struct UpcomingMeetingEvent {
 }
 
 final class CalendarMonitor {
-    private var store = EKEventStore()
+    private let store = EKEventStore()
 
     func start() {
         store.requestFullAccessToEvents { granted, error in

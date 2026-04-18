@@ -339,6 +339,7 @@ struct MeetingsView: View {
                                     Button {
                                         NSWorkspace.shared.open(meetingURL)
                                         controller.startMeetingRecording(title: event.title)
+                                        controller.scheduleMeetingEndNotification(endDate: event.endDate, title: event.title)
                                     } label: {
                                         HStack(spacing: 4) {
                                             Image(systemName: "video.fill")

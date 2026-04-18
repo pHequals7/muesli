@@ -27,9 +27,10 @@ final class MeetingNotificationController {
         onDismiss: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
+        // Nil out onClose before close() so the old panel's teardown
+        // doesn't fire its callback (e.g. resetting isShowingCalendarNotification).
+        self.onClose = nil
         close()
-        // Assign onClose AFTER close() so the previous panel's teardown
-        // doesn't immediately fire the new callback.
         self.onClose = onClose
 
         let duration = dismissAfter ?? Self.dismissDuration

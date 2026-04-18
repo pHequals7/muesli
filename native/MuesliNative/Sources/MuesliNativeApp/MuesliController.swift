@@ -765,7 +765,6 @@ final class MuesliController: NSObject {
             let key = notificationKey(id: event.id, startDate: event.startDate)
             guard !notifiedUpcomingEventIDs.contains(key) else { continue }
 
-            fputs("[meeting-notify] firing for \(event.title) (start=\(event.startDate))\n", stderr)
             notifiedUpcomingEventIDs.insert(key)
 
             let upcomingEvent = UpcomingMeetingEvent(
@@ -2113,17 +2112,11 @@ final class MuesliController: NSObject {
     }
 
     private func handleUpcomingMeeting(_ event: UpcomingMeetingEvent) {
-        fputs("[muesli-native] meeting soon: \(event.title)\n", stderr)
-
         // Look up end date and meeting URL from unified calendar events
         let calendarEvent = appState.upcomingCalendarEvents
             .first(where: { $0.id == event.id || $0.title == event.title })
         let calendarEndDate = calendarEvent?.endDate
         let meetingURL = event.meetingURL ?? calendarEvent?.meetingURL
-
-        if let meetingURL {
-            fputs("[muesli-native] meeting URL found: \(meetingURL.absoluteString)\n", stderr)
-        }
 
         if config.autoRecordMeetings, !isMeetingRecording() {
             startMeetingRecording(title: event.title)
@@ -2185,7 +2178,7 @@ final class MuesliController: NSObject {
         )
     }
 
-    private func scheduleMeetingEndNotification(endDate: Date?, title: String) {
+    func scheduleMeetingEndNotification(endDate: Date?, title: String) {
         meetingEndTimer?.invalidate()
         meetingEndTimer = nil
 
