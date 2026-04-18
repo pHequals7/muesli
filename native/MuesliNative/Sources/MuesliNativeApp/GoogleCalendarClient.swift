@@ -9,6 +9,7 @@ struct UnifiedCalendarEvent: Identifiable, Equatable {
     let endDate: Date
     let isAllDay: Bool
     let source: CalendarSource
+    var meetingURL: URL? = nil
 
     enum CalendarSource: String {
         case eventKit
@@ -183,13 +184,31 @@ final class GoogleCalendarClient {
             return nil
         }
 
+        // Extract meeting URL from hangoutLink or conferenceData
+        let meetingURL: URL? = {
+            if let hangout = item["hangoutLink"] as? String, let url = URL(string: hangout) {
+                return url
+            }
+            if let confData = item["conferenceData"] as? [String: Any],
+               let entryPoints = confData["entryPoints"] as? [[String: Any]] {
+                for ep in entryPoints {
+                    if ep["entryPointType"] as? String == "video",
+                       let uri = ep["uri"] as? String, let url = URL(string: uri) {
+                        return url
+                    }
+                }
+            }
+            return nil
+        }()
+
         return UnifiedCalendarEvent(
             id: id,
             title: summary,
             startDate: startDate,
             endDate: endDate,
             isAllDay: isAllDay,
-            source: .googleCalendar
+            source: .googleCalendar,
+            meetingURL: meetingURL
         )
     }
 

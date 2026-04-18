@@ -335,6 +335,26 @@ struct MeetingsView: View {
 
                                 Spacer()
 
+                                if let meetingURL = event.meetingURL {
+                                    Button {
+                                        NSWorkspace.shared.open(meetingURL)
+                                        controller.startMeetingRecording(title: event.title)
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "video.fill")
+                                                .font(.system(size: 9))
+                                            Text("Join & Record")
+                                                .font(.system(size: 10, weight: .medium))
+                                        }
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color(nsColor: NSColor(red: 0.20, green: 0.72, blue: 0.53, alpha: 1.0)))
+                                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
                                 Menu {
                                     Button("All Meetings") {
                                         controller.createMeetingFromCalendarEvent(event, folderID: nil)

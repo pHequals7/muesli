@@ -6,29 +6,22 @@ struct UpcomingMeetingEvent {
     let id: String
     let title: String
     let startDate: Date
+    var meetingURL: URL? = nil
 }
 
 final class CalendarMonitor {
-    private let store = EKEventStore()
-    private var timer: Timer?
-    private var notifiedEvents = Set<String>()
-    var onMeetingSoon: ((UpcomingMeetingEvent) -> Void)?
+    private var store = EKEventStore()
 
     func start() {
-        store.requestFullAccessToEvents { [weak self] granted, _ in
-            guard granted, let self else { return }
-            DispatchQueue.main.async {
-                self.checkMeetings()
-                self.timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-                    self?.checkMeetings()
-                }
+        store.requestFullAccessToEvents { granted, error in
+            if !granted {
+                fputs("[calendar] calendar access denied: \(error?.localizedDescription ?? "none")\n", stderr)
             }
         }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        // No-op: notification polling is handled by MuesliController.
     }
 
     /// Returns the current calendar event if one is happening right now.
@@ -43,7 +36,8 @@ final class CalendarMonitor {
                 return UpcomingMeetingEvent(
                     id: event.eventIdentifier ?? "",
                     title: event.title ?? "Meeting",
-                    startDate: startDate
+                    startDate: startDate,
+                    meetingURL: Self.extractMeetingURL(from: event)
                 )
             }
         }
@@ -82,6 +76,10 @@ final class CalendarMonitor {
     /// Returns upcoming timed events from the local macOS calendar (EventKit) for the next N days.
     /// All-day events are excluded — they're not useful for meeting recording.
     func upcomingEvents(daysAhead: Int = 7) -> [UnifiedCalendarEvent] {
+        // Create a fresh EKEventStore each time to avoid stale cache.
+        // EKEventStore instances cache calendar data and don't automatically
+        // reflect external changes (e.g., events moved in Google Calendar).
+        store = EKEventStore()
         let now = Date()
         guard let future = Calendar.current.date(byAdding: .day, value: daysAhead, to: now) else { return [] }
         let predicate = store.predicateForEvents(withStart: now, end: future, calendars: nil)
@@ -95,28 +93,59 @@ final class CalendarMonitor {
                 startDate: startDate,
                 endDate: endDate,
                 isAllDay: false,
-                source: .eventKit
+                source: .eventKit,
+                meetingURL: Self.extractMeetingURL(from: event)
             )
         }.sorted { $0.startDate < $1.startDate }
     }
 
-    private func checkMeetings() {
-        let now = Date()
-        let end = now.addingTimeInterval(5 * 60)
-        let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
-        let events = store.events(matching: predicate)
-        for event in events {
-            // Skip all-day events — they shouldn't trigger meeting recording
-            guard !event.isAllDay else { continue }
-            guard let eventID = event.eventIdentifier, !notifiedEvents.contains(eventID) else {
-                continue
-            }
-            notifiedEvents.insert(eventID)
-            onMeetingSoon?(UpcomingMeetingEvent(
-                id: eventID,
-                title: event.title ?? "Meeting",
-                startDate: event.startDate
-            ))
+    // MARK: - Meeting URL Extraction
+
+    /// Extract a meeting join URL from an EventKit event.
+    /// Checks the event URL, location, and notes for known meeting link patterns.
+    private static let meetingURLPattern: NSRegularExpression? = {
+        let patterns = [
+            "https://[a-z0-9.-]*zoom\\.us/j/[^\\s\"<>]+",
+            "https://meet\\.google\\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}[^\\s\"<>]*",
+            "https://teams\\.microsoft\\.com/l/meetup-join/[^\\s\"<>]+",
+            "https://[a-z0-9.-]*webex\\.com/[^\\s\"<>]+/j\\.php[^\\s\"<>]*",
+            "https://[a-z0-9.-]*chime\\.aws/[^\\s\"<>]+",
+            "https://facetime\\.apple\\.com/join[^\\s\"<>]*",
+        ]
+        return try? NSRegularExpression(pattern: "(\(patterns.joined(separator: "|")))", options: .caseInsensitive)
+    }()
+
+    static func extractMeetingURL(from event: EKEvent) -> URL? {
+        // 1. Explicit event URL (set by calendar provider)
+        if let url = event.url, isMeetingURL(url) {
+            return url
         }
+
+        // 2. Search location field
+        if let location = event.location, let url = findMeetingURL(in: location) {
+            return url
+        }
+
+        // 3. Search notes/description
+        if let notes = event.notes, let url = findMeetingURL(in: notes) {
+            return url
+        }
+
+        return nil
     }
+
+    private static func isMeetingURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        let meetingHosts = ["zoom.us", "meet.google.com", "teams.microsoft.com", "webex.com", "chime.aws", "facetime.apple.com"]
+        return meetingHosts.contains(where: { host.hasSuffix($0) })
+    }
+
+    static func findMeetingURL(in text: String) -> URL? {
+        guard let regex = meetingURLPattern else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, range: range) else { return nil }
+        guard let matchRange = Range(match.range, in: text) else { return nil }
+        return URL(string: String(text[matchRange]))
+    }
+
 }

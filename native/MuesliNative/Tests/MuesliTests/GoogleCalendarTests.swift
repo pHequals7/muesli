@@ -102,6 +102,71 @@ struct GoogleCalendarTests {
         #expect(GoogleCalendarClient().parseEvent(item) == nil)
     }
 
+    // MARK: - Meeting URL extraction
+
+    @Test("parses hangoutLink from Google Calendar event")
+    func parsesHangoutLink() {
+        let item: [String: Any] = [
+            "id": "meet1",
+            "summary": "Team Sync",
+            "start": ["dateTime": "2026-04-10T14:00:00Z"],
+            "end": ["dateTime": "2026-04-10T15:00:00Z"],
+            "hangoutLink": "https://meet.google.com/abc-defg-hij",
+        ]
+
+        let event = GoogleCalendarClient().parseEvent(item)
+        #expect(event?.meetingURL?.absoluteString == "https://meet.google.com/abc-defg-hij")
+    }
+
+    @Test("parses conferenceData video entryPoint from Google Calendar event")
+    func parsesConferenceDataURL() {
+        let item: [String: Any] = [
+            "id": "zoom1",
+            "summary": "Client Call",
+            "start": ["dateTime": "2026-04-10T14:00:00Z"],
+            "end": ["dateTime": "2026-04-10T15:00:00Z"],
+            "conferenceData": [
+                "entryPoints": [
+                    ["entryPointType": "video", "uri": "https://us02web.zoom.us/j/123456789"],
+                ],
+            ],
+        ]
+
+        let event = GoogleCalendarClient().parseEvent(item)
+        #expect(event?.meetingURL?.absoluteString == "https://us02web.zoom.us/j/123456789")
+    }
+
+    @Test("meetingURL is nil when no conference link present")
+    func noMeetingURLWhenAbsent() {
+        let item: [String: Any] = [
+            "id": "plain1",
+            "summary": "Lunch",
+            "start": ["dateTime": "2026-04-10T12:00:00Z"],
+            "end": ["dateTime": "2026-04-10T13:00:00Z"],
+        ]
+
+        let event = GoogleCalendarClient().parseEvent(item)
+        #expect(event?.meetingURL == nil)
+    }
+
+    @Test("CalendarMonitor extracts Zoom URL from text")
+    func extractsZoomURL() {
+        let url = CalendarMonitor.findMeetingURL(in: "Join at https://us02web.zoom.us/j/123456789?pwd=abc please")
+        #expect(url?.host?.contains("zoom.us") == true)
+    }
+
+    @Test("CalendarMonitor extracts Google Meet URL from text")
+    func extractsGoogleMeetURL() {
+        let url = CalendarMonitor.findMeetingURL(in: "https://meet.google.com/abc-defg-hij")
+        #expect(url?.absoluteString == "https://meet.google.com/abc-defg-hij")
+    }
+
+    @Test("CalendarMonitor returns nil for text without meeting URLs")
+    func returnsNilForNonMeetingText() {
+        let url = CalendarMonitor.findMeetingURL(in: "Conference room 3B on the second floor")
+        #expect(url == nil)
+    }
+
     // MARK: - Merge & dedup
 
     @Test("merges EventKit and Google events without duplicates")

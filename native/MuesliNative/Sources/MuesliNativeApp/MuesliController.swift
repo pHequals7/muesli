@@ -86,7 +86,7 @@ final class MuesliController: NSObject {
     private let googleCalAuth = GoogleCalendarAuthManager.shared
     private let googleCalClient = GoogleCalendarClient()
     private var calendarRefreshTimer: Timer?
-    private var calendarNotificationTimer: Timer?
+    private var meetingStartingNowTimer: Timer?
     private var notifiedUpcomingEventIDs = Set<String>()
 
     private var maraudersMapCountdown: MaraudersMapCountdownController?
@@ -114,6 +114,7 @@ final class MuesliController: NSObject {
     private var workspaceObserver: NSObjectProtocol?
     private var dataDidChangeObserver: NSObjectProtocol?
     private var isStartingMeetingRecording = false
+    private var isShowingCalendarNotification = false
     private var currentMeetingDetection: MeetingDetection?
     private var presentedMeetingDetection: MeetingDetection?
     private var meetingEndTimer: Timer?
@@ -227,9 +228,6 @@ final class MuesliController: NSObject {
         historyWindowController = RecentHistoryWindowController(store: dictationStore, controller: self)
         refreshUI()
 
-        calendarMonitor.onMeetingSoon = { [weak self] event in
-            self?.handleUpcomingMeeting(event)
-        }
         micActivityMonitor.calendarEventProvider = { [weak self] in
             self?.calendarMonitor.currentOrNearbyEvent()
         }
@@ -303,6 +301,8 @@ final class MuesliController: NSObject {
         }
         hotkeyMonitor.stop()
         calendarMonitor.stop()
+        meetingStartingNowTimer?.invalidate()
+        meetingStartingNowTimer = nil
         micActivityMonitor.stop()
         dismissPresentedMeetingDetection()
         meetingNotification.close()
@@ -727,24 +727,30 @@ final class MuesliController: NSObject {
 
     func startCalendarRefreshTimer() {
         calendarRefreshTimer?.invalidate()
-        calendarNotificationTimer?.invalidate()
 
-        // Single 60s timer: refresh events from Google Calendar + check for upcoming notifications
-        calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+        // 30s timer: refresh events from EventKit + Google Calendar, then check for notifications
+        calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
                 await self.refreshUpcomingCalendarEvents()
                 self.checkUpcomingCalendarNotifications()
             }
         }
-        Task { await refreshUpcomingCalendarEvents() }
+        Task {
+            await refreshUpcomingCalendarEvents()
+            checkUpcomingCalendarNotifications()
+        }
     }
 
-    /// Check merged calendar events (EventKit + Google) for events starting within 5 minutes.
-    /// Fires the meeting notification for events not yet notified.
-    /// Check Google Calendar events for upcoming meetings (EventKit events are handled
-    /// by CalendarMonitor.checkMeetings separately). Lets handleUpcomingMeeting decide
-    /// between notification vs auto-record.
+    /// Check all upcoming calendar events (EventKit + Google) for events starting within 5 minutes.
+    /// Shows a notification when the event enters the 5-minute window, and schedules a second
+    /// "Meeting starting now" notification at event start time.
+    /// This is the single notification path for all calendar sources.
+    /// Composite dedup key: same event rescheduled to a new time gets a fresh notification.
+    private func notificationKey(id: String, startDate: Date) -> String {
+        "\(id)|\(Int(startDate.timeIntervalSince1970))"
+    }
+
     private func checkUpcomingCalendarNotifications() {
         guard !isMeetingRecording(),
               !isStartingMeetingRecording else { return }
@@ -752,19 +758,93 @@ final class MuesliController: NSObject {
         let now = Date()
         let fiveMinutesFromNow = now.addingTimeInterval(5 * 60)
 
-        for event in appState.upcomingCalendarEvents where event.source == .googleCalendar {
-            guard !event.isAllDay else { continue }
-            guard event.startDate > now && event.startDate <= fiveMinutesFromNow else { continue }
-            guard !notifiedUpcomingEventIDs.contains(event.id) else { continue }
+        let candidates = appState.upcomingCalendarEvents.filter {
+            !$0.isAllDay && $0.startDate > now && $0.startDate <= fiveMinutesFromNow
+        }
 
-            notifiedUpcomingEventIDs.insert(event.id)
-            handleUpcomingMeeting(UpcomingMeetingEvent(
+        for event in candidates {
+            let key = notificationKey(id: event.id, startDate: event.startDate)
+            guard !notifiedUpcomingEventIDs.contains(key) else { continue }
+
+            fputs("[meeting-notify] firing for \(event.title) (start=\(event.startDate))\n", stderr)
+            notifiedUpcomingEventIDs.insert(key)
+
+            let upcomingEvent = UpcomingMeetingEvent(
                 id: event.id,
                 title: event.title,
-                startDate: event.startDate
-            ))
+                startDate: event.startDate,
+                meetingURL: event.meetingURL
+            )
+
+            // Show "starts in X min" notification now
+            handleUpcomingMeeting(upcomingEvent)
+
+            // Schedule a second "Meeting starting now" notification at event start time
+            let delay = event.startDate.timeIntervalSinceNow
+            if delay > 15 { // Only if there's enough gap after the first notification auto-dismisses
+                let meetingURL = event.meetingURL
+                let endDate = event.endDate
+                let title = event.title
+                meetingStartingNowTimer?.invalidate()
+                meetingStartingNowTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                    guard let self, !self.isMeetingRecording() else { return }
+                    self.meetingStartingNowTimer = nil
+                    self.showMeetingStartingNowNotification(title: title, meetingURL: meetingURL, endDate: endDate)
+                }
+            }
+
             return // Show one notification at a time
         }
+
+        // Prune stale entries (events that started more than 1 hour ago)
+        let cutoff = now.addingTimeInterval(-3600)
+        notifiedUpcomingEventIDs = notifiedUpcomingEventIDs.filter { key in
+            guard let tsString = key.split(separator: "|").last,
+                  let ts = TimeInterval(tsString) else { return false }
+            return Date(timeIntervalSince1970: ts) > cutoff
+        }
+    }
+
+    /// Show a "Meeting starting now" notification — independent of Marauder's Map.
+    private func showMeetingStartingNowNotification(title: String, meetingURL: URL?, endDate: Date?) {
+        guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
+        isShowingCalendarNotification = true
+        meetingNotification.onClose = { [weak self] in self?.isShowingCalendarNotification = false }
+
+        meetingNotification.show(
+            title: "Meeting starting now",
+            subtitle: title,
+            meetingURL: meetingURL,
+            dismissAfter: 30,
+            onStartRecording: { [weak self] in
+                guard let self else { return }
+                self.isShowingCalendarNotification = false
+                self.startMeetingRecording(title: title)
+                self.scheduleMeetingEndNotification(endDate: endDate, title: title)
+            },
+            onJoinAndRecord: meetingURL != nil ? { [weak self] in
+                guard let self else { return }
+                self.isShowingCalendarNotification = false
+                NSWorkspace.shared.open(meetingURL!)
+                self.startMeetingRecording(title: title)
+                self.scheduleMeetingEndNotification(endDate: endDate, title: title)
+            } : nil,
+            onJoinOnly: meetingURL != nil ? { [weak self] in
+                guard let self else { return }
+                self.isShowingCalendarNotification = false
+                let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
+                self.micActivityMonitor.suppress(for: remaining)
+                self.micActivityMonitor.refreshState()
+                NSWorkspace.shared.open(meetingURL!)
+            } : nil,
+            onDismiss: { [weak self] in
+                guard let self else { return }
+                self.isShowingCalendarNotification = false
+                let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
+                self.micActivityMonitor.suppress(for: remaining)
+                self.micActivityMonitor.refreshState()
+            }
+        )
     }
 
     func addCustomWord(_ word: CustomWord) {
@@ -1299,6 +1379,10 @@ final class MuesliController: NSObject {
     }
 
     @objc func discardMeetingWithConfirmation() {
+        // Bring app to foreground so the modal alert is visible — Muesli runs as
+        // a background/accessory app and runModal() can get stuck behind other windows.
+        NSApp.activate(ignoringOtherApps: true)
+
         let alert = NSAlert()
         alert.messageText = "Discard recording?"
         alert.informativeText = "This will stop the meeting recording and delete all captured audio. This cannot be undone."
@@ -1312,7 +1396,13 @@ final class MuesliController: NSObject {
     }
 
     func discardMeetingRecording() {
-        guard let activeMeetingSession else { return }
+        fputs("[muesli-native] discardMeetingRecording called, activeMeetingSession=\(activeMeetingSession != nil)\n", stderr)
+        guard let activeMeetingSession else {
+            fputs("[muesli-native] discardMeetingRecording: no active session, resetting indicator\n", stderr)
+            indicator.setMeetingRecording(false, config: config)
+            setState(.idle)
+            return
+        }
         activeMeetingSession.discard()
         self.activeMeetingSession = nil
         indicator.setMeetingRecording(false, config: config)
@@ -1326,7 +1416,13 @@ final class MuesliController: NSObject {
     }
 
     func stopMeetingRecording() {
-        guard let activeMeetingSession else { return }
+        fputs("[muesli-native] stopMeetingRecording called, activeMeetingSession=\(activeMeetingSession != nil)\n", stderr)
+        guard let activeMeetingSession else {
+            fputs("[muesli-native] stopMeetingRecording: no active session, resetting indicator\n", stderr)
+            indicator.setMeetingRecording(false, config: config)
+            setState(.idle)
+            return
+        }
         meetingEndTimer?.invalidate()
         meetingEndTimer = nil
         meetingNotification.close()
@@ -1527,6 +1623,7 @@ final class MuesliController: NSObject {
     }
 
     private func promptToSaveMeetingRecording(for title: String) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Save meeting recording?"
         alert.informativeText = "Keep a merged audio file for \"\(title)\" so you can inspect it later in Finder."
@@ -1537,6 +1634,7 @@ final class MuesliController: NSObject {
     }
 
     private func presentErrorAlert(title: String, message: String) {
+        NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
@@ -1582,8 +1680,13 @@ final class MuesliController: NSObject {
 
     private func dismissPresentedMeetingDetection() {
         guard presentedMeetingDetection != nil else { return }
-        meetingNotification.close()
         presentedMeetingDetection = nil
+        // Only close the notification if it was a detection-based notification.
+        // Calendar-based notifications are managed separately and should not be dismissed
+        // when mic/camera detection state changes.
+        if !isShowingCalendarNotification {
+            meetingNotification.close()
+        }
     }
 
     private func updateMeetingNotificationVisibility() {
@@ -1950,11 +2053,46 @@ final class MuesliController: NSObject {
             },
             onCountdownFinished: { [weak self] title in
                 guard let self, !self.isMeetingRecording() else { return }
+                // Cancel Path 1's scheduled "starting now" timer to prevent double notification
+                self.meetingStartingNowTimer?.invalidate()
+                self.meetingStartingNowTimer = nil
+                // Look up meeting URL from cached calendar events
+                let event = self.appState.upcomingCalendarEvents.first(where: { $0.title == title })
+                let meetingURL = event?.meetingURL
+                let endDate = event?.endDate
+                self.isShowingCalendarNotification = true
+                self.meetingNotification.onClose = { [weak self] in self?.isShowingCalendarNotification = false }
                 self.meetingNotification.show(
                     title: "Meeting starting now",
                     subtitle: title,
+                    meetingURL: meetingURL,
                     onStartRecording: { [weak self] in
-                        self?.startMeetingRecording(title: title)
+                        guard let self else { return }
+                        self.isShowingCalendarNotification = false
+                        self.startMeetingRecording(title: title)
+                        self.scheduleMeetingEndNotification(endDate: endDate, title: title)
+                    },
+                    onJoinAndRecord: meetingURL != nil ? { [weak self] in
+                        guard let self else { return }
+                        self.isShowingCalendarNotification = false
+                        NSWorkspace.shared.open(meetingURL!)
+                        self.startMeetingRecording(title: title)
+                        self.scheduleMeetingEndNotification(endDate: endDate, title: title)
+                    } : nil,
+                    onJoinOnly: meetingURL != nil ? { [weak self] in
+                        guard let self else { return }
+                        self.isShowingCalendarNotification = false
+                        let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
+                        self.micActivityMonitor.suppress(for: remaining)
+                        self.micActivityMonitor.refreshState()
+                        NSWorkspace.shared.open(meetingURL!)
+                    } : nil,
+                    onDismiss: { [weak self] in
+                        guard let self else { return }
+                        self.isShowingCalendarNotification = false
+                        let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
+                        self.micActivityMonitor.suppress(for: remaining)
+                        self.micActivityMonitor.refreshState()
                     }
                 )
             }
@@ -1978,9 +2116,15 @@ final class MuesliController: NSObject {
     private func handleUpcomingMeeting(_ event: UpcomingMeetingEvent) {
         fputs("[muesli-native] meeting soon: \(event.title)\n", stderr)
 
-        // Look up end date from unified calendar events
-        let calendarEndDate = appState.upcomingCalendarEvents
-            .first(where: { $0.id == event.id || $0.title == event.title })?.endDate
+        // Look up end date and meeting URL from unified calendar events
+        let calendarEvent = appState.upcomingCalendarEvents
+            .first(where: { $0.id == event.id || $0.title == event.title })
+        let calendarEndDate = calendarEvent?.endDate
+        let meetingURL = event.meetingURL ?? calendarEvent?.meetingURL
+
+        if let meetingURL {
+            fputs("[muesli-native] meeting URL found: \(meetingURL.absoluteString)\n", stderr)
+        }
 
         if config.autoRecordMeetings, !isMeetingRecording() {
             startMeetingRecording(title: event.title)
@@ -1991,7 +2135,11 @@ final class MuesliController: NSObject {
         // Show notification panel for calendar events (if not auto-recording)
         guard config.showMeetingDetectionNotification,
               !isMeetingRecording(),
-              !isStartingMeetingRecording else { return }
+              !isStartingMeetingRecording else {
+            return
+        }
+        isShowingCalendarNotification = true
+        meetingNotification.onClose = { [weak self] in self?.isShowingCalendarNotification = false }
 
         let minutesUntil = Int(ceil(event.startDate.timeIntervalSinceNow / 60))
         let timeLabel: String
@@ -2006,14 +2154,35 @@ final class MuesliController: NSObject {
         meetingNotification.show(
             title: "Upcoming meeting",
             subtitle: "\(event.title) · \(timeLabel)",
+            meetingURL: meetingURL,
             onStartRecording: { [weak self] in
                 guard let self else { return }
+                self.isShowingCalendarNotification = false
                 self.startMeetingRecording(title: event.title)
                 self.scheduleMeetingEndNotification(endDate: calendarEndDate, title: event.title)
             },
+            onJoinAndRecord: meetingURL != nil ? { [weak self] in
+                guard let self else { return }
+                self.isShowingCalendarNotification = false
+                NSWorkspace.shared.open(meetingURL!)
+                self.startMeetingRecording(title: event.title)
+                self.scheduleMeetingEndNotification(endDate: calendarEndDate, title: event.title)
+            } : nil,
+            onJoinOnly: meetingURL != nil ? { [weak self] in
+                guard let self else { return }
+                self.isShowingCalendarNotification = false
+                // Suppress detection for the rest of this calendar event
+                let remaining = calendarEndDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
+                self.micActivityMonitor.suppress(for: remaining)
+                self.micActivityMonitor.refreshState()
+                NSWorkspace.shared.open(meetingURL!)
+            } : nil,
             onDismiss: { [weak self] in
                 guard let self else { return }
-                self.micActivityMonitor.suppress()
+                self.isShowingCalendarNotification = false
+                // Suppress detection for the rest of this calendar event
+                let remaining = calendarEndDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
+                self.micActivityMonitor.suppress(for: remaining)
                 self.micActivityMonitor.refreshState()
             }
         )
