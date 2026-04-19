@@ -670,4 +670,79 @@ struct DictationStoreTests {
         let meeting = try store.recentMeetings(limit: 1).first!
         #expect(meeting.folderID == nil)
     }
+
+    // MARK: - Search Tests
+
+    @Test("searchDictations returns matching records by raw_text")
+    func searchDictationsMatches() throws {
+        let store = try makeStore()
+        let now = Date()
+        try store.insertDictation(text: "Hello world from muesli", durationSeconds: 2, startedAt: now, endedAt: now)
+        try store.insertDictation(text: "Goodbye everyone", durationSeconds: 1, startedAt: now, endedAt: now)
+
+        let results = try store.searchDictations(query: "muesli")
+        #expect(results.count == 1)
+        #expect(results.first!.rawText.contains("muesli"))
+    }
+
+    @Test("searchDictations returns empty for non-matching query")
+    func searchDictationsNoMatch() throws {
+        let store = try makeStore()
+        let now = Date()
+        try store.insertDictation(text: "Hello world", durationSeconds: 2, startedAt: now, endedAt: now)
+
+        let results = try store.searchDictations(query: "xyznonexistent")
+        #expect(results.isEmpty)
+    }
+
+    @Test("searchMeetings matches across title, transcript, and notes")
+    func searchMeetingsMultiField() throws {
+        let store = try makeStore()
+        let start = Date()
+        try store.insertMeeting(
+            title: "Sprint Planning",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(600),
+            rawTranscript: "We discussed the backlog items",
+            formattedNotes: "## Notes\nPrioritized features",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+        try store.insertMeeting(
+            title: "Design Review",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(300),
+            rawTranscript: "Reviewed the mockups",
+            formattedNotes: "## Notes\nApproved designs",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        let byTitle = try store.searchMeetings(query: "Sprint")
+        #expect(byTitle.count == 1)
+        #expect(byTitle.first!.title == "Sprint Planning")
+
+        let byTranscript = try store.searchMeetings(query: "backlog")
+        #expect(byTranscript.count == 1)
+
+        let byNotes = try store.searchMeetings(query: "Prioritized")
+        #expect(byNotes.count == 1)
+    }
+
+    @Test("search is case-insensitive for ASCII")
+    func searchCaseInsensitive() throws {
+        let store = try makeStore()
+        let now = Date()
+        try store.insertDictation(text: "Meeting with Alice", durationSeconds: 2, startedAt: now, endedAt: now)
+
+        let upper = try store.searchDictations(query: "ALICE")
+        let lower = try store.searchDictations(query: "alice")
+        let mixed = try store.searchDictations(query: "Alice")
+
+        #expect(upper.count == 1)
+        #expect(lower.count == 1)
+        #expect(mixed.count == 1)
+    }
 }

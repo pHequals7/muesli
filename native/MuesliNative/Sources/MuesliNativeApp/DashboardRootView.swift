@@ -11,21 +11,39 @@ struct DashboardRootView: View {
             .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 300)
         } detail: {
             Group {
-                switch appState.selectedTab {
-                case .dictations:
-                    DictationsView(appState: appState, controller: controller)
-                case .meetings:
-                    MeetingsView(appState: appState, controller: controller)
-                case .dictionary:
-                    DictionaryView(appState: appState, controller: controller)
-                case .models:
-                    ModelsView(appState: appState, controller: controller)
-                case .shortcuts:
-                    ShortcutsView(appState: appState, controller: controller)
-                case .settings:
-                    SettingsView(appState: appState, controller: controller)
-                case .about:
-                    AboutView(controller: controller)
+                if appState.isSearchActive,
+                   case .document(let id) = appState.meetingsNavigationState {
+                    MeetingDetailView(
+                        meeting: appState.selectedMeeting,
+                        controller: controller,
+                        appState: appState,
+                        onBack: {
+                            appState.meetingsNavigationState = .browser
+                            appState.selectedMeetingID = nil
+                            appState.selectedMeetingRecord = nil
+                        },
+                        backLabel: "Back to Search"
+                    )
+                    .id(id)
+                } else if appState.isSearchActive {
+                    SearchResultsView(appState: appState, controller: controller)
+                } else {
+                    switch appState.selectedTab {
+                    case .dictations:
+                        DictationsView(appState: appState, controller: controller)
+                    case .meetings:
+                        MeetingsView(appState: appState, controller: controller)
+                    case .dictionary:
+                        DictionaryView(appState: appState, controller: controller)
+                    case .models:
+                        ModelsView(appState: appState, controller: controller)
+                    case .shortcuts:
+                        ShortcutsView(appState: appState, controller: controller)
+                    case .settings:
+                        SettingsView(appState: appState, controller: controller)
+                    case .about:
+                        AboutView(controller: controller)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

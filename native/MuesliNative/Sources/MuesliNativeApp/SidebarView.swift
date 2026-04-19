@@ -16,6 +16,8 @@ struct SidebarView: View {
     @State private var showDeleteConfirmation = false
     @State private var draggingFolderID: Int64?
     @State private var dragOrderedFolders: [MeetingFolder]?
+    @State private var searchText: String = ""
+    @FocusState private var isSearchFieldFocused: Bool
 
     private var userName: String {
         appState.config.userName
@@ -24,6 +26,7 @@ struct SidebarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
             sidebarHeader
+            searchBar
 
             sidebarItem(tab: .dictations, icon: "mic.fill", label: "Dictations")
             meetingsSection
@@ -106,6 +109,51 @@ struct SidebarView: View {
         .padding(.horizontal, MuesliTheme.spacing16)
         .padding(.top, MuesliTheme.spacing24)
         .padding(.bottom, MuesliTheme.spacing20)
+    }
+
+    @ViewBuilder
+    private var searchBar: some View {
+        HStack(spacing: MuesliTheme.spacing8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12))
+                .foregroundStyle(MuesliTheme.textTertiary)
+            TextField("Search...", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(MuesliTheme.callout())
+                .foregroundStyle(MuesliTheme.textPrimary)
+                .focused($isSearchFieldFocused)
+                .onChange(of: searchText) { _, newValue in
+                    controller.performSearch(query: newValue)
+                }
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    controller.clearSearch()
+                    isSearchFieldFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+        .padding(.horizontal, sidebarRowOuterPadding)
+        .padding(.bottom, MuesliTheme.spacing8)
+        .onChange(of: appState.focusSearchField) { _, shouldFocus in
+            if shouldFocus {
+                isSearchFieldFocused = true
+                appState.focusSearchField = false
+            }
+        }
     }
 
     @ViewBuilder

@@ -8,6 +8,7 @@ final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
     private let store: DictationStore
     private let controller: MuesliController
     private var window: NSWindow?
+    private var keyMonitor: Any?
 
     init(store: DictationStore, controller: MuesliController) {
         self.store = store
@@ -61,5 +62,15 @@ final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: rootView)
 
         self.window = window
+
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  event.modifierFlags.contains(.command),
+                  event.charactersIgnoringModifiers == "f" else {
+                return event
+            }
+            self.controller.appState.focusSearchField = true
+            return nil
+        }
     }
 }

@@ -59,6 +59,13 @@ final class AppState {
     var dictationToDate: String? = nil
     var hasMoreDictations: Bool = true
 
+    // Search
+    var searchQuery: String = ""
+    var searchResultDictations: [DictationRecord] = []
+    var searchResultMeetings: [MeetingRecord] = []
+    var focusSearchField: Bool = false
+    var isSearchActive: Bool { !searchQuery.isEmpty }
+
     // Navigation
     var selectedTab: DashboardTab = .dictations
 
