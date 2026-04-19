@@ -224,6 +224,19 @@ struct MeetingsNavigationTests {
         #expect(controller.config.customMeetingTemplates.isEmpty)
     }
 
+    @Test("meeting transcription backend selection is independent from dictation backend")
+    func meetingTranscriptionBackendSelectionIsIndependent() {
+        let controller = makeController()
+
+        controller.selectBackend(.parakeetEnglish)
+        controller.selectMeetingTranscriptionBackend(.whisperLargeTurbo)
+
+        #expect(controller.appState.selectedBackend == .parakeetEnglish)
+        #expect(controller.appState.selectedMeetingTranscriptionBackend == .whisperLargeTurbo)
+        #expect(controller.appState.config.sttModel == BackendOption.parakeetEnglish.model)
+        #expect(controller.appState.config.meetingTranscriptionModel == BackendOption.whisperLargeTurbo.model)
+    }
+
     private func makeMeeting(id: Int64, title: String) -> MeetingRecord {
         MeetingRecord(
             id: id,

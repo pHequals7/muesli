@@ -11,6 +11,7 @@ struct MeetingDetailView: View {
     let controller: MuesliController
     let appState: AppState
     let onBack: (() -> Void)?
+    let backLabel: String
     @State private var isSummarizing = false
     @State private var isEditingNotes = false
     @State private var editableTitle: String
@@ -26,12 +27,14 @@ struct MeetingDetailView: View {
         meeting: MeetingRecord?,
         controller: MuesliController,
         appState: AppState,
-        onBack: (() -> Void)? = nil
+        onBack: (() -> Void)? = nil,
+        backLabel: String = "Back to Meetings"
     ) {
         self.meeting = meeting
         self.controller = controller
         self.appState = appState
         self.onBack = onBack
+        self.backLabel = backLabel
         let initialTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
         _editableTitle = State(initialValue: meeting?.title ?? "")
         _editableNotes = State(initialValue: meeting.map { Self.notesContent(for: $0) } ?? "")
@@ -98,7 +101,7 @@ struct MeetingDetailView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 11, weight: .semibold))
-                        Text("Back to Meetings")
+                        Text(backLabel)
                             .font(MuesliTheme.callout())
                     }
                     .foregroundStyle(MuesliTheme.textSecondary)

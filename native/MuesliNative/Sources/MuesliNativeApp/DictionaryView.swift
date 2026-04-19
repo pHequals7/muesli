@@ -4,9 +4,11 @@ import MuesliCore
 struct DictionaryView: View {
     let appState: AppState
     let controller: MuesliController
+
     @State private var isAdding = false
     @State private var newWord = ""
     @State private var newReplacement = ""
+    @State private var newThreshold = 0.85
 
     var body: some View {
         ScrollView {
@@ -31,6 +33,7 @@ struct DictionaryView: View {
                     isAdding = true
                     newWord = ""
                     newReplacement = ""
+                    newThreshold = 0.85
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "plus")
@@ -50,7 +53,7 @@ struct DictionaryView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Text("Add custom words to improve transcription accuracy for names, brands, and domain terms.")
+            Text("Add custom words for names, brands, and domain terms, and tune how aggressively each entry should fuzzy-match transcription errors.")
                 .font(MuesliTheme.body())
                 .foregroundStyle(MuesliTheme.textSecondary)
         }
@@ -67,7 +70,7 @@ struct DictionaryView: View {
                 emptyState
             } else {
                 ForEach(appState.config.customWords) { word in
-                    wordRow(word)
+                    DictionaryWordEditorRow(word: word, controller: controller)
                     Divider().background(MuesliTheme.surfaceBorder)
                 }
             }
@@ -88,7 +91,7 @@ struct DictionaryView: View {
             Text("No custom words yet")
                 .font(MuesliTheme.body())
                 .foregroundStyle(MuesliTheme.textSecondary)
-            Text("Add words that Whisper frequently gets wrong")
+            Text("Add words that transcription frequently gets wrong")
                 .font(MuesliTheme.caption())
                 .foregroundStyle(MuesliTheme.textTertiary)
         }
@@ -96,83 +99,155 @@ struct DictionaryView: View {
         .padding(MuesliTheme.spacing32)
     }
 
-    private func wordRow(_ word: CustomWord) -> some View {
-        HStack {
-            if let replacement = word.replacement, !replacement.isEmpty {
-                Text(word.word)
-                    .font(MuesliTheme.body())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 10))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                Text(replacement)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(MuesliTheme.textPrimary)
-            } else {
-                Text(word.word)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(MuesliTheme.textPrimary)
-            }
-            Spacer()
-            Button {
-                controller.removeCustomWord(id: word.id)
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, MuesliTheme.spacing16)
-        .padding(.vertical, MuesliTheme.spacing12)
-    }
-
     private var addWordRow: some View {
-        HStack(spacing: MuesliTheme.spacing8) {
-            TextField("Word", text: $newWord)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 180)
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            HStack(spacing: MuesliTheme.spacing12) {
+                TextField("Word", text: $newWord)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Replace with (optional)", text: $newReplacement)
+                    .textFieldStyle(.roundedBorder)
+            }
 
-            Text("→")
-                .font(MuesliTheme.body())
+            thresholdEditorRow(
+                threshold: $newThreshold,
+                label: "Matching threshold"
+            )
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    isAdding = false
+                    newWord = ""
+                    newReplacement = ""
+                    newThreshold = 0.85
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
                 .foregroundStyle(MuesliTheme.textTertiary)
 
-            TextField("Replace with (optional)", text: $newReplacement)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 200)
-
-            Button {
-                let trimmed = newWord.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty else { return }
-                let replacement = newReplacement.trimmingCharacters(in: .whitespacesAndNewlines)
-                let word = CustomWord(
-                    word: trimmed,
-                    replacement: replacement.isEmpty ? nil : replacement
-                )
-                controller.addCustomWord(word)
-                newWord = ""
-                newReplacement = ""
-                isAdding = false
-            } label: {
-                Text("Add")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MuesliTheme.accent)
+                Button("Add") {
+                    let trimmedWord = newWord.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmedWord.isEmpty else { return }
+                    let replacement = newReplacement.trimmingCharacters(in: .whitespacesAndNewlines)
+                    controller.addCustomWord(
+                        CustomWord(
+                            word: trimmedWord,
+                            replacement: replacement.isEmpty ? nil : replacement,
+                            matchingThreshold: newThreshold
+                        )
+                    )
+                    isAdding = false
+                    newWord = ""
+                    newReplacement = ""
+                    newThreshold = 0.85
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MuesliTheme.accent)
+                .disabled(newWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .buttonStyle(.plain)
-            .disabled(newWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            Button {
-                isAdding = false
-                newWord = ""
-                newReplacement = ""
-            } label: {
-                Text("Cancel")
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-            }
-            .buttonStyle(.plain)
         }
-        .padding(.horizontal, MuesliTheme.spacing16)
-        .padding(.vertical, MuesliTheme.spacing12)
+        .padding(MuesliTheme.spacing16)
+    }
+
+    @ViewBuilder
+    private func thresholdEditorRow(threshold: Binding<Double>, label: String) -> some View {
+        HStack(spacing: MuesliTheme.spacing12) {
+            Text(label)
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+            Slider(value: threshold, in: 0.70...0.95, step: 0.01)
+                .tint(MuesliTheme.accent)
+            Text(threshold.wrappedValue.formattedThreshold)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .frame(width: 36, alignment: .trailing)
+        }
+    }
+}
+
+private struct DictionaryWordEditorRow: View {
+    let word: CustomWord
+    let controller: MuesliController
+
+    @State private var draftWord: String
+    @State private var draftReplacement: String
+    @State private var draftThreshold: Double
+
+    init(word: CustomWord, controller: MuesliController) {
+        self.word = word
+        self.controller = controller
+        _draftWord = State(initialValue: word.word)
+        _draftReplacement = State(initialValue: word.replacement ?? "")
+        _draftThreshold = State(initialValue: word.matchingThreshold)
+    }
+
+    private var trimmedWord: String {
+        draftWord.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedReplacement: String {
+        draftReplacement.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasChanges: Bool {
+        trimmedWord != word.word
+            || (trimmedReplacement.isEmpty ? nil : trimmedReplacement) != word.replacement
+            || abs(draftThreshold - word.matchingThreshold) > 0.001
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            HStack(spacing: MuesliTheme.spacing12) {
+                TextField("Word", text: $draftWord)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Replace with (optional)", text: $draftReplacement)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack(spacing: MuesliTheme.spacing12) {
+                Text("Matching threshold")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                Slider(value: $draftThreshold, in: 0.70...0.95, step: 0.01)
+                    .tint(MuesliTheme.accent)
+                Text(draftThreshold.formattedThreshold)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .frame(width: 36, alignment: .trailing)
+            }
+
+            HStack {
+                Spacer()
+                Button("Delete") {
+                    controller.removeCustomWord(id: word.id)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(MuesliTheme.recording)
+
+                Button("Save") {
+                    controller.updateCustomWord(
+                        CustomWord(
+                            id: word.id,
+                            word: trimmedWord,
+                            replacement: trimmedReplacement.isEmpty ? nil : trimmedReplacement,
+                            matchingThreshold: draftThreshold
+                        )
+                    )
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MuesliTheme.accent)
+                .disabled(trimmedWord.isEmpty || !hasChanges)
+            }
+        }
+        .padding(MuesliTheme.spacing16)
+    }
+}
+
+private extension Double {
+    var formattedThreshold: String {
+        String(format: "%.2f", self)
     }
 }

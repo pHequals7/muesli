@@ -29,28 +29,28 @@ struct BackendOption: Equatable {
 
     static let whisperSmall = BackendOption(
         backend: "whisper",
-        model: "ggml-small.en-q5_1",
+        model: "small.en",
         label: "Whisper Small",
-        sizeLabel: "~190 MB",
-        description: "Fast, English-optimized. Quantized for smaller download.",
+        sizeLabel: "~250 MB",
+        description: "Fast, English-optimized. Runs on Apple Neural Engine via CoreML.",
         recommended: false
     )
 
     static let whisperMedium = BackendOption(
         backend: "whisper",
-        model: "ggml-medium.en",
+        model: "medium.en",
         label: "Whisper Medium",
         sizeLabel: "~1.5 GB",
-        description: "Better accuracy, English-only. Good balance of speed and quality.",
+        description: "Better accuracy, English-only. Runs on Apple Neural Engine via CoreML.",
         recommended: false
     )
 
     static let whisperLargeTurbo = BackendOption(
         backend: "whisper",
-        model: "ggml-large-v3-turbo-q5_0",
+        model: "large-v3-v20240930_626MB",
         label: "Whisper Large Turbo",
-        sizeLabel: "~600 MB",
-        description: "Highest accuracy, multilingual. Quantized for faster inference.",
+        sizeLabel: "~626 MB",
+        description: "Highest accuracy, multilingual. Quantized CoreML for faster inference.",
         recommended: false
     )
 
@@ -92,14 +92,6 @@ struct BackendOption: Equatable {
         .whisperSmall, .whisperMedium, .whisperLargeTurbo,
     ]
 
-    static let experimental: [BackendOption] = [
-        .qwen3Asr, .canaryQwen, .nemotronStreaming,
-    ]
-
-    /// Models available for download and use.
-    static let all: [BackendOption] = parakeetFamily + [.cohereTranscribe] + whisperFamily + experimental
-    
-
     static let qwen3Asr = BackendOption(
         backend: "qwen",
         model: "FluidInference/qwen3-asr-0.6b-coreml",
@@ -108,6 +100,13 @@ struct BackendOption: Equatable {
         description: "Multilingual, 52 languages. Slower than Parakeet (~2-3s). First use takes ~30s to warm up.",
         recommended: false
     )
+
+    static let experimental: [BackendOption] = [
+        .qwen3Asr, .canaryQwen, .nemotronStreaming,
+    ]
+
+    /// Models available for download and use.
+    static let all: [BackendOption] = parakeetFamily + whisperFamily + [.cohereTranscribe] + experimental
 
     /// Models coming soon — shown greyed out in the Models tab.
     static let comingSoon: [BackendOption] = []
@@ -122,10 +121,7 @@ struct BackendOption: Equatable {
         let fm = FileManager.default
         switch backend {
         case "whisper":
-            let filename = model.hasSuffix(".bin") ? model : "\(model).bin"
-            let path = fm.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cache/muesli/models/\(filename)")
-            return fm.fileExists(atPath: path.path)
+            return WhisperKitTranscriber.isModelDownloaded(model)
         case "fluidaudio":
             let supportDir = fm.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support/FluidAudio/Models")
@@ -320,6 +316,29 @@ struct CustomWord: Codable, Equatable, Identifiable {
     var id = UUID()
     var word: String
     var replacement: String?
+    var matchingThreshold: Double = 0.85
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case word
+        case replacement
+        case matchingThreshold = "matching_threshold"
+    }
+
+    init(id: UUID = UUID(), word: String, replacement: String?, matchingThreshold: Double = 0.85) {
+        self.id = id
+        self.word = word
+        self.replacement = replacement
+        self.matchingThreshold = Self.clampedThreshold(matchingThreshold)
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        word = try c.decode(String.self, forKey: .word)
+        replacement = try c.decodeIfPresent(String.self, forKey: .replacement)
+        matchingThreshold = Self.clampedThreshold(try c.decodeIfPresent(Double.self, forKey: .matchingThreshold) ?? 0.85)
+    }
 
     var displayLabel: String {
         if let replacement, !replacement.isEmpty {
@@ -330,6 +349,36 @@ struct CustomWord: Codable, Equatable, Identifiable {
 
     var targetWord: String {
         replacement ?? word
+    }
+
+    private static func clampedThreshold(_ value: Double) -> Double {
+        min(max(value, 0.70), 0.95)
+    }
+}
+
+enum IndicatorAnchor: String, Codable, CaseIterable {
+    case topLeading = "top_leading"
+    case topCenter = "top_center"
+    case topTrailing = "top_trailing"
+    case midLeading = "mid_leading"
+    case midTrailing = "mid_trailing"
+    case bottomLeading = "bottom_leading"
+    case bottomCenter = "bottom_center"
+    case bottomTrailing = "bottom_trailing"
+    case custom = "custom"
+
+    var label: String {
+        switch self {
+        case .topLeading: return "Top Left"
+        case .topCenter: return "Top Center"
+        case .topTrailing: return "Top Right"
+        case .midLeading: return "Middle Left"
+        case .midTrailing: return "Middle Right"
+        case .bottomLeading: return "Bottom Left"
+        case .bottomCenter: return "Bottom Center"
+        case .bottomTrailing: return "Bottom Right"
+        case .custom: return "Custom"
+        }
     }
 }
 
@@ -359,6 +408,8 @@ struct AppConfig: Codable {
     var dictationHotkey: HotkeyConfig = .default
     var sttBackend: String = BackendOption.whisper.backend
     var sttModel: String = BackendOption.whisper.model
+    var meetingTranscriptionBackend: String = BackendOption.whisper.backend
+    var meetingTranscriptionModel: String = BackendOption.whisper.model
     var meetingSummaryBackend: String = MeetingSummaryBackendOption.openAI.backend
     var defaultMeetingTemplateID: String = MeetingTemplates.autoID
     var whisperModel: String = BackendOption.whisper.model
@@ -371,6 +422,7 @@ struct AppConfig: Codable {
     var launchAtLogin: Bool = false
     var openDashboardOnLaunch: Bool = true
     var showFloatingIndicator: Bool = true
+    var indicatorAnchor: IndicatorAnchor = .midTrailing
     var dashboardWindowFrame: WindowFrame? = nil
     var indicatorOrigin: CGPointCodable? = nil
     var openAIAPIKey: String = ""
@@ -405,6 +457,8 @@ struct AppConfig: Codable {
         case dictationHotkey = "dictation_hotkey"
         case sttBackend = "stt_backend"
         case sttModel = "stt_model"
+        case meetingTranscriptionBackend = "meeting_transcription_backend"
+        case meetingTranscriptionModel = "meeting_transcription_model"
         case meetingSummaryBackend = "meeting_summary_backend"
         case defaultMeetingTemplateID = "default_meeting_template_id"
         case whisperModel = "whisper_model"
@@ -417,6 +471,7 @@ struct AppConfig: Codable {
         case launchAtLogin = "launch_at_login"
         case openDashboardOnLaunch = "open_dashboard_on_launch"
         case showFloatingIndicator = "show_floating_indicator"
+        case indicatorAnchor = "indicator_anchor"
         case dashboardWindowFrame = "dashboard_window_frame"
         case indicatorOrigin = "indicator_origin"
         case openAIAPIKey = "openai_api_key"
@@ -454,6 +509,8 @@ struct AppConfig: Codable {
         dictationHotkey = (try? c.decode(HotkeyConfig.self, forKey: .dictationHotkey)) ?? defaults.dictationHotkey
         sttBackend = (try? c.decode(String.self, forKey: .sttBackend)) ?? defaults.sttBackend
         sttModel = (try? c.decode(String.self, forKey: .sttModel)) ?? defaults.sttModel
+        meetingTranscriptionBackend = (try? c.decode(String.self, forKey: .meetingTranscriptionBackend)) ?? sttBackend
+        meetingTranscriptionModel = (try? c.decode(String.self, forKey: .meetingTranscriptionModel)) ?? sttModel
         meetingSummaryBackend = (try? c.decode(String.self, forKey: .meetingSummaryBackend)) ?? defaults.meetingSummaryBackend
         defaultMeetingTemplateID = (try? c.decode(String.self, forKey: .defaultMeetingTemplateID)) ?? defaults.defaultMeetingTemplateID
         whisperModel = (try? c.decode(String.self, forKey: .whisperModel)) ?? defaults.whisperModel
@@ -466,6 +523,8 @@ struct AppConfig: Codable {
         launchAtLogin = (try? c.decode(Bool.self, forKey: .launchAtLogin)) ?? defaults.launchAtLogin
         openDashboardOnLaunch = (try? c.decode(Bool.self, forKey: .openDashboardOnLaunch)) ?? defaults.openDashboardOnLaunch
         showFloatingIndicator = (try? c.decode(Bool.self, forKey: .showFloatingIndicator)) ?? defaults.showFloatingIndicator
+        indicatorAnchor = (try? c.decode(IndicatorAnchor.self, forKey: .indicatorAnchor))
+            ?? ((try? c.decodeIfPresent(CGPointCodable.self, forKey: .indicatorOrigin)) != nil ? .custom : .midTrailing)
         dashboardWindowFrame = try? c.decode(WindowFrame.self, forKey: .dashboardWindowFrame)
         indicatorOrigin = try? c.decode(CGPointCodable.self, forKey: .indicatorOrigin)
         openAIAPIKey = (try? c.decode(String.self, forKey: .openAIAPIKey)) ?? defaults.openAIAPIKey

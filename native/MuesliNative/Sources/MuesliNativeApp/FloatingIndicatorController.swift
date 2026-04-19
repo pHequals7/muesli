@@ -94,9 +94,12 @@ final class FloatingIndicatorController {
     var onStopMeeting: (() -> Void)?
     var onDiscardMeeting: (() -> Void)?
     var onCancelToggleDictation: (() -> Void)?
+    var onPositionSaved: ((CGPoint) -> Void)?
     var isToggleDictation = false
     private var stopLayer: CALayer?
     private var transcribingTitle = "Transcribing"
+    private var loadingSpinner: NSProgressIndicator?
+    private var isShowingLoading = false
     var hotkeyLabel: String = "Left Cmd"
 
     init(configStore: ConfigStore) {
@@ -164,9 +167,7 @@ final class FloatingIndicatorController {
     func savePosition() {
         guard let frame = panel?.frame else { return }
         let center = CGPoint(x: frame.midX, y: frame.midY)
-        var config = configStore.load()
-        config.indicatorOrigin = CGPointCodable(x: center.x, y: center.y)
-        configStore.save(config)
+        onPositionSaved?(center)
     }
 
     func setToggleDictation(_ active: Bool, config: AppConfig) {
@@ -379,6 +380,91 @@ final class FloatingIndicatorController {
         }
     }
 
+    func showLoading(_ message: String) {
+        let config = configStore.load()
+        if panel == nil { createPanel(config: config) }
+        guard let panel, let contentView, let textLabel else { return }
+
+        isShowingLoading = true
+        let loadingSize = NSSize(width: 180, height: 36)
+        let center = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
+        guard let screen = NSScreen.main?.visibleFrame else { return }
+        let x = min(max(center.x - loadingSize.width / 2, screen.minX), screen.maxX - loadingSize.width)
+        let y = min(max(center.y - loadingSize.height / 2, screen.minY), screen.maxY - loadingSize.height)
+        let targetFrame = NSRect(x: x, y: y, width: loadingSize.width, height: loadingSize.height)
+
+        // Create spinner if needed
+        if loadingSpinner == nil {
+            let spinner = NSProgressIndicator()
+            spinner.style = .spinning
+            spinner.controlSize = .small
+            spinner.isIndeterminate = true
+            spinner.appearance = NSAppearance(named: .darkAqua)
+            contentView.addSubview(spinner)
+            loadingSpinner = spinner
+        }
+
+        let spinnerSize: CGFloat = 16
+        let gap: CGFloat = 8
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11, weight: .medium)]
+        let textW = ceil((message as NSString).size(withAttributes: attrs).width) + 2
+        let totalW = spinnerSize + gap + textW
+        let startX = (loadingSize.width - totalW) / 2
+
+        micIconView?.isHidden = true
+        wandIconView?.isHidden = true
+        iconLabel?.isHidden = true
+        glassView?.isHidden = false
+        tintLayer?.isHidden = false
+        tintLayer?.backgroundColor = NSColor.colorWith(hexString: "1e1e2e", alpha: 0.72).cgColor
+        tintLayer?.frame = CGRect(origin: .zero, size: loadingSize)
+        tintLayer?.cornerRadius = loadingSize.height / 2
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = true
+
+            panel.animator().setFrame(targetFrame, display: true)
+            panel.animator().alphaValue = 1.0
+            contentView.animator().frame = NSRect(origin: .zero, size: loadingSize)
+            contentView.layer?.cornerRadius = loadingSize.height / 2
+            contentView.layer?.backgroundColor = NSColor.clear.cgColor
+            contentView.layer?.borderWidth = 1.0
+            contentView.layer?.borderColor = NSColor.colorWith(hex: 0xFFFFFF, alpha: 0.16).cgColor
+
+            loadingSpinner?.frame = NSRect(
+                x: startX, y: (loadingSize.height - spinnerSize) / 2,
+                width: spinnerSize, height: spinnerSize
+            )
+            loadingSpinner?.isHidden = false
+            loadingSpinner?.startAnimation(nil)
+
+            textLabel.stringValue = message
+            textLabel.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            textLabel.textColor = NSColor.colorWith(hex: 0xFFFFFF, alpha: 0.82)
+            textLabel.frame = NSRect(
+                x: startX + spinnerSize + gap,
+                y: (loadingSize.height - 14) / 2,
+                width: textW, height: 14
+            )
+            textLabel.isHidden = false
+            textLabel.animator().alphaValue = 1
+        }
+        panel.orderFrontRegardless()
+    }
+
+    func hideLoading() {
+        guard isShowingLoading else { return }
+        isShowingLoading = false
+        loadingSpinner?.stopAnimation(nil)
+        loadingSpinner?.isHidden = true
+        // Only reset to idle if no dictation started during the warmup window
+        if state == .idle || state == .preparing {
+            setState(.idle, config: configStore.load())
+        }
+    }
+
     func setHovered(_ hovered: Bool) {
         guard state == .idle, !isDragging, isHovered != hovered else { return }
         hoverExitWorkItem?.cancel()
@@ -505,7 +591,6 @@ final class FloatingIndicatorController {
 
     private func applyGlassState(_ state: DictationState, frameSize: NSSize) {
         let config = configStore.load()
-        let isIdle = (state == .idle)
         let radius = frameSize.height / 2
         let themeHex = config.recordingColorHex
 
@@ -687,10 +772,38 @@ final class FloatingIndicatorController {
     }
 
     static func defaultIndicatorCenter(in visibleFrame: NSRect, idleSize: NSSize = NSSize(width: 44, height: 28)) -> CGPoint {
-        CGPoint(
-            x: visibleFrame.maxX - idleSize.width / 2 - 8,
-            y: visibleFrame.midY
-        )
+        anchorCenter(.midTrailing, in: visibleFrame, size: idleSize)
+    }
+
+    static func anchorCenter(_ anchor: IndicatorAnchor, in visibleFrame: NSRect, size: NSSize) -> CGPoint {
+        let inset: CGFloat = 8
+        let leadingX = visibleFrame.minX + size.width / 2 + inset
+        let centerX = visibleFrame.midX
+        let trailingX = visibleFrame.maxX - size.width / 2 - inset
+        let topY = visibleFrame.maxY - size.height / 2 - inset
+        let midY = visibleFrame.midY
+        let bottomY = visibleFrame.minY + size.height / 2 + inset
+
+        switch anchor {
+        case .topLeading:
+            return CGPoint(x: leadingX, y: topY)
+        case .topCenter:
+            return CGPoint(x: centerX, y: topY)
+        case .topTrailing:
+            return CGPoint(x: trailingX, y: topY)
+        case .midLeading:
+            return CGPoint(x: leadingX, y: midY)
+        case .midTrailing:
+            return CGPoint(x: trailingX, y: midY)
+        case .bottomLeading:
+            return CGPoint(x: leadingX, y: bottomY)
+        case .bottomCenter:
+            return CGPoint(x: centerX, y: bottomY)
+        case .bottomTrailing:
+            return CGPoint(x: trailingX, y: bottomY)
+        case .custom:
+            return defaultIndicatorCenter(in: visibleFrame, idleSize: size)
+        }
     }
 
     static func isUsableIndicatorCenter(
@@ -716,16 +829,26 @@ final class FloatingIndicatorController {
         }
 
         // Use the pill's current on-screen center if it exists, so state
-        // transitions resize around the current position rather than jumping.
-        // Saved config is only used for initial panel creation.
+        // transitions resize around the current position rather than jumping
+        // for custom placement. Preset anchors always resolve from config so
+        // changing the setting snaps immediately to the chosen anchor.
         let center: CGPoint
-        if let currentFrame = panel?.frame, currentFrame.width > 0 {
+        if config.indicatorAnchor == .custom,
+           let currentFrame = panel?.frame,
+           currentFrame.width > 0 {
             center = CGPoint(x: currentFrame.midX, y: currentFrame.midY)
-        } else if let saved = config.indicatorOrigin,
-                  Self.isUsableIndicatorCenter(CGPoint(x: saved.x, y: saved.y), in: screen, size: size) {
-            center = CGPoint(x: saved.x, y: saved.y)
         } else {
-            center = Self.defaultIndicatorCenter(in: screen)
+            switch config.indicatorAnchor {
+            case .custom:
+                if let saved = config.indicatorOrigin,
+                   Self.isUsableIndicatorCenter(CGPoint(x: saved.x, y: saved.y), in: screen, size: size) {
+                    center = CGPoint(x: saved.x, y: saved.y)
+                } else {
+                    center = Self.defaultIndicatorCenter(in: screen, idleSize: size)
+                }
+            default:
+                center = Self.anchorCenter(config.indicatorAnchor, in: screen, size: size)
+            }
         }
 
         let x = min(max(center.x - size.width / 2, screen.minX), screen.maxX - size.width)

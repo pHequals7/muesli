@@ -6,6 +6,17 @@
         <language>en</language>
         <!-- Items are added by generate_appcast or the release script -->
         <item>
+            <title>0.5.6</title>
+            <pubDate>Sun, 19 Apr 2026 03:05:13 +0530</pubDate>
+            <sparkle:version>0.5.6</sparkle:version>
+            <sparkle:shortVersionString>0.5.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.5.6/Muesli-0.5.6.dmg" length="60182302" type="application/octet-stream" sparkle:edSignature="SnOwcO0maPfaqIqQqcA1feVcopvuHkafo1/YQF6U8L0EV6FiB5kswqbp5qSJFyj7c0BOPeJcvkq/A6lug2NvBQ=="/>
+            <sparkle:deltas>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>0.5.5</title>
             <pubDate>Thu, 19 Mar 2026 16:31:31 +0530</pubDate>
             <sparkle:version>0.5.5</sparkle:version>
@@ -13,8 +24,7 @@
             <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.5.5/Muesli-0.5.5.dmg" length="12940002" type="application/octet-stream" sparkle:edSignature="WvsPQS8q0o7YD14unWWvC+7xoXnpNOk6hRVmza0hbJ+issm6MtBsl+qum3V2TDdYcuWWwa6TOK/gUnGKOUYPCA=="/>
-            <sparkle:deltas>
-            </sparkle:deltas>
+            <sparkle:deltas/>
         </item>
         <item>
             <title>0.5.4</title>
@@ -24,15 +34,6 @@
             <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.5.4/Muesli-0.5.4.dmg" length="12940805" type="application/octet-stream" sparkle:edSignature="EoVT1qHoSh43XFHgUgC1QyGEqPUD5NVwZqpFYBaQmVI3xHqS2bz64uBvC/W1O8Iu59V1N1qvuu774iE8Pu5wAQ=="/>
-        </item>
-        <item>
-            <title>0.5.3</title>
-            <pubDate>Thu, 19 Mar 2026 09:57:12 +0530</pubDate>
-            <sparkle:version>0.5.3</sparkle:version>
-            <sparkle:shortVersionString>0.5.3</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.5.3/Muesli-0.5.3.dmg" length="12940103" type="application/octet-stream" sparkle:edSignature="TKnNilBRYMb6j8KCYpAWHfbj2NAXVBxVDKdAmFxDrGqkQjrsQzmlY+ZI9xVjo+WJE0mUJNS/l2qs8xUG+lwIBw=="/>
         </item>
     </channel>
 </rss>

@@ -422,6 +422,7 @@
     <div class="swatch"><div class="color-block" style="background:#EF4444"></div><div class="info"><div class="name">recording</div><div class="hex">#EF4444</div></div></div>
     <div class="swatch"><div class="color-block" style="background:#F59E0B"></div><div class="info"><div class="name">transcribing</div><div class="hex">#F59E0B</div></div></div>
     <div class="swatch"><div class="color-block" style="background:#34D399"></div><div class="info"><div class="name">success</div><div class="hex">#34D399</div></div></div>
+    <div class="swatch"><div class="color-block" style="background:#33B888"></div><div class="info"><div class="name">joinRecord</div><div class="hex">rgb(0.20, 0.72, 0.53)</div></div></div>
   </div>
 </section>
 
@@ -541,49 +542,82 @@
 <!-- 5. FLOATING INDICATOR -->
 <section class="page-break">
   <h2><span class="num">05</span> Floating Indicator</h2>
-  <p class="section-desc">Always-on-top pill that shows app state. Draggable, clickable, with smooth animated transitions between states.</p>
+  <p class="section-desc">Always-on-top frosted glass pill. Draggable (position persisted), clickable, with smooth animated transitions between states.</p>
+
+  <h3>Material & Appearance</h3>
+  <table>
+    <tr><th>Property</th><th>Value</th></tr>
+    <tr><td>Material</td><td><code>NSVisualEffectView</code> with <code>.hudWindow</code> material, <code>.withinWindow</code> blending</td></tr>
+    <tr><td>Idle background</td><td>Frosted glass (vibrancy blur, no solid color)</td></tr>
+    <tr><td>Recording background</td><td>Solid accent color at 72% opacity (hides frost)</td></tr>
+    <tr><td>Corner radius</td><td>Half of pill height (fully rounded)</td></tr>
+    <tr><td>Window level</td><td><code>.floating</code></td></tr>
+    <tr><td>Accent color</td><td>User-configurable via Settings &mdash; applies to recording state background</td></tr>
+    <tr><td>Draggable</td><td>Click+drag to reposition. Anchor point persisted to config as <code>indicatorAnchor</code></td></tr>
+  </table>
 
   <div class="indicator-grid">
     <div class="indicator-card">
       <div class="state-name">Idle (Compact)</div>
-      <div class="indicator-pill" style="width:44px;height:28px;background:rgba(0,0,0,0.66)">&#x1F3A4;</div>
-      <div class="dims">44 &times; 28 &middot; #000 66% &middot; alpha 0.82</div>
+      <div class="indicator-pill" style="width:44px;height:28px;background:rgba(30,30,46,0.44);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.22)">&#x1F3A4;</div>
+      <div class="dims">44 &times; 28 &middot; frosted glass &middot; #1e1e2e 44% &middot; alpha 0.85</div>
     </div>
     <div class="indicator-card">
       <div class="state-name">Idle (Hover)</div>
-      <div class="indicator-pill" style="width:220px;height:36px;background:rgba(0,0,0,0.96);font-size:11px;padding:0 12px"><span>&#x1F3A4;</span><span style="color:var(--text-primary);font-weight:600;margin-left:4px">Hold Left Cmd to dictate</span></div>
-      <div class="dims">220 &times; 36 &middot; #000 96% &middot; alpha 1.0</div>
+      <div class="indicator-pill" style="width:220px;height:36px;background:rgba(30,30,46,0.72);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.14);font-size:11px;padding:0 12px"><span>&#x1F3A4;</span><span style="color:rgba(255,255,255,0.75);font-weight:600;margin-left:4px">Hold Left Cmd to dictate</span></div>
+      <div class="dims">220 &times; 36 &middot; frosted glass &middot; #1e1e2e 72% &middot; alpha 1.0</div>
     </div>
     <div class="indicator-card">
-      <div class="state-name">Recording (Dictation)</div>
-      <div class="indicator-pill" style="width:80px;height:32px;background:rgba(211,47,47,0.72)">
-        <div class="waveform-demo" style="height:26px"><div class="bar" style="height:9px"></div><div class="bar" style="height:16px"></div><div class="bar" style="height:22px"></div><div class="bar" style="height:16px"></div><div class="bar" style="height:9px"></div></div>
+      <div class="state-name">Recording (Hold / Toggle)</div>
+      <div class="indicator-pill" style="width:96px;height:26px;background:rgba(239,68,68,0.85);border:1px solid rgba(255,255,255,0.16);padding:0 8px;gap:6px;justify-content:space-between">
+        <span style="color:rgba(255,255,255,0.45);font-size:12px;font-weight:300;cursor:pointer">&times;</span>
+        <div class="waveform-demo" style="height:16px;gap:3px"><div class="bar" style="height:5px;width:2.5px"></div><div class="bar" style="height:10px;width:2.5px"></div><div class="bar" style="height:10px;width:2.5px"></div><div class="bar" style="height:5px;width:2.5px"></div></div>
+        <div style="width:7px;height:7px;background:rgba(255,255,255,0.85);border-radius:1.5px;flex-shrink:0"></div>
       </div>
-      <div class="dims">80 &times; 32 &middot; #D32F2F 72% &middot; waveform 5-bar</div>
-    </div>
-    <div class="indicator-card">
-      <div class="state-name">Recording (Toggle / Hands-free)</div>
-      <div class="indicator-pill" style="width:76px;height:22px;background:rgba(211,47,47,0.72);font-size:7px;padding:0 7px;gap:2px">
-        <span style="color:rgba(255,255,255,0.45)">&times;</span>
-        <div class="waveform-demo" style="height:16px;gap:3px"><div class="bar" style="height:5px;width:2px"></div><div class="bar" style="height:8px;width:2px"></div><div class="bar" style="height:8px;width:2px"></div><div class="bar" style="height:5px;width:2px"></div></div>
-        <div style="width:6px;height:6px;background:rgba(255,255,255,0.85);border-radius:1px"></div>
-      </div>
-      <div class="dims">76 &times; 22 &middot; X (discard) + 4-bar waveform + stop square</div>
+      <div class="dims">76 &times; 22 &middot; solid accent 85% (frost hidden)<br>Left zone (&lt;30pt): X cancel &middot; Right zone: stop square</div>
     </div>
     <div class="indicator-card">
       <div class="state-name">Recording (Meeting)</div>
-      <div class="indicator-pill" style="width:72px;height:32px;background:rgba(211,47,47,0.72);padding:0 8px">
-        <span>&#x23F9;</span>
-        <div class="waveform-demo" style="height:26px;gap:3px"><div class="bar" style="height:7px;width:2px"></div><div class="bar" style="height:12px;width:2px"></div><div class="bar" style="height:12px;width:2px"></div><div class="bar" style="height:7px;width:2px"></div></div>
+      <div class="indicator-pill" style="width:96px;height:26px;background:rgba(239,68,68,0.85);border:1px solid rgba(255,255,255,0.16);padding:0 8px;gap:6px;justify-content:space-between">
+        <span style="color:rgba(255,255,255,0.85);font-size:10px;cursor:pointer">&#x23F9;</span>
+        <div class="waveform-demo" style="height:16px;gap:3px"><div class="bar" style="height:5px;width:2.5px"></div><div class="bar" style="height:10px;width:2.5px"></div><div class="bar" style="height:10px;width:2.5px"></div><div class="bar" style="height:5px;width:2.5px"></div></div>
       </div>
-      <div class="dims">72 &times; 32 &middot; stop icon + 4-bar waveform</div>
+      <div class="dims">76 &times; 22 &middot; solid accent 85%<br>Left zone (&lt;30pt): discard &middot; Right zone: stop &#x23F9;</div>
     </div>
     <div class="indicator-card">
       <div class="state-name">Transcribing</div>
-      <div class="indicator-pill" style="width:120px;height:32px;background:rgba(217,154,17,0.72);font-size:11px;padding:0 12px;gap:4px"><span>&#x270D;&#xFE0F;</span><span style="color:black;font-weight:600">Transcribing</span></div>
-      <div class="dims">120 &times; 32 &middot; #D99A11 72%</div>
+      <div class="indicator-pill" style="width:120px;height:32px;background:rgba(30,30,46,0.62);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.16);font-size:11px;padding:0 12px;gap:4px"><span>&#x270D;&#xFE0F;</span><span style="color:rgba(255,255,255,0.82);font-weight:600">Transcribing</span></div>
+      <div class="dims">120 &times; 32 &middot; frosted glass &middot; #1e1e2e 62% &middot; content bg #D99A11 92%</div>
     </div>
   </div>
+
+  <h3>State Dimensions</h3>
+  <table>
+    <tr><th>State</th><th>Width</th><th>Height</th><th>Tint</th><th>Alpha</th><th>Frost</th></tr>
+    <tr><td>Idle (compact)</td><td>44pt</td><td>28pt</td><td><code>#1e1e2e</code> 44%</td><td>0.85</td><td>Visible</td></tr>
+    <tr><td>Idle (hover)</td><td>220pt</td><td>36pt</td><td><code>#1e1e2e</code> 72%</td><td>1.0</td><td>Visible</td></tr>
+    <tr><td>Preparing</td><td>44pt</td><td>28pt</td><td><code>#1e1e2e</code> 62%</td><td>1.0</td><td>Visible</td></tr>
+    <tr><td>Recording</td><td>76pt</td><td>22pt</td><td><code>recordingColorHex</code> 85%</td><td>1.0</td><td>Hidden (solid)</td></tr>
+    <tr><td>Transcribing</td><td>120pt</td><td>32pt</td><td><code>#1e1e2e</code> 62%</td><td>1.0</td><td>Visible</td></tr>
+    <tr><td>Warning</td><td>260pt</td><td>36pt</td><td>&mdash;</td><td>1.0</td><td>&mdash;</td></tr>
+    <tr><td>Loading</td><td>180pt</td><td>36pt</td><td>&mdash;</td><td>1.0</td><td>&mdash;</td></tr>
+  </table>
+
+  <h3>Meeting Indicator Click Zones</h3>
+  <table>
+    <tr><th>Zone</th><th>X Range</th><th>Action</th></tr>
+    <tr><td>Left</td><td><code>x &lt; 30pt</code></td><td>Discard meeting (with confirmation alert)</td></tr>
+    <tr><td>Right</td><td><code>x &ge; 30pt</code></td><td>Stop meeting recording</td></tr>
+  </table>
+  <p style="font-size:12px;color:var(--text-tertiary);margin:8px 0 24px">Toggle/hands-free dictation uses the same zones: left = cancel, right = stop.</p>
+
+  <h3>Border</h3>
+  <table>
+    <tr><th>State</th><th>Border Color</th></tr>
+    <tr><td>Idle (compact)</td><td>White 22%</td></tr>
+    <tr><td>Idle (hover)</td><td>White 14%</td></tr>
+    <tr><td>Preparing / Recording / Transcribing</td><td>White 16%</td></tr>
+  </table>
 
   <h3>Waveform Specifications</h3>
   <table>
@@ -593,6 +627,7 @@
     <tr><td>Min height</td><td><code>5pt</code></td></tr>
     <tr><td>Max height</td><td><code>26pt</code></td></tr>
     <tr><td>Bar color</td><td>White 85%</td></tr>
+    <tr><td>Stop square</td><td>6&times;6pt, White 85%, 1pt radius</td></tr>
     <tr><td>5-bar multipliers</td><td><code>[0.6, 0.85, 1.0, 0.85, 0.6]</code></td></tr>
     <tr><td>4-bar multipliers</td><td><code>[0.7, 1.0, 1.0, 0.7]</code></td></tr>
     <tr><td>Animation</td><td>Scale Y, 0.6s, easeInEaseOut, autoreverses, 0.07s stagger</td></tr>
@@ -623,10 +658,19 @@
     <div class="btn-secondary" style="border-color:var(--accent);color:var(--accent)">&#x270E; Edit</div>
     <div class="btn-secondary" style="border-color:var(--success);color:var(--success)">&#x2713; Done</div>
   </div>
+  <div class="component-preview" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px">
+    <div style="display:inline-flex;align-items:center;gap:0">
+      <div style="background:#33B888;color:white;font-size:11px;font-weight:600;padding:5px 10px;border-radius:5px 0 0 5px">Join &amp; Record</div>
+      <div style="background:#2a9e74;color:white;font-size:11px;padding:5px 6px;border-radius:0 5px 5px 0;border-left:1px solid rgba(0,0,0,0.15)">&#x25BE;</div>
+    </div>
+    <div class="btn-primary" style="font-size:11px;padding:5px 14px">Start Recording</div>
+  </div>
   <table>
     <tr><th>Variant</th><th>Background</th><th>Text</th><th>Padding</th><th>Radius</th></tr>
     <tr><td>Primary</td><td><code>accent</code></td><td>White</td><td>H:20 V:8</td><td>6pt</td></tr>
     <tr><td>Secondary / Icon</td><td><code>surfacePrimary</code></td><td><code>textSecondary</code></td><td>H:8 V:5</td><td>6pt</td></tr>
+    <tr><td>Join &amp; Record (split)</td><td><code>joinRecord</code></td><td>White, 10pt semi</td><td>H:10 V:5 + chevron 6pt</td><td>5pt (split left/right)</td></tr>
+    <tr><td>Join &amp; Record (inline)</td><td><code>joinRecord</code></td><td>White, 10pt medium</td><td>H:8 V:4</td><td>5pt</td></tr>
   </table>
 
   <h3>Cards</h3>
@@ -647,6 +691,50 @@
     <tr><td>Default</td><td><code>backgroundRaised</code></td><td><code>surfaceBorder</code> 1pt</td><td>14pt (large)</td></tr>
     <tr><td>Selected</td><td><code>surfaceSelected</code></td><td><code>accent</code> 35% 1pt</td><td>14pt (large)</td></tr>
     <tr><td>Hover</td><td><code>backgroundHover</code></td><td><code>surfaceBorder</code> 1pt</td><td>14pt (large)</td></tr>
+  </table>
+
+  <h3>Meeting Notification Panel</h3>
+  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Top-right floating notification for upcoming and in-progress calendar meetings.</p>
+  <div class="component-preview" style="padding:0">
+    <div style="background:rgba(30,32,36,0.95);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;max-width:360px;border:1px solid rgba(255,255,255,0.06)">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:var(--text-primary)">Upcoming meeting</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Sprint Planning &middot; starts in 3 min</div>
+      </div>
+      <div style="display:flex;gap:0">
+        <div style="background:#33B888;color:white;font-size:10px;font-weight:600;padding:5px 10px;border-radius:5px 0 0 5px">Join &amp; Record</div>
+        <div style="background:#2a9e74;color:white;font-size:10px;padding:5px 6px;border-radius:0 5px 5px 0;border-left:1px solid rgba(0,0,0,0.15)">&#x25BE;</div>
+      </div>
+    </div>
+  </div>
+  <table>
+    <tr><th>Property</th><th>Value</th></tr>
+    <tr><td>Size</td><td>360 &times; 70pt</td></tr>
+    <tr><td>Position</td><td>Top-right of screen containing mouse cursor, 16pt margin</td></tr>
+    <tr><td>Window level</td><td><code>CGShieldingWindowLevel() + 1</code> (above fullscreen apps)</td></tr>
+    <tr><td>Auto-dismiss</td><td>15s (default), 30s for "starting now"</td></tr>
+    <tr><td>Progress bar</td><td>3pt blue bar at bottom, drains left-to-right over dismiss duration</td></tr>
+    <tr><td>Fade in</td><td>0.25s alpha 0&rarr;1</td></tr>
+    <tr><td>Fade out</td><td>0.2s alpha 1&rarr;0</td></tr>
+    <tr><td>Platform icons</td><td>Zoom (PNG), Google Meet (PNG) &mdash; 28&times;28pt, 8pt left offset</td></tr>
+    <tr><td>Chevron dropdown</td><td>NSMenu with "Join Only" + "Record Only" &mdash; darker green (#2a9e74), 24pt wide</td></tr>
+    <tr><td>No URL fallback</td><td>Single blue "Start Recording" button (120&times;30pt)</td></tr>
+  </table>
+
+  <h3>Join & Record Button (Coming Up)</h3>
+  <div class="component-preview" style="display:flex;gap:12px;align-items:center">
+    <div style="display:inline-flex;align-items:center;gap:4px;background:#33B888;color:white;font-size:10px;font-weight:500;padding:4px 8px;border-radius:5px">
+      <span style="font-size:9px">&#x25B6;</span> Join &amp; Record
+    </div>
+  </div>
+  <table>
+    <tr><th>Property</th><th>Value</th></tr>
+    <tr><td>Background</td><td><code>joinRecord</code> (#33B888)</td></tr>
+    <tr><td>Text</td><td>White, 10pt medium</td></tr>
+    <tr><td>Padding</td><td>H:8 V:4</td></tr>
+    <tr><td>Radius</td><td>5pt</td></tr>
+    <tr><td>Visibility</td><td>Hidden when <code>isMeetingRecording</code></td></tr>
+    <tr><td>Action</td><td><code>joinAndRecord(title:meetingURL:endDate:)</code></td></tr>
   </table>
 
   <h3>Folder Row</h3>
@@ -727,16 +815,42 @@
     </div>
   </div>
 
+  <h3>Coming Up Section</h3>
+  <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Calendar events grouped by day in the meetings browser. Shown when <code>upcomingCalendarEvents</code> is non-empty.</p>
+  <table>
+    <tr><th>Property</th><th>Value</th></tr>
+    <tr><td>Container</td><td><code>backgroundRaised</code>, 12pt radius, 1pt <code>surfaceBorder</code>, 20pt padding</td></tr>
+    <tr><td>Header</td><td>"Coming Up" &mdash; Cormorant Garamond 22pt medium</td></tr>
+    <tr><td>Date column</td><td>60pt wide &mdash; day number (24pt light), label (11pt medium), weekday (10pt)</td></tr>
+    <tr><td>Event row</td><td>3pt accent bar (today) or 40% secondary bar &middot; title 13pt medium &middot; time 11pt secondary</td></tr>
+    <tr><td>Join &amp; Record</td><td>Green button, shown when <code>meetingURL</code> present and not recording</td></tr>
+    <tr><td>Add to folder</td><td>Menu button, 10pt medium, <code>surfacePrimary</code> background</td></tr>
+    <tr><td>Google Calendar link</td><td>"Add Google to macOS Calendar for real-time sync" &mdash; accent color, opens System Settings &gt; Internet Accounts</td></tr>
+  </table>
+
+  <h3>Notification Panel Positioning</h3>
+  <table>
+    <tr><th>Property</th><th>Value</th></tr>
+    <tr><td>Screen selection</td><td><code>NSEvent.mouseLocation</code> &rarr; <code>NSMouseInRect</code> against all screens</td></tr>
+    <tr><td>Position</td><td>Top-right of <code>screen.visibleFrame</code>, 16pt margin from edges</td></tr>
+    <tr><td>Collection behavior</td><td><code>.canJoinAllSpaces</code>, <code>.fullScreenAuxiliary</code>, <code>.stationary</code></td></tr>
+    <tr><td>Window level</td><td><code>CGShieldingWindowLevel() + 1</code></td></tr>
+    <tr><td>Borderless</td><td>No shadows on content, opaque false, clear background</td></tr>
+  </table>
+
   <h3>Status Bar Menu</h3>
   <table>
     <tr><th>Item</th><th>Action</th></tr>
     <tr><td>Open muesli</td><td>Show dashboard window</td></tr>
+    <tr><td>Next meeting countdown</td><td>Title + time until start (updates every 30s)</td></tr>
+    <tr><td>Upcoming Meetings &rarr;</td><td>Submenu with today's events, start recording from menu</td></tr>
     <tr><td>Start/Stop Meeting Recording</td><td>Toggle meeting session</td></tr>
     <tr><td>Discard Recording...</td><td>Abandon with confirmation (shown only when recording)</td></tr>
     <tr><td>Recent Dictations &rarr;</td><td>Submenu with last 10</td></tr>
     <tr><td>Recent Meetings &rarr;</td><td>Submenu with last 5</td></tr>
-    <tr><td>STT Backend &rarr;</td><td>Model selection submenu</td></tr>
-    <tr><td>Meeting Summary &rarr;</td><td>OpenAI / OpenRouter</td></tr>
+    <tr><td>STT Backend &rarr;</td><td>Model selection submenu (dictation)</td></tr>
+    <tr><td>Meeting Backend &rarr;</td><td>Model selection submenu (meetings, independent)</td></tr>
+    <tr><td>Meeting Summary &rarr;</td><td>OpenAI / OpenRouter / ChatGPT</td></tr>
     <tr><td>Settings...</td><td>Open settings tab</td></tr>
     <tr><td>Check for Updates...</td><td>Sparkle update check</td></tr>
     <tr><td>Quit</td><td>Terminate app</td></tr>
@@ -746,7 +860,7 @@
 <!-- FOOTER -->
 <section style="text-align:center;padding:60px 40px;color:var(--text-tertiary);font-size:12px">
   <div class="divider"></div>
-  <p>muesli design language system &middot; v0.4.0 &middot; March 2026</p>
+  <p>muesli design language system &middot; v0.5.6 &middot; April 2026</p>
   <p style="margin-top:4px">Source of truth: <code>MuesliTheme.swift</code> &middot; <code>FloatingIndicatorController.swift</code></p>
 </section>
 

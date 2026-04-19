@@ -60,9 +60,10 @@ struct BackendOptionTests {
         #expect(BackendOption.all.contains(.whisperSmall))
         #expect(BackendOption.all.contains(.whisperMedium))
         #expect(BackendOption.all.contains(.whisperLargeTurbo))
+        #expect(BackendOption.all.contains(.qwen3Asr))
         #expect(BackendOption.all.contains(.canaryQwen))
         #expect(BackendOption.all.contains(.cohereTranscribe))
-        #expect(BackendOption.all.count == 9)
+        #expect(BackendOption.all.contains(.nemotronStreaming))
     }
 
     @Test("Cohere uses cohere backend")
@@ -76,11 +77,12 @@ struct BackendOptionTests {
         #expect(!BackendOption.experimental.contains(.cohereTranscribe))
     }
 
-    @Test("Whisper models reference ggml format")
-    func whisperGgmlModels() {
-        #expect(BackendOption.whisperSmall.model.hasPrefix("ggml-"))
-        #expect(BackendOption.whisperMedium.model.hasPrefix("ggml-"))
-        #expect(BackendOption.whisperLargeTurbo.model.hasPrefix("ggml-"))
+    @Test("Whisper models use WhisperKit CoreML identifiers")
+    func whisperKitModels() {
+        // WhisperKit models use short variant names, not ggml- prefixed binaries
+        #expect(BackendOption.whisperSmall.model == "small.en")
+        #expect(BackendOption.whisperMedium.model == "medium.en")
+        #expect(BackendOption.whisperLargeTurbo.model.contains("large"))
     }
 }
 
@@ -244,6 +246,8 @@ struct AppConfigTests {
         let config = AppConfig()
         #expect(config.sttBackend == BackendOption.whisper.backend)
         #expect(config.sttModel == BackendOption.whisper.model)
+        #expect(config.meetingTranscriptionBackend == BackendOption.whisper.backend)
+        #expect(config.meetingTranscriptionModel == BackendOption.whisper.model)
         #expect(config.meetingSummaryBackend == "openai")
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.meetingRecordingSavePolicy == .never)
@@ -251,6 +255,7 @@ struct AppConfigTests {
         #expect(config.openRouterAPIKey.isEmpty)
         #expect(config.dictationHotkey == .default)
         #expect(config.showFloatingIndicator == true)
+        #expect(config.indicatorAnchor == .midTrailing)
         #expect(config.hasCompletedOnboarding == false)
         #expect(config.userName.isEmpty)
         #expect(config.customMeetingTemplates.isEmpty)
@@ -284,6 +289,8 @@ struct AppConfigTests {
         #expect(decoded.customMeetingTemplates.count == 1)
         #expect(decoded.customMeetingTemplates.first?.name == "Customer Follow-Up")
         #expect(decoded.customMeetingTemplates.first?.icon == "dollarsign.circle")
+        #expect(decoded.meetingTranscriptionBackend == config.meetingTranscriptionBackend)
+        #expect(decoded.indicatorAnchor == config.indicatorAnchor)
     }
 
     @Test("JSON coding keys use snake_case")
@@ -294,6 +301,9 @@ struct AppConfigTests {
 
         #expect(json["stt_backend"] != nil)
         #expect(json["stt_model"] != nil)
+        #expect(json["meeting_transcription_backend"] != nil)
+        #expect(json["meeting_transcription_model"] != nil)
+        #expect(json["indicator_anchor"] != nil)
         #expect(json["has_completed_onboarding"] != nil)
         #expect(json["user_name"] != nil)
         #expect(json["default_meeting_template_id"] != nil)
@@ -313,6 +323,74 @@ struct AppConfigTests {
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.meetingRecordingSavePolicy == .never)
         #expect(config.customMeetingTemplates.isEmpty)
+    }
+
+    @Test("meeting transcription falls back to dictation model when missing")
+    func meetingTranscriptionFallsBackToDictationModel() throws {
+        let json = """
+        {
+          "stt_backend": "whisper",
+          "stt_model": "ggml-medium.en"
+        }
+        """
+        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+
+        #expect(config.meetingTranscriptionBackend == "whisper")
+        #expect(config.meetingTranscriptionModel == "ggml-medium.en")
+    }
+
+    @Test("indicator anchor falls back to custom when legacy origin exists")
+    func indicatorAnchorFallsBackToCustomForLegacyOrigin() throws {
+        let json = """
+        {
+          "indicator_origin": [640, 320]
+        }
+        """
+        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+
+        #expect(config.indicatorAnchor == .custom)
+        #expect(config.indicatorOrigin?.x == 640)
+        #expect(config.indicatorOrigin?.y == 320)
+    }
+
+    @Test("custom words decode missing threshold with default")
+    func customWordsDecodeMissingThresholdWithDefault() throws {
+        let json = """
+        {
+          "custom_words": [
+            {
+              "id": "67A2A4E9-E707-4A65-B690-124AFA4F0C18",
+              "word": "muesli",
+              "replacement": "Muesli"
+            }
+          ]
+        }
+        """
+        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(config.customWords.count == 1)
+        #expect(config.customWords[0].matchingThreshold == 0.85)
+    }
+
+    @Test("custom words clamp thresholds into the supported UI range")
+    func customWordsClampThresholdsIntoSupportedRange() throws {
+        let json = """
+        {
+          "custom_words": [
+            {
+              "word": "aggressive",
+              "matching_threshold": 0.1
+            },
+            {
+              "word": "strict",
+              "matching_threshold": 1.4
+            }
+          ]
+        }
+        """
+        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        #expect(config.customWords.count == 2)
+        #expect(config.customWords[0].matchingThreshold == 0.70)
+        #expect(config.customWords[1].matchingThreshold == 0.95)
     }
 
     @Test("custom templates decode missing icon with fallback")

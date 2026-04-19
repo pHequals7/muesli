@@ -111,4 +111,18 @@ struct CustomWordMatcherApplyTests {
         // "museli" fuzzy matches "muesli", replacement is nil so uses word "muesli"
         #expect(result == "I love muesli")
     }
+
+    @Test("per-word lower threshold allows aggressive fuzzy correction")
+    func lowerThresholdAllowsCorrection() {
+        let words = [CustomWord(word: "Caivex", replacement: "Caivex", matchingThreshold: 0.70)]
+        let result = CustomWordMatcher.apply(text: "talk to Kvex tomorrow", customWords: words)
+        #expect(result == "talk to Caivex tomorrow")
+    }
+
+    @Test("higher threshold blocks over-eager fuzzy correction")
+    func higherThresholdPreventsCorrection() {
+        let words = [CustomWord(word: "Caivex", replacement: "Caivex", matchingThreshold: 0.92)]
+        let result = CustomWordMatcher.apply(text: "talk to Kvex tomorrow", customWords: words)
+        #expect(result == "talk to Kvex tomorrow")
+    }
 }

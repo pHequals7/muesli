@@ -104,8 +104,8 @@ struct AboutView: View {
                     )
                     Divider().background(MuesliTheme.surfaceBorder)
                     acknowledgement(
-                        name: "whisper.cpp",
-                        description: "Local Whisper inference engine used for the app's Whisper Small, Medium, and Large Turbo backends."
+                        name: "WhisperKit by Argmax",
+                        description: "Swift Whisper inference on CoreML/ANE powering the app's Whisper Small, Medium, and Large Turbo backends."
                     )
                 }
 

@@ -301,6 +301,41 @@
     }
     .topnav a:hover { color: rgba(255,255,255,0.9); }
     .topnav .dot { color: rgba(255,255,255,0.2); }
+    .gh-stars {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      text-decoration: none;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      overflow: hidden;
+      transition: border-color 0.3s ease, background 0.3s ease;
+    }
+    .gh-stars:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.09); }
+    .gh-stars .gh-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      color: rgba(255,255,255,0.6);
+      transition: color 0.3s ease;
+    }
+    .gh-stars:hover .gh-label { color: rgba(255,255,255,0.9); }
+    .gh-stars svg { width: 14px; height: 14px; fill: currentColor; }
+    .gh-stars .gh-label svg { transition: transform 0.3s ease, color 0.3s ease; }
+    .gh-stars:hover .gh-label svg { color: #f0c040; transform: scale(1.15); }
+    .gh-stars .star-count {
+      display: none;
+      align-items: center;
+      padding: 5px 10px;
+      font-variant-numeric: tabular-nums;
+      color: rgba(255,255,255,0.5);
+      border-left: 1px solid rgba(255,255,255,0.1);
+      font-size: 0.85em;
+      letter-spacing: 0.03em;
+    }
+    .gh-stars .star-count.loaded { display: inline-flex; }
 
     /* ── footer ── */
     footer {
@@ -385,7 +420,7 @@
       "url": "https://github.com/pHequals7"
     },
     "license": "https://opensource.org/licenses/MIT",
-    "downloadUrl": "https://github.com/pHequals7/muesli/releases/download/v0.5.5/Muesli-0.5.5.dmg",
+    "downloadUrl": "https://github.com/pHequals7/muesli/releases/download/v0.5.6/Muesli-0.5.6.dmg",
     "softwareVersion": "1.0",
     "image": "https://freedspeech.xyz/og.png"
   }
@@ -403,7 +438,13 @@
   </svg>
 
   <nav class="topnav">
-    <a href="https://github.com/pHequals7/muesli" target="_blank" rel="noopener">contribute on github</a>
+    <a class="gh-stars" href="https://github.com/pHequals7/muesli" target="_blank" rel="noopener">
+      <span class="gh-label">
+        <svg viewBox="0 0 16 16"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>
+        <span>star on github</span>
+      </span>
+      <span class="star-count" id="star-count"></span>
+    </a>
     <span class="dot">&middot;</span>
     <a href="https://buymeacoffee.com/phequals7" target="_blank" rel="noopener">support</a>
   </nav>
@@ -416,7 +457,7 @@
     <img class="icon" src="./icon.png" alt="Muesli" width="72" height="72">
     <h1 class="name">muesli</h1>
     <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcriptions</p>
-    <a class="get" href="https://github.com/pHequals7/muesli/releases/download/v0.5.5/Muesli-0.5.5.dmg">download for macOS</a>
+    <a class="get" href="https://github.com/pHequals7/muesli/releases/download/v0.5.6/Muesli-0.5.6.dmg">download for macOS</a>
     <div class="install-alt">
       <span class="install-label">or install with homebrew</span>
       <span class="command-row">
@@ -458,6 +499,19 @@
   </footer>
 
 <script>
+/* ── github stars ── */
+fetch('https://api.github.com/repos/pHequals7/muesli')
+  .then(r => r.json())
+  .then(d => {
+    const el = document.getElementById('star-count');
+    if (el && d.stargazers_count != null) {
+      const n = d.stargazers_count;
+      el.textContent = n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : n;
+      el.classList.add('loaded');
+    }
+  })
+  .catch(() => {});
+
 /* ═══════════════════════════════════════════════════════════
    free speech · muesli
    constant brownian drift · cursor reveals quotes

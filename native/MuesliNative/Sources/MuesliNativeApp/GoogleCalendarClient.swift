@@ -9,6 +9,7 @@ struct UnifiedCalendarEvent: Identifiable, Equatable {
     let endDate: Date
     let isAllDay: Bool
     let source: CalendarSource
+    var meetingURL: URL? = nil
 
     enum CalendarSource: String {
         case eventKit
@@ -183,19 +184,40 @@ final class GoogleCalendarClient {
             return nil
         }
 
+        // Extract meeting URL from hangoutLink or conferenceData
+        let meetingURL: URL? = {
+            if let hangout = item["hangoutLink"] as? String, let url = URL(string: hangout) {
+                return url
+            }
+            if let confData = item["conferenceData"] as? [String: Any],
+               let entryPoints = confData["entryPoints"] as? [[String: Any]] {
+                for ep in entryPoints {
+                    if ep["entryPointType"] as? String == "video",
+                       let uri = ep["uri"] as? String, let url = URL(string: uri) {
+                        return url
+                    }
+                }
+            }
+            return nil
+        }()
+
         return UnifiedCalendarEvent(
             id: id,
             title: summary,
             startDate: startDate,
             endDate: endDate,
             isAllDay: isAllDay,
-            source: .googleCalendar
+            source: .googleCalendar,
+            meetingURL: meetingURL
         )
     }
 
     // MARK: - Merge & Deduplicate
 
     /// Merge EventKit and Google Calendar events, deduplicating by title + start time proximity.
+    /// When an EventKit event deduplicates a Google Calendar event, the Google event's
+    /// meetingURL is preserved if the EventKit version has none (hangoutLink/conferenceData
+    /// from the API is richer than what EventKit syncs).
     static func mergeEvents(
         eventKit: [UnifiedCalendarEvent],
         google: [UnifiedCalendarEvent]
@@ -203,11 +225,15 @@ final class GoogleCalendarClient {
         var merged = eventKit
 
         for gEvent in google {
-            let isDuplicate = eventKit.contains { ekEvent in
+            if let idx = merged.firstIndex(where: { ekEvent in
                 ekEvent.title.lowercased() == gEvent.title.lowercased()
                     && abs(ekEvent.startDate.timeIntervalSince(gEvent.startDate)) < 300
-            }
-            if !isDuplicate {
+            }) {
+                // Prefer Google Calendar's meetingURL when EventKit doesn't have one
+                if merged[idx].meetingURL == nil, gEvent.meetingURL != nil {
+                    merged[idx].meetingURL = gEvent.meetingURL
+                }
+            } else {
                 merged.append(gEvent)
             }
         }

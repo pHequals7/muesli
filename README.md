@@ -33,13 +33,14 @@ Start a meeting recording → Muesli captures your mic (You) and system audio (O
 ## Features
 
 - **Native Swift, zero Python** — Pure Swift app with CoreML and Metal backends. No bundled runtimes, no subprocess IPC.
-- **Multiple ASR models** — Parakeet TDT (Neural Engine), Cohere Transcribe 2B (mixed precision CoreML), Whisper Small/Medium/Large Turbo (Metal via whisper.cpp), and Qwen3 ASR (52 languages, CoreML).
+- **Multiple ASR models** — Parakeet TDT (Neural Engine), Cohere Transcribe 2B (mixed precision CoreML), Whisper Small/Medium/Large Turbo (CoreML/ANE via WhisperKit), and Qwen3 ASR (52 languages, CoreML).
 - **Hold-to-talk & hands-free** — Hold hotkey for quick dictation, or double-tap for sustained recording.
 - **Meeting recording** — Captures mic + system audio (including Bluetooth/AirPods) via ScreenCaptureKit.
 - **VAD-driven chunk rotation** — Silero VAD detects natural speech boundaries in real-time, splitting mic audio at pauses instead of fixed intervals. No mid-sentence cuts.
 - **Speaker diarization** — Identifies individual speakers in system audio (Speaker 1, Speaker 2, etc.) using FluidAudio's pyannote-based CoreML diarization model.
 - **Camera-based meeting detection** — Detects when your webcam + mic activate in a recognized meeting app (Zoom, Chrome, Teams, FaceTime, Slack, WhatsApp). Camera alone (e.g. Photo Booth) won't trigger false positives.
-- **Google Calendar integration** — Connect your Google Calendar to see upcoming meetings in the Coming Up section and status bar. Calendar events drive pre-meeting countdowns and auto-detection.
+- **Join & Record** — Extracts meeting URLs from calendar events (Zoom, Google Meet, Teams, Webex, Chime, FaceTime). Split-button notification: "Join & Record" opens the meeting + starts recording, "Join Only" opens without recording, "Record Only" starts recording without joining. Platform icons (Zoom, Meet) in the notification panel.
+- **Google Calendar integration** — Connect your Google Calendar to see upcoming meetings in the Coming Up section and status bar. Event-driven notifications via `EKEventStoreChangedNotification` for instant calendar change detection. Pre-meeting countdowns via Marauder's Map easter egg.
 - **Meeting export** — Export meeting notes or transcripts as PDF (paginated US Letter) or Markdown. Format picker in the save panel, auto-opens the exported file.
 - **Meeting templates** — Built-in and custom templates for meeting notes. Choose a template before or after recording — re-summarize any meeting with a different template.
 - **Dismiss calendar events** — Hide irrelevant events from Coming Up, status bar, and menu bar. Dismissed events are pruned automatically.
@@ -204,9 +205,9 @@ Important meeting fields:
 | Parakeet v2 | FluidAudio | CoreML / Neural Engine | ~450 MB | English only | ~0.13s |
 | **Cohere Transcribe 2B** | CoreML | FP16 encoder + INT8 decoder | ~3.8 GB | English | ~1s |
 | Qwen3 ASR | FluidAudio | CoreML / Neural Engine | ~1.3 GB | 52 languages | ~2-3s |
-| Whisper Small | whisper.cpp | Metal / CPU | ~190 MB | English only | ~1-2s |
-| Whisper Medium | whisper.cpp | Metal / CPU | ~1.5 GB | English only | ~2-3s |
-| Whisper Large Turbo | whisper.cpp | Metal / CPU | ~600 MB | Multilingual | ~2-4s |
+| Whisper Small | WhisperKit | CoreML / Neural Engine | ~190 MB | English only | ~1-2s |
+| Whisper Medium | WhisperKit | CoreML / Neural Engine | ~1.5 GB | English only | ~2-3s |
+| Whisper Large Turbo | WhisperKit | CoreML / Neural Engine | ~600 MB | Multilingual | ~2-4s |
 
 Cohere Transcribe is a 2B parameter model (#1 on Open ASR Leaderboard) running in mixed precision — FP16 FastConformer encoder on the Neural Engine with INT8 quantized decoders. Includes VAD-gated silence detection to prevent hallucination. Best for high-accuracy English dictation.
 
@@ -236,7 +237,7 @@ Muesli needs these macOS permissions (guided during onboarding):
 │  Native Swift / SwiftUI App                          │
 │  ├── FluidAudio (Parakeet TDT + Qwen3 ASR on ANE)   │
 │  ├── Cohere Transcribe (FP16+INT8 CoreML on ANE)     │
-│  ├── SwiftWhisper (whisper.cpp on Metal/CPU)          │
+│  ├── WhisperKit (Whisper on CoreML/ANE)                │
 │  ├── Silero VAD (streaming voice activity detection)  │
 │  ├── Speaker Diarization (pyannote CoreML on ANE)     │
 │  ├── ChatGPTAuthManager (OAuth PKCE + WHAM API)       │
@@ -250,6 +251,7 @@ Muesli needs these macOS permissions (guided during onboarding):
 │  ├── MeetingSummaryClient (OpenAI / OpenRouter / ChatGPT) │
 │  ├── MeetingExporter (PDF + Markdown export)          │
 │  ├── GoogleCalendarAuthManager (OAuth + Calendar API)  │
+│  ├── MeetingNotificationController (Join & Record UI)  │
 │  ├── MeetingTemplates (built-in + custom templates)   │
 │  ├── FloatingIndicatorController (frosted glass pill)  │
 │  └── SwiftUI Dashboard (dictations, meetings,         │
@@ -268,7 +270,7 @@ Everything runs in-process. No subprocesses, no IPC, no Python runtime.
 | App | Swift, AppKit, SwiftUI |
 | Primary ASR | [FluidAudio](https://github.com/FluidInference/FluidAudio) (Parakeet TDT + Qwen3 ASR on CoreML/ANE) |
 | Cohere ASR | [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026) (FP16 encoder + INT8 decoder on CoreML) |
-| Whisper ASR | [SwiftWhisper](https://github.com/exPHAT/SwiftWhisper) (whisper.cpp on Metal) |
+| Whisper ASR | [WhisperKit](https://github.com/argmaxinc/WhisperKit) (CoreML/ANE) |
 | Voice activity | Silero VAD via FluidAudio (streaming, event-driven) |
 | Speaker diarization | pyannote via FluidAudio (CoreML on ANE) |
 | Camera detection | CoreMediaIO property listeners (event-driven) |
@@ -294,7 +296,7 @@ swift test --package-path native/MuesliNative
 ./scripts/test_packaged_cli.sh
 ```
 
-381 tests covering model configuration, custom word matching, filler removal, transcription routing, data persistence, CLI contract/path-resolution logic, speaker diarization alignment, token consolidation, camera-based meeting detection, ChatGPT OAuth logic, meeting export, and meeting navigation.
+396 tests covering model configuration, custom word matching, filler removal, transcription routing, data persistence, CLI contract/path-resolution logic, speaker diarization alignment, token consolidation, camera-based meeting detection, ChatGPT OAuth logic, meeting export, meeting navigation, and Google Calendar URL extraction.
 
 Current test scope:
 
@@ -317,8 +319,7 @@ If Muesli saves you time, consider supporting development:
 ## Acknowledgements
 
 - [FluidAudio](https://github.com/FluidInference/FluidAudio) — CoreML speech models for Apple devices (Parakeet TDT, Qwen3 ASR, Silero VAD, speaker diarization)
-- [SwiftWhisper](https://github.com/exPHAT/SwiftWhisper) — Swift wrapper for whisper.cpp
-- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) — C/C++ Whisper inference
+- [WhisperKit](https://github.com/argmaxinc/WhisperKit) — Swift Whisper inference on CoreML/ANE
 - [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit) by Apple — system audio capture
 - [NVIDIA Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) — FastConformer TDT speech recognition model
 - [Cohere Transcribe](https://huggingface.co/CohereLabs/cohere-transcribe-03-2026) — 2B parameter autoregressive ASR (#1 Open ASR Leaderboard)

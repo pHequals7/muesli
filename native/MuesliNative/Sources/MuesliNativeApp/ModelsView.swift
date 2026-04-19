@@ -49,19 +49,21 @@ struct ModelsView: View {
                     title: "Parakeet Family",
                     subtitle: "NVIDIA speech models for fast everyday dictation.",
                     defaultBadge: "Default: v3",
+                    logo: "nvidia-logo",
                     selection: $selectedParakeetModel,
                     options: BackendOption.parakeetFamily
                 )
 
-                modelCard(option: .cohereTranscribe)
-
                 familyCard(
                     title: "Whisper",
-                    subtitle: "OpenAI Whisper variants for users who prefer the classic CPU/GPU path.",
+                    subtitle: "OpenAI Whisper variants. Runs on Apple Neural Engine via CoreML.",
                     defaultBadge: "Default: Small",
+                    logo: "openai-logo",
                     selection: $selectedWhisperModel,
                     options: BackendOption.whisperFamily
                 )
+
+                modelCard(option: .cohereTranscribe, logo: "cohere-logo")
 
                 experimentalSection
 
@@ -174,7 +176,7 @@ struct ModelsView: View {
             if showExperimental {
                 VStack(spacing: MuesliTheme.spacing12) {
                     ForEach(BackendOption.experimental, id: \.model) { option in
-                        modelCard(option: option)
+                        modelCard(option: option, logo: logoForBackend(option))
                     }
                 }
             }
@@ -221,7 +223,8 @@ struct ModelsView: View {
         let progress = downloadProgressPostProc[option.id] ?? 0
 
         return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
+                brandLogo("qwen-logo")
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
                     HStack(spacing: MuesliTheme.spacing8) {
                         Text(option.label)
@@ -426,6 +429,7 @@ struct ModelsView: View {
         title: String,
         subtitle: String,
         defaultBadge: String,
+        logo: String? = nil,
         selection: Binding<String>,
         options: [BackendOption]
     ) -> some View {
@@ -437,6 +441,7 @@ struct ModelsView: View {
 
         return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
             HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
+                brandLogo(logo)
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
                     HStack(spacing: MuesliTheme.spacing8) {
                         Text(title)
@@ -529,6 +534,32 @@ struct ModelsView: View {
     }
 
     @ViewBuilder
+    private func brandLogo(_ name: String?) -> some View {
+        if let name,
+           let url = Bundle.main.url(forResource: name, withExtension: "png"),
+           let nsImage = NSImage(contentsOf: url) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .padding(.top, 2)
+        }
+    }
+
+    private func logoForBackend(_ option: BackendOption) -> String? {
+        switch option.backend {
+        case "fluidaudio": return "nvidia-logo"
+        case "whisper": return "openai-logo"
+        case "cohere": return "cohere-logo"
+        case "qwen": return "qwen-logo"
+        case "nemotron": return "nvidia-logo"
+        case "canary": return "qwen-logo"
+        default: return nil
+        }
+    }
+
+    @ViewBuilder
     private func actionButtons(for option: BackendOption, isActive: Bool, isDownloaded: Bool, isDownloading: Bool) -> some View {
         HStack(spacing: MuesliTheme.spacing8) {
             if isDownloading {
@@ -580,14 +611,15 @@ struct ModelsView: View {
         }
     }
 
-    private func modelCard(option: BackendOption) -> some View {
+    private func modelCard(option: BackendOption, logo: String? = nil) -> some View {
         let isActive = appState.selectedBackend == option
         let isDownloaded = downloadedModels.contains(option.model)
         let isDownloading = downloadingModels.contains(option.model)
         let progress = downloadProgress[option.model] ?? 0
 
         return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
+                brandLogo(logo)
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
                     HStack(spacing: MuesliTheme.spacing8) {
                         Text(option.label)
@@ -917,10 +949,7 @@ struct ModelsView: View {
         let fm = FileManager.default
         switch option.backend {
         case "whisper":
-            let filename = option.model.hasSuffix(".bin") ? option.model : "\(option.model).bin"
-            let path = fm.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cache/muesli/models/\(filename)")
-            try? fm.removeItem(at: path)
+            WhisperKitTranscriber.deleteModel(option.model)
         case "nemotron":
             let path = fm.homeDirectoryForCurrentUser
                 .appendingPathComponent(".cache/muesli/models/nemotron-560ms")
@@ -977,10 +1006,7 @@ struct ModelsView: View {
     private func isModelDownloaded(_ option: BackendOption, fm: FileManager) -> Bool {
         switch option.backend {
         case "whisper":
-            let filename = option.model.hasSuffix(".bin") ? option.model : "\(option.model).bin"
-            let path = fm.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cache/muesli/models/\(filename)")
-            return fm.fileExists(atPath: path.path)
+            return WhisperKitTranscriber.isModelDownloaded(option.model)
         case "nemotron":
             let path = fm.homeDirectoryForCurrentUser
                 .appendingPathComponent(".cache/muesli/models/nemotron-560ms/encoder/encoder_int8.mlmodelc")

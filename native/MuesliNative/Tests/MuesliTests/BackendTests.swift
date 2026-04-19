@@ -3,26 +3,24 @@ import Foundation
 import MuesliCore
 @testable import MuesliNativeApp
 
-@Suite("WhisperCppTranscriber")
-struct WhisperCppTranscriberTests {
+@Suite("WhisperKitTranscriber")
+struct WhisperKitTranscriberTests {
 
-    @Test("known model URLs are valid")
-    func modelURLsValid() {
-        // Verify the static model URL map has correct HuggingFace URLs
-        let knownModels = ["ggml-small.en", "ggml-small.en-q5_0", "ggml-medium.en", "ggml-large-v3-turbo", "ggml-large-v3-turbo-q5_0"]
-        for model in knownModels {
-            let option = BackendOption.all.first { $0.model == model || $0.model == "\(model).bin" }
-            if let option {
-                #expect(option.backend == "whisper", "\(model) should use whisper backend")
-            }
+    @Test("whisper models use whisper backend")
+    func whisperModelsBackend() {
+        let whisperOptions = BackendOption.all.filter { $0.backend == "whisper" }
+        for option in whisperOptions {
+            #expect(option.backend == "whisper", "\(option.label) should use whisper backend")
         }
     }
 
-    @Test("whisper models have ggml prefix")
-    func whisperModelsGgmlPrefix() {
+    @Test("whisper models use WhisperKit variant names")
+    func whisperModelsVariantNames() {
         let whisperOptions = BackendOption.all.filter { $0.backend == "whisper" }
         for option in whisperOptions {
-            #expect(option.model.hasPrefix("ggml-"), "\(option.label) model should start with ggml-")
+            // WhisperKit models should NOT have ggml- prefix (that was the old SwiftWhisper format)
+            #expect(!option.model.hasPrefix("ggml-"), "\(option.label) should not use ggml- prefix")
+            #expect(!option.model.hasSuffix(".bin"), "\(option.label) should not use .bin suffix")
         }
     }
 }

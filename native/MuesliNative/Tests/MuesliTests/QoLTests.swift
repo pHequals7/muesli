@@ -127,6 +127,22 @@ struct IndicatorFrameSizeTests {
             CGPoint(x: 1270, y: 450)
         )
     }
+
+    @Test("anchor centers respect fixed screen insets")
+    @MainActor
+    func anchorCentersUseExpectedInsets() {
+        let visibleFrame = NSRect(x: 100, y: 50, width: 1200, height: 800)
+        let size = NSSize(width: 44, height: 28)
+
+        #expect(
+            FloatingIndicatorController.anchorCenter(.topLeading, in: visibleFrame, size: size) ==
+            CGPoint(x: 130, y: 828)
+        )
+        #expect(
+            FloatingIndicatorController.anchorCenter(.bottomCenter, in: visibleFrame, size: size) ==
+            CGPoint(x: 700, y: 72)
+        )
+    }
 }
 
 // MARK: - OpenAI Logo Shape

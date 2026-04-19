@@ -6,19 +6,22 @@ import MuesliCore
 ///
 /// Matching stages (first match wins):
 /// 1. Exact case-insensitive match
-/// 2. Jaro-Winkler similarity > 0.85
+/// 2. Jaro-Winkler similarity >= the entry's configured threshold
 struct CustomWordMatcher {
 
     struct Entry {
         let word: String
         let replacement: String
+        let matchingThreshold: Double
     }
 
     /// Apply custom word replacements to transcribed text.
     static func apply(text: String, customWords: [CustomWord]) -> String {
         guard !text.isEmpty, !customWords.isEmpty else { return text }
 
-        let entries = customWords.map { Entry(word: $0.word, replacement: $0.targetWord) }
+        let entries = customWords.map {
+            Entry(word: $0.word, replacement: $0.targetWord, matchingThreshold: $0.matchingThreshold)
+        }
         let words = text.components(separatedBy: " ")
         var result: [String] = []
 
@@ -48,7 +51,7 @@ struct CustomWordMatcher {
 
                 // Stage 2: Jaro-Winkler similarity
                 let score = jaroWinklerSimilarity(wordLower, targetLower)
-                if score > 0.85 && score > bestScore {
+                if score >= entry.matchingThreshold && score > bestScore {
                     bestScore = score
                     bestMatch = entry.replacement
                 }

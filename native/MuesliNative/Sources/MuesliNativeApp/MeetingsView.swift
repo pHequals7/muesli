@@ -291,10 +291,29 @@ struct MeetingsView: View {
     @ViewBuilder
     private var comingUpSection: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing16) {
-            Text("Coming Up")
-                .font(.custom("Cormorant Garamond", size: 22).weight(.medium))
-                .foregroundStyle(MuesliTheme.textPrimary)
-                .padding(.bottom, 4)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Coming Up")
+                    .font(.custom("Cormorant Garamond", size: 22).weight(.medium))
+                    .foregroundStyle(MuesliTheme.textPrimary)
+
+                if appState.isGoogleCalendarAuthenticated {
+                    Button {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 9))
+                            Text("Add Google to macOS Calendar for real-time sync")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundStyle(MuesliTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.bottom, 4)
 
             let groups = groupedUpcomingEvents
             let lastGroupId = groups.last?.id
@@ -334,6 +353,25 @@ struct MeetingsView: View {
                                 }
 
                                 Spacer()
+
+                                if let meetingURL = event.meetingURL, !appState.isMeetingRecording {
+                                    Button {
+                                        controller.joinAndRecord(title: event.title, meetingURL: meetingURL, endDate: event.endDate)
+                                    } label: {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "video.fill")
+                                                .font(.system(size: 9))
+                                            Text("Join & Record")
+                                                .font(.system(size: 10, weight: .medium))
+                                        }
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color(nsColor: NSColor(red: 0.20, green: 0.72, blue: 0.53, alpha: 1.0)))
+                                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
 
                                 Menu {
                                     Button("All Meetings") {

@@ -39,6 +39,7 @@ final class AppState {
 
     // Config-driven state
     var selectedBackend: BackendOption = .whisper
+    var selectedMeetingTranscriptionBackend: BackendOption = .whisper
     var selectedMeetingSummaryBackend: MeetingSummaryBackendOption = .openAI
     var activePostProcessor: PostProcessorOption = PostProcessorOption.defaultOption
     var config: AppConfig = AppConfig()
@@ -57,6 +58,13 @@ final class AppState {
     var dictationFromDate: String? = nil
     var dictationToDate: String? = nil
     var hasMoreDictations: Bool = true
+
+    // Search
+    var searchQuery: String = ""
+    var searchResultDictations: [DictationRecord] = []
+    var searchResultMeetings: [MeetingRecord] = []
+    var focusSearchField: Bool = false
+    var isSearchActive: Bool { !searchQuery.isEmpty }
 
     // Navigation
     var selectedTab: DashboardTab = .dictations

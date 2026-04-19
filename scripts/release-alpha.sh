@@ -125,6 +125,7 @@ echo "y" | MUESLI_BUILD_VERSION="$VERSION" \
   MUESLI_BUNDLE_ID=com.muesli.canary \
   MUESLI_DISPLAY_NAME=MuesliCanary \
   MUESLI_SUPPORT_DIR_NAME=MuesliCanary \
+  MUESLI_SPARKLE_FEED_URL="" \
   "$ROOT/scripts/build_native_app.sh" > /dev/null
 echo "  Installed to $APP_DIR"
 

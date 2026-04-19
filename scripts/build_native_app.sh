@@ -69,6 +69,12 @@ done
 # Bundle assets
 cp "$ROOT/assets/menu_m_template.png" "$STAGED_APP_DIR/Contents/Resources/menu_m_template.png"
 cp "$ROOT/assets/muesli.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
+cp "$ROOT/assets/zoom-app.png" "$STAGED_APP_DIR/Contents/Resources/zoom-app.png"
+cp "$ROOT/assets/Google_Meet_icon_(2020).svg.png" "$STAGED_APP_DIR/Contents/Resources/google-meet.png"
+cp "$ROOT/assets/Nvidia_logo.svg.png" "$STAGED_APP_DIR/Contents/Resources/nvidia-logo.png"
+cp "$ROOT/assets/OpenAI_Logo.svg.png" "$STAGED_APP_DIR/Contents/Resources/openai-logo.png"
+cp "$ROOT/assets/cohere.png" "$STAGED_APP_DIR/Contents/Resources/cohere-logo.png"
+cp "$ROOT/assets/Qwen_logo.svg.png" "$STAGED_APP_DIR/Contents/Resources/qwen-logo.png"
 if [[ -d "$ROOT/assets/fonts" ]]; then
   ditto "$ROOT/assets/fonts" "$STAGED_APP_DIR/Contents/Resources/fonts"
 fi
@@ -88,9 +94,9 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleVersion</key>
-  <string>${MUESLI_BUILD_VERSION:-0.5.5}</string>
+  <string>0.5.6</string>
   <key>CFBundleShortVersionString</key>
-  <string>${MUESLI_BUILD_VERSION:-0.5.5}</string>
+  <string>0.5.6</string>
   <key>CFBundleExecutable</key>
   <string>$APP_EXECUTABLE_NAME</string>
   <key>CFBundlePackageType</key>
@@ -112,7 +118,7 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>$APP_DISPLAY_NAME reads calendar events to help with meeting recordings.</string>
   <key>SUFeedURL</key>
-  <string>https://pHequals7.github.io/muesli/appcast.xml</string>
+  <string>${MUESLI_SPARKLE_FEED_URL:-https://pHequals7.github.io/muesli/appcast.xml}</string>
   <key>SUPublicEDKey</key>
   <string>${MUESLI_SPARKLE_EDKEY:-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}</string>
   <key>SUEnableAutomaticChecks</key>
