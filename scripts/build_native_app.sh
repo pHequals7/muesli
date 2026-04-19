@@ -71,6 +71,10 @@ cp "$ROOT/assets/menu_m_template.png" "$STAGED_APP_DIR/Contents/Resources/menu_m
 cp "$ROOT/assets/muesli.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
 cp "$ROOT/assets/zoom-app.png" "$STAGED_APP_DIR/Contents/Resources/zoom-app.png"
 cp "$ROOT/assets/Google_Meet_icon_(2020).svg.png" "$STAGED_APP_DIR/Contents/Resources/google-meet.png"
+cp "$ROOT/assets/Nvidia_logo.svg.png" "$STAGED_APP_DIR/Contents/Resources/nvidia-logo.png"
+cp "$ROOT/assets/OpenAI_Logo.svg.png" "$STAGED_APP_DIR/Contents/Resources/openai-logo.png"
+cp "$ROOT/assets/cohere.png" "$STAGED_APP_DIR/Contents/Resources/cohere-logo.png"
+cp "$ROOT/assets/Qwen_logo.svg.png" "$STAGED_APP_DIR/Contents/Resources/qwen-logo.png"
 if [[ -d "$ROOT/assets/fonts" ]]; then
   ditto "$ROOT/assets/fonts" "$STAGED_APP_DIR/Contents/Resources/fonts"
 fi
