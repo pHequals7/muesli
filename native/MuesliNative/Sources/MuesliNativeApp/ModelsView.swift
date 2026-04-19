@@ -223,7 +223,8 @@ struct ModelsView: View {
         let progress = downloadProgressPostProc[option.id] ?? 0
 
         return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
+                brandLogo("qwen-logo")
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
                     HStack(spacing: MuesliTheme.spacing8) {
                         Text(option.label)
