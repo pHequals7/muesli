@@ -16,8 +16,14 @@ struct SidebarView: View {
     @State private var showDeleteConfirmation = false
     @State private var draggingFolderID: Int64?
     @State private var dragOrderedFolders: [MeetingFolder]?
-    @State private var searchText: String = ""
     @FocusState private var isSearchFieldFocused: Bool
+
+    private var searchTextBinding: Binding<String> {
+        Binding(
+            get: { appState.searchQuery },
+            set: { controller.performSearch(query: $0) }
+        )
+    }
 
     private var userName: String {
         appState.config.userName
@@ -117,17 +123,13 @@ struct SidebarView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12))
                 .foregroundStyle(MuesliTheme.textTertiary)
-            TextField("Search...", text: $searchText)
+            TextField("Search...", text: searchTextBinding)
                 .textFieldStyle(.plain)
                 .font(MuesliTheme.callout())
                 .foregroundStyle(MuesliTheme.textPrimary)
                 .focused($isSearchFieldFocused)
-                .onChange(of: searchText) { _, newValue in
-                    controller.performSearch(query: newValue)
-                }
-            if !searchText.isEmpty {
+            if !appState.searchQuery.isEmpty {
                 Button {
-                    searchText = ""
                     controller.clearSearch()
                     isSearchFieldFocused = false
                 } label: {

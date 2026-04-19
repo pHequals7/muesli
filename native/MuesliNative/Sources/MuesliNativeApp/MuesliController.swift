@@ -426,12 +426,16 @@ final class MuesliController: NSObject {
             appState.searchResultMeetings = []
             return
         }
+        let store = self.dictationStore
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled, let self else { return }
-            let dictations = (try? self.dictationStore.searchDictations(query: trimmed)) ?? []
-            let meetings = (try? self.dictationStore.searchMeetings(query: trimmed)) ?? []
             guard !Task.isCancelled else { return }
+            let (dictations, meetings) = await Task.detached(priority: .userInitiated) {
+                let d = (try? store.searchDictations(query: trimmed)) ?? []
+                let m = (try? store.searchMeetings(query: trimmed)) ?? []
+                return (d, m)
+            }.value
+            guard !Task.isCancelled, let self else { return }
             self.appState.searchResultDictations = dictations
             self.appState.searchResultMeetings = meetings
         }

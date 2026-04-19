@@ -262,10 +262,7 @@ private struct SearchMeetingRow: View {
 private func snippetText(from text: String, highlighting query: String) -> Text {
     guard !query.isEmpty else { return Text(text) }
 
-    let lower = text.lowercased()
-    let queryLower = query.lowercased()
-
-    guard let matchRange = lower.range(of: queryLower) else {
+    guard let matchRange = text.range(of: query, options: .caseInsensitive) else {
         let truncated = text.count > 120 ? String(text.prefix(120)) + "..." : text
         return Text(truncated).foregroundStyle(MuesliTheme.textSecondary)
     }
@@ -274,15 +271,15 @@ private func snippetText(from text: String, highlighting query: String) -> Text 
     let contextChars = 60
     let snippetStart = max(0, matchStart - contextChars)
     let snippetStartIndex = text.index(text.startIndex, offsetBy: snippetStart)
-    let snippetEnd = min(text.count, matchStart + query.count + contextChars)
+    let matchEnd = text.distance(from: text.startIndex, to: matchRange.upperBound)
+    let snippetEnd = min(text.count, matchEnd + contextChars)
     let snippetEndIndex = text.index(text.startIndex, offsetBy: snippetEnd)
     let snippet = String(text[snippetStartIndex..<snippetEndIndex])
 
     let prefix = snippetStart > 0 ? "..." : ""
     let suffix = snippetEnd < text.count ? "..." : ""
 
-    let snippetLower = snippet.lowercased()
-    guard let localRange = snippetLower.range(of: queryLower) else {
+    guard let localRange = snippet.range(of: query, options: .caseInsensitive) else {
         return Text(prefix + snippet + suffix).foregroundStyle(MuesliTheme.textSecondary)
     }
 

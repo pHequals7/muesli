@@ -300,6 +300,14 @@ public final class DictationStore {
         return makeMeetingRecord(statement)
     }
 
+    private static func escapeLikePattern(_ query: String) -> String {
+        let escaped = query
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+        return "%\(escaped)%"
+    }
+
     public func searchDictations(query: String, limit: Int = 50) throws -> [DictationRecord] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
@@ -307,7 +315,7 @@ public final class DictationStore {
         let sql = """
         SELECT id, timestamp, duration_seconds, raw_text, app_context, word_count
         FROM dictations
-        WHERE raw_text LIKE ? OR app_context LIKE ?
+        WHERE raw_text LIKE ? ESCAPE '\\' OR app_context LIKE ? ESCAPE '\\'
         ORDER BY id DESC
         LIMIT ?
         """
@@ -316,7 +324,7 @@ public final class DictationStore {
             throw lastError(db)
         }
         defer { sqlite3_finalize(statement) }
-        let pattern = "%\(query)%" as NSString
+        let pattern = Self.escapeLikePattern(query) as NSString
         sqlite3_bind_text(statement, 1, pattern.utf8String, -1, nil)
         sqlite3_bind_text(statement, 2, pattern.utf8String, -1, nil)
         sqlite3_bind_int(statement, 3, Int32(limit))
@@ -344,7 +352,7 @@ public final class DictationStore {
         let sql = """
         SELECT id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
         FROM meetings
-        WHERE title LIKE ? OR raw_transcript LIKE ? OR formatted_notes LIKE ?
+        WHERE title LIKE ? ESCAPE '\\' OR raw_transcript LIKE ? ESCAPE '\\' OR formatted_notes LIKE ? ESCAPE '\\'
         ORDER BY id DESC
         LIMIT ?
         """
@@ -353,7 +361,7 @@ public final class DictationStore {
             throw lastError(db)
         }
         defer { sqlite3_finalize(statement) }
-        let pattern = "%\(query)%" as NSString
+        let pattern = Self.escapeLikePattern(query) as NSString
         sqlite3_bind_text(statement, 1, pattern.utf8String, -1, nil)
         sqlite3_bind_text(statement, 2, pattern.utf8String, -1, nil)
         sqlite3_bind_text(statement, 3, pattern.utf8String, -1, nil)
