@@ -416,18 +416,30 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
     /// starting a CoreAudio tap recording. Per Apple docs, the system prompts
     /// "the first time you start recording from an aggregate device that
     /// contains a tap" — but only if `NSAudioCaptureUsageDescription` is in
-    /// Info.plist. Waits up to 10s for the user to respond to the dialog.
-    static func requestSystemAudioAccess() async {
+    /// Info.plist. Polls for permission for a short period so first-run users
+    /// have time to respond before we fall back to Settings.
+    @discardableResult
+    static func requestSystemAudioAccess(timeout: Duration = .seconds(12)) async -> Bool {
         let recorder = CoreAudioSystemRecorder()
+        let pollInterval = Duration.milliseconds(300)
         do {
             try await recorder.start()
-            // Wait long enough for the user to interact with the permission dialog.
-            // The dialog blocks audio capture until dismissed.
-            try? await Task.sleep(for: .seconds(3))
         } catch {
             fputs("[system-audio] permission request failed: \(error)\n", stderr)
         }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now + timeout
+        while clock.now < deadline {
+            if checkSystemAudioPermission() {
+                _ = recorder.stop()
+                return true
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+
         _ = recorder.stop()
+        return checkSystemAudioPermission()
     }
 
     /// Open System Settings to the Screen & System Audio pane where the user

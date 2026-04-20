@@ -1366,30 +1366,13 @@ final class MuesliController: NSObject {
         micActivityMonitor.suppressWhileActive()
         micActivityMonitor.refreshState()
         updateMeetingNotificationVisibility()
-        let meetingSession = MeetingSession(
-            title: title,
-            calendarEventID: nil,
-            backend: selectedMeetingTranscriptionBackend,
-            runtime: runtime,
-            config: config,
-            transcriptionCoordinator: transcriptionCoordinator
-        )
         statusBarController?.setStatus("Starting meeting: \(title)")
         statusBarController?.refresh()
 
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await meetingSession.start()
-                self.activeMeetingSession = meetingSession
-                self.micActivityMonitor.suppressWhileActive()
-                self.micActivityMonitor.refreshState()
-                self.statusBarController?.setStatus("Meeting: \(title)")
-                self.indicator.powerProvider = { [weak meetingSession] in
-                    meetingSession?.currentPower() ?? -160
-                }
-                self.indicator.setMeetingRecording(true, config: self.config)
-                self.statusBarController?.refresh()
+                try await self.startMeetingRecordingWithSystemAudioRecovery(title: title)
             } catch {
                 fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
                 self.micActivityMonitor.resumeAfterCooldown()
@@ -1417,6 +1400,52 @@ final class MuesliController: NSObject {
             }
             self.isStartingMeetingRecording = false
             self.updateMeetingNotificationVisibility()
+        }
+    }
+
+    private func startMeetingRecordingWithSystemAudioRecovery(title: String) async throws {
+        var shouldRetryAfterPermissionRequest = config.useCoreAudioTap
+
+        while true {
+            let meetingSession = MeetingSession(
+                title: title,
+                calendarEventID: nil,
+                backend: selectedMeetingTranscriptionBackend,
+                runtime: runtime,
+                config: config,
+                transcriptionCoordinator: transcriptionCoordinator
+            )
+
+            do {
+                try await meetingSession.start()
+                activeMeetingSession = meetingSession
+                micActivityMonitor.suppressWhileActive()
+                micActivityMonitor.refreshState()
+                statusBarController?.setStatus("Meeting: \(title)")
+                indicator.powerProvider = { [weak meetingSession] in
+                    meetingSession?.currentPower() ?? -160
+                }
+                indicator.setMeetingRecording(true, config: config)
+                statusBarController?.refresh()
+                return
+            } catch {
+                guard shouldRetryAfterPermissionRequest,
+                      case .tapCreationFailed = error as? CoreAudioSystemRecorder.RecorderError else {
+                    throw error
+                }
+
+                shouldRetryAfterPermissionRequest = false
+                meetingSession.discard()
+                statusBarController?.setStatus("Requesting system audio permission...")
+                statusBarController?.refresh()
+                let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
+                if granted {
+                    statusBarController?.setStatus("Retrying meeting start...")
+                    statusBarController?.refresh()
+                    continue
+                }
+                throw error
+            }
         }
     }
 

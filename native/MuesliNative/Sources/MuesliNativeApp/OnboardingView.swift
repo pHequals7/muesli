@@ -23,7 +23,6 @@ struct OnboardingView: View {
     @State private var screenRecordingGranted = false
     @State private var systemAudioGranted = false
     @State private var permissionPollTimer: Timer?
-    @State private var isCheckingSystemAudioPermission = false
     @State private var grantingPermissionName: String?
     @State private var recentlyGrantedPermissionName: String?
 
@@ -67,7 +66,7 @@ struct OnboardingView: View {
         let initialAccessibilityGranted = AXIsProcessTrusted()
         let initialInputMonitoringGranted = CGPreflightListenEventAccess()
         let initialScreenRecordingGranted = CGPreflightScreenCaptureAccess()
-        let initialSystemAudioGranted = initialSystemAudioRequested || CoreAudioSystemRecorder.checkSystemAudioPermission()
+        let initialSystemAudioGranted = initialSystemAudioRequested
         let initialPermissionsGranted = initialMicGranted
             && initialAccessibilityGranted
             && initialInputMonitoringGranted
@@ -397,8 +396,14 @@ struct OnboardingView: View {
         if appState.config.useCoreAudioTap {
             steps.append(("speaker.wave.2.fill", "System Audio", "Capture meeting audio from other participants", systemAudioGranted, {
                 Task {
-                    await CoreAudioSystemRecorder.requestSystemAudioAccess()
-                    await resolveSystemAudioPermissionAfterRequest()
+                    let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
+                    await MainActor.run {
+                        self.systemAudioGranted = granted
+                        if granted {
+                            self.notePermissionGranted("System Audio")
+                        }
+                        self.saveProgress(atStep: self.currentStep)
+                    }
                 }
             }))
             steps.append(("rectangle.dashed.badge.record", "Screen Recording", "Capture screen content for richer meeting context", screenRecordingGranted, {
@@ -614,41 +619,9 @@ struct OnboardingView: View {
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
-        refreshSystemAudioPermissionIfNeeded()
 
         if let grantingPermissionName, isPermissionGranted(named: grantingPermissionName) {
             notePermissionGranted(grantingPermissionName)
-        }
-    }
-
-    private func refreshSystemAudioPermissionIfNeeded() {
-        guard appState.config.useCoreAudioTap, !isCheckingSystemAudioPermission else { return }
-        isCheckingSystemAudioPermission = true
-
-        Task {
-            let granted = await Task.detached(priority: .utility) {
-                CoreAudioSystemRecorder.checkSystemAudioPermission()
-            }.value
-            await MainActor.run {
-                self.systemAudioGranted = granted
-                self.isCheckingSystemAudioPermission = false
-                if let grantingPermissionName, self.isPermissionGranted(named: grantingPermissionName) {
-                    self.notePermissionGranted(grantingPermissionName)
-                }
-            }
-        }
-    }
-
-    private func resolveSystemAudioPermissionAfterRequest() async {
-        let granted = await Task.detached(priority: .utility) {
-            CoreAudioSystemRecorder.checkSystemAudioPermission()
-        }.value
-        await MainActor.run {
-            self.systemAudioGranted = granted
-            if granted {
-                self.notePermissionGranted("System Audio")
-            }
-            self.saveProgress(atStep: self.currentStep)
         }
     }
 
