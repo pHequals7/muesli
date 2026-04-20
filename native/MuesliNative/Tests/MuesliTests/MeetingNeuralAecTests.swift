@@ -7,7 +7,9 @@ struct MeetingNeuralAecTests {
 
     @Test("bundle candidates prefer Contents/Resources in packaged apps")
     func candidateURLsPreferResourceDirectory() throws {
-        let appBundle = try makeTemporaryAppBundle()
+        let fixture = try makeTemporaryAppBundle()
+        defer { fixture.cleanup() }
+        let appBundle = fixture.bundle
         let candidates = MeetingAecModelBundle.candidateURLs(mainBundle: appBundle)
 
         #expect(candidates.count >= 2)
@@ -19,7 +21,9 @@ struct MeetingNeuralAecTests {
 
     @Test("resolver loads packaged app bundle from Contents/Resources")
     func resolverLoadsResourceBundle() throws {
-        let appBundle = try makeTemporaryAppBundle()
+        let fixture = try makeTemporaryAppBundle()
+        defer { fixture.cleanup() }
+        let appBundle = fixture.bundle
         let resourceBundleURL = try createResourceBundle(
             at: appBundle.resourceURL!.appendingPathComponent(MeetingAecModelBundle.bundleName, isDirectory: true)
         )
@@ -31,7 +35,9 @@ struct MeetingNeuralAecTests {
 
     @Test("resolver falls back to app-root bundle when needed")
     func resolverFallsBackToBundleRoot() throws {
-        let appBundle = try makeTemporaryAppBundle()
+        let fixture = try makeTemporaryAppBundle()
+        defer { fixture.cleanup() }
+        let appBundle = fixture.bundle
         let rootBundleURL = try createResourceBundle(
             at: appBundle.bundleURL.appendingPathComponent(MeetingAecModelBundle.bundleName, isDirectory: true)
         )
@@ -41,7 +47,7 @@ struct MeetingNeuralAecTests {
         #expect(resolved.bundleURL.standardizedFileURL == rootBundleURL.standardizedFileURL)
     }
 
-    private func makeTemporaryAppBundle() throws -> Bundle {
+    private func makeTemporaryAppBundle() throws -> TemporaryAppBundle {
         let appURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("meeting-aec-\(UUID().uuidString)", isDirectory: true)
             .appendingPathExtension("app")
@@ -71,12 +77,22 @@ struct MeetingNeuralAecTests {
         """
         try plist.write(to: contentsURL.appendingPathComponent("Info.plist"), atomically: true, encoding: .utf8)
 
-        return try #require(Bundle(url: appURL))
+        let bundle = try #require(Bundle(url: appURL))
+        return TemporaryAppBundle(url: appURL, bundle: bundle)
     }
 
     private func createResourceBundle(at url: URL) throws -> URL {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         try "{}".write(to: url.appendingPathComponent("Manifest.json"), atomically: true, encoding: .utf8)
         return url
+    }
+}
+
+private struct TemporaryAppBundle {
+    let url: URL
+    let bundle: Bundle
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: url)
     }
 }

@@ -1429,11 +1429,13 @@ final class MuesliController: NSObject {
                 statusBarController?.refresh()
                 return
             } catch {
-                guard shouldRetryAfterPermissionRequest, error is CoreAudioSystemRecorder.RecorderError else {
+                guard shouldRetryAfterPermissionRequest,
+                      case .tapCreationFailed = error as? CoreAudioSystemRecorder.RecorderError else {
                     throw error
                 }
 
                 shouldRetryAfterPermissionRequest = false
+                meetingSession.discard()
                 statusBarController?.setStatus("Requesting system audio permission...")
                 statusBarController?.refresh()
                 let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
