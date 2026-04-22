@@ -8,6 +8,7 @@ import MuesliCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: MuesliController?
     private(set) var updaterController: SPUStandardUpdaterController?
+    private let updateFailureGuidancePresenter = UpdateFailureGuidancePresenter()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let telemetryConfig = TelemetryDeck.Config(appID: "7F2B7846-1CB5-4FE6-8ABC-56F217B06A86")
@@ -16,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: nil,
+            updaterDelegate: updateFailureGuidancePresenter,
             userDriverDelegate: nil
         )
 
@@ -41,5 +42,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         controller?.shutdown()
+    }
+}
+
+@MainActor
+final class UpdateFailureGuidancePresenter: NSObject, SPUUpdaterDelegate {
+    private var lastPresentedAt: Date?
+
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        let nsError = error as NSError
+        guard UpdateFailureGuidance.shouldShowFallback(for: nsError) else { return }
+
+        // Sparkle shows its own error alert first. Present this shortly after so
+        // users get a concrete recovery path instead of only the generic failure.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.showManualInstallGuidance()
+        }
+    }
+
+    private func showManualInstallGuidance() {
+        if let lastPresentedAt, Date().timeIntervalSince(lastPresentedAt) < 60 {
+            return
+        }
+        lastPresentedAt = Date()
+
+        let alert = NSAlert()
+        alert.messageText = "Update did not finish"
+        alert.informativeText = UpdateFailureGuidance.message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open Download Page")
+        alert.addButton(withTitle: "OK")
+
+        if alert.runModal() == .alertFirstButtonReturn,
+           let url = URL(string: UpdateFailureGuidance.downloadPageURLString) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+enum UpdateFailureGuidance {
+    static let downloadPageURLString = "https://phequals7.github.io/muesli/"
+
+    static let message = """
+    Please quit Muesli, reopen it from Applications, and try the update once more.
+
+    If this keeps happening, download the latest DMG and replace Muesli manually. This usually means macOS blocked the local updater from replacing the app, not that the download failed.
+    """
+
+    static func shouldShowFallback(for error: NSError) -> Bool {
+        guard error.domain == SUSparkleErrorDomain else { return false }
+
+        let installStageCodes: Set<Int> = [
+            3002, // SUValidationError
+            4000, // SUFileCopyFailure
+            4001, // SUAuthenticationFailure
+            4002, // SUMissingUpdateError
+            4003, // SUMissingInstallerToolError
+            4004, // SURelaunchError
+            4005, // SUInstallationError
+            4009, // SUNotValidUpdateError
+            4010, // SUAgentInvalidationError
+            4012, // SUInstallationWriteNoPermissionError
+        ]
+
+        return installStageCodes.contains(error.code)
     }
 }

@@ -120,6 +120,11 @@ This checklist is for **verification** after the script runs, and for manual rec
 
 - [ ] **Update download link** in `docs/index.html` (both the `<a>` href and JSON-LD `downloadUrl`)
 
+- [ ] **Verify Sparkle update flow metadata and artifact:**
+  ```bash
+  scripts/verify_update_flow.sh --version X.Y.Z --dmg dist-release/Muesli-X.Y.Z.dmg --require-notarized
+  ```
+
 - [ ] **Push appcast + download link:**
   ```bash
   git add docs/appcast.xml docs/index.html

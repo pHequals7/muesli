@@ -377,6 +377,12 @@ perl -0pi -e 's{^\h*<enclosure\b[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>\n}{}mg' 
 sed -i '' "s|https://github.com/pHequals7/muesli/releases/download/[^\"]*\\.dmg|$DOWNLOAD_URL|g" "$ROOT/docs/index.html"
 sed -i '' "s|https://github.com/pHequals7/muesli/releases/download/.*\\.dmg|$DOWNLOAD_URL|g" "$ROOT/docs/llms.txt"
 
+echo "  Verifying Sparkle update flow metadata..."
+"$ROOT/scripts/verify_update_flow.sh" \
+  --version "$VERSION" \
+  --dmg "$DMG_PATH" \
+  --require-notarized
+
 git add docs/appcast.xml docs/index.html docs/llms.txt
 if git diff --cached --quiet; then
   echo "  No docs changes to commit."
