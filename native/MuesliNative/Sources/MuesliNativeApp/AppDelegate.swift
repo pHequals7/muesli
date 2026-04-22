@@ -53,9 +53,10 @@ final class UpdateFailureGuidancePresenter: NSObject, SPUUpdaterDelegate {
         let nsError = error as NSError
         guard UpdateFailureGuidance.shouldShowFallback(for: nsError) else { return }
 
-        // Sparkle shows its own error alert first. Present this shortly after so
-        // users get a concrete recovery path instead of only the generic failure.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        // Sparkle shows its own error alert first. Delay briefly so this
+        // recovery path appears after the generic updater failure alert.
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
             self?.showManualInstallGuidance()
         }
     }
@@ -93,7 +94,6 @@ enum UpdateFailureGuidance {
         guard error.domain == SUSparkleErrorDomain else { return false }
 
         let installStageCodes: Set<Int> = [
-            3002, // SUValidationError
             4000, // SUFileCopyFailure
             4001, // SUAuthenticationFailure
             4002, // SUMissingUpdateError

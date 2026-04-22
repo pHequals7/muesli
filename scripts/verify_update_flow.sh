@@ -98,6 +98,8 @@ if not version:
     raise SystemExit("ERROR: latest appcast item is missing sparkle:version")
 if not short_version:
     raise SystemExit("ERROR: latest appcast item is missing sparkle:shortVersionString")
+# Muesli deliberately uses the marketing version as CFBundleVersion too, so
+# The Sparkle appcast version and shortVersionString should remain identical.
 if version != short_version:
     raise SystemExit(f"ERROR: latest appcast version mismatch: {version} != {short_version}")
 if expected_version and version != expected_version:
@@ -151,6 +153,8 @@ for key, value in {
     print(f"{key}={shlex.quote(value)}")
 PY
 )"
+# The Python emitter shell-quotes every value with shlex.quote before printing
+# KEY=value lines, so eval only imports validated scalar appcast metadata.
 eval "$APPCAST_METADATA"
 
 echo "Appcast OK: v${APPCAST_VERSION}"
@@ -188,6 +192,7 @@ echo "DMG length OK: $DMG_LENGTH bytes"
 
 MOUNT_POINT=""
 SWIFT_VERIFY_FILE=""
+HDIUTIL_ATTACH_LOG=""
 cleanup() {
   if [[ -n "$MOUNT_POINT" ]]; then
     hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null || true
@@ -195,10 +200,19 @@ cleanup() {
   if [[ -n "$SWIFT_VERIFY_FILE" && -f "$SWIFT_VERIFY_FILE" ]]; then
     rm -f "$SWIFT_VERIFY_FILE"
   fi
+  if [[ -n "$HDIUTIL_ATTACH_LOG" && -f "$HDIUTIL_ATTACH_LOG" ]]; then
+    rm -f "$HDIUTIL_ATTACH_LOG"
+  fi
 }
 trap cleanup EXIT
 
-MOUNT_POINT="$(hdiutil attach "$DMG_PATH" -nobrowse -readonly 2>&1 | awk -F'\t' '/\/Volumes\// {print $NF; exit}')"
+HDIUTIL_ATTACH_LOG="$(mktemp -t muesli-hdiutil-attach.XXXXXX.log)"
+if ! ATTACH_OUTPUT="$(hdiutil attach "$DMG_PATH" -nobrowse -readonly 2>"$HDIUTIL_ATTACH_LOG")"; then
+  cat "$HDIUTIL_ATTACH_LOG" >&2
+  echo "ERROR: Could not mount DMG: $DMG_PATH" >&2
+  exit 1
+fi
+MOUNT_POINT="$(printf '%s\n' "$ATTACH_OUTPUT" | awk -F'\t' '/\/Volumes\// {print $NF; exit}')"
 if [[ -z "$MOUNT_POINT" ]]; then
   echo "ERROR: Could not mount DMG: $DMG_PATH" >&2
   exit 1
@@ -237,18 +251,30 @@ cat > "$SWIFT_VERIFY_FILE" <<'SWIFT'
 import CryptoKit
 import Foundation
 
+func fail(_ message: String) -> Never {
+    fputs("ERROR: \(message)\n", stderr)
+    exit(1)
+}
+
 guard CommandLine.arguments.count == 4 else {
-    fatalError("usage: verifier <public-key-base64> <signature-base64> <file>")
+    fail("usage: verifier <public-key-base64> <signature-base64> <file>")
 }
 
 guard let publicKeyData = Data(base64Encoded: CommandLine.arguments[1]),
       let signature = Data(base64Encoded: CommandLine.arguments[2]) else {
-    fatalError("invalid base64 input")
+    fail("invalid base64 input")
 }
 
 let fileURL = URL(fileURLWithPath: CommandLine.arguments[3])
-let payload = try Data(contentsOf: fileURL, options: .mappedIfSafe)
-let publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData)
+let payload: Data
+let publicKey: Curve25519.Signing.PublicKey
+
+do {
+    payload = try Data(contentsOf: fileURL, options: .mappedIfSafe)
+    publicKey = try Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData)
+} catch {
+    fail("\(error)")
+}
 
 if !publicKey.isValidSignature(signature, for: payload) {
     fputs("ERROR: appcast edSignature does not verify against app SUPublicEDKey\n", stderr)
@@ -265,12 +291,19 @@ if ! APP_CODESIGN_RESULT="$(codesign --verify --deep --strict --verbose=2 "$APP_
 fi
 echo "App code signature OK."
 
-DMG_FLAGS="$(codesign -dvvv "$DMG_PATH" 2>&1 || true)"
-if ! echo "$DMG_FLAGS" | grep -q "runtime"; then
-  echo "ERROR: DMG is missing hardened runtime flag." >&2
+APP_SIGNATURE_DETAILS="$(codesign -dvvv "$APP_PATH" 2>&1)"
+if ! echo "$APP_SIGNATURE_DETAILS" | grep -q "flags=.*runtime"; then
+  echo "$APP_SIGNATURE_DETAILS" >&2
+  echo "ERROR: app bundle is missing hardened runtime flag." >&2
   exit 1
 fi
-echo "DMG hardened runtime OK."
+echo "App hardened runtime OK."
+
+if ! DMG_CODESIGN_RESULT="$(codesign --verify --strict --verbose=2 "$DMG_PATH" 2>&1)"; then
+  echo "$DMG_CODESIGN_RESULT" >&2
+  exit 1
+fi
+echo "DMG code signature OK."
 
 if [[ "$REQUIRE_NOTARIZED" == "1" ]]; then
   APP_SPCTL_RESULT="$(spctl -a -vv "$APP_PATH" 2>&1)"
@@ -280,9 +313,8 @@ if [[ "$REQUIRE_NOTARIZED" == "1" ]]; then
     exit 1
   fi
 
-  APP_STAPLE_RESULT="$(xcrun stapler validate "$APP_PATH" 2>&1)"
-  echo "$APP_STAPLE_RESULT"
-  if ! echo "$APP_STAPLE_RESULT" | grep -q "worked"; then
+  echo "Validating app staple..."
+  if ! xcrun stapler validate "$APP_PATH"; then
     echo "ERROR: app inside DMG does not have a valid staple." >&2
     exit 1
   fi
@@ -294,9 +326,8 @@ if [[ "$REQUIRE_NOTARIZED" == "1" ]]; then
     exit 1
   fi
 
-  DMG_STAPLE_RESULT="$(xcrun stapler validate "$DMG_PATH" 2>&1)"
-  echo "$DMG_STAPLE_RESULT"
-  if ! echo "$DMG_STAPLE_RESULT" | grep -q "worked"; then
+  echo "Validating DMG staple..."
+  if ! xcrun stapler validate "$DMG_PATH"; then
     echo "ERROR: DMG does not have a valid staple." >&2
     exit 1
   fi
