@@ -315,7 +315,9 @@ fi
 echo "DMG code signature OK."
 
 if [[ "$REQUIRE_NOTARIZED" == "1" ]]; then
-  APP_SPCTL_RESULT="$(spctl -a -vv "$APP_PATH" 2>&1)"
+  if ! APP_SPCTL_RESULT="$(spctl -a -vv "$APP_PATH" 2>&1)"; then
+    :
+  fi
   echo "$APP_SPCTL_RESULT"
   if ! echo "$APP_SPCTL_RESULT" | grep -q "accepted"; then
     echo "ERROR: app inside DMG was rejected by Gatekeeper." >&2
@@ -328,7 +330,9 @@ if [[ "$REQUIRE_NOTARIZED" == "1" ]]; then
     exit 1
   fi
 
-  DMG_SPCTL_RESULT="$(spctl -a -vv -t open --context context:primary-signature "$DMG_PATH" 2>&1)"
+  if ! DMG_SPCTL_RESULT="$(spctl -a -vv -t open --context context:primary-signature "$DMG_PATH" 2>&1)"; then
+    :
+  fi
   echo "$DMG_SPCTL_RESULT"
   if ! echo "$DMG_SPCTL_RESULT" | grep -q "accepted"; then
     echo "ERROR: DMG was rejected by Gatekeeper." >&2
