@@ -87,7 +87,7 @@ enum UpdateFailureGuidance {
     static let message = """
     Please quit Muesli, reopen it from Applications, and try the update once more.
 
-    If this keeps happening, download the latest DMG and replace Muesli manually. This usually means macOS blocked the local updater from replacing the app, not that the download failed.
+    If this keeps happening, download the latest DMG and replace Muesli manually. This can happen when the local updater cannot finish preparing or replacing the app.
     """
 
     static func shouldShowFallback(for error: NSError) -> Bool {

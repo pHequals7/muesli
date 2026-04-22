@@ -17,7 +17,7 @@ struct UpdateFailureGuidanceTests {
 
     @Test(
         "does not show fallback for non-install Sparkle errors",
-        arguments: [1001, 3001, 3002, 4011]
+        arguments: [1001, 3001, 3002, 4006, 4007, 4008, 4011]
     )
     func hidesFallbackForNonInstallSparkleErrors(code: Int) {
         let error = NSError(domain: SUSparkleErrorDomain, code: code)

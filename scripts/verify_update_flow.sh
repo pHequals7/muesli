@@ -64,7 +64,7 @@ if [[ ! -f "$APPCAST" ]]; then
   exit 1
 fi
 
-APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" <<'PY'
+if ! APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" <<'PY'
 import base64
 import re
 import shlex
@@ -110,6 +110,8 @@ if enclosure is None:
 url = enclosure.attrib.get("url", "")
 length = enclosure.attrib.get("length", "")
 signature = enclosure.attrib.get(f"{{{sparkle_ns}}}edSignature", "")
+if not signature:
+    raise SystemExit("ERROR: latest appcast enclosure is missing sparkle:edSignature")
 
 expected_url = f"https://github.com/pHequals7/muesli/releases/download/v{version}/Muesli-{version}.dmg"
 if url != expected_url:
@@ -152,7 +154,9 @@ for key, value in {
 }.items():
     print(f"{key}={shlex.quote(value)}")
 PY
-)"
+)"; then
+  exit 1
+fi
 # The Python emitter shell-quotes every value with shlex.quote before printing
 # KEY=value lines, so eval only imports validated scalar appcast metadata.
 eval "$APPCAST_METADATA"
@@ -214,6 +218,7 @@ if ! ATTACH_OUTPUT="$(hdiutil attach "$DMG_PATH" -nobrowse -readonly 2>"$HDIUTIL
 fi
 MOUNT_POINT="$(printf '%s\n' "$ATTACH_OUTPUT" | awk -F'\t' '/\/Volumes\// {print $NF; exit}')"
 if [[ -z "$MOUNT_POINT" ]]; then
+  cat "$HDIUTIL_ATTACH_LOG" >&2
   echo "ERROR: Could not mount DMG: $DMG_PATH" >&2
   exit 1
 fi
@@ -291,7 +296,11 @@ if ! APP_CODESIGN_RESULT="$(codesign --verify --deep --strict --verbose=2 "$APP_
 fi
 echo "App code signature OK."
 
-APP_SIGNATURE_DETAILS="$(codesign -dvvv "$APP_PATH" 2>&1)"
+if ! APP_SIGNATURE_DETAILS="$(codesign -dvvv "$APP_PATH" 2>&1)"; then
+  echo "$APP_SIGNATURE_DETAILS" >&2
+  echo "ERROR: codesign failed for app bundle; app may be unsigned." >&2
+  exit 1
+fi
 if ! echo "$APP_SIGNATURE_DETAILS" | grep -q "flags=.*runtime"; then
   echo "$APP_SIGNATURE_DETAILS" >&2
   echo "ERROR: app bundle is missing hardened runtime flag." >&2
