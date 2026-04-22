@@ -103,6 +103,7 @@ enum UpdateFailureGuidance {
             4009, // SUNotValidUpdateError
             4010, // SUAgentInvalidationError
             4012, // SUInstallationWriteNoPermissionError
+            4013, // SUInstallationTranslocationError
         ]
 
         return installStageCodes.contains(error.code)

@@ -7,7 +7,7 @@ import Testing
 struct UpdateFailureGuidanceTests {
     @Test(
         "shows fallback for Sparkle installation failures",
-        arguments: [4000, 4001, 4002, 4003, 4004, 4005, 4009, 4010, 4012]
+        arguments: [4000, 4001, 4002, 4003, 4004, 4005, 4009, 4010, 4012, 4013]
     )
     func showsFallbackForInstallationFailures(code: Int) {
         let error = NSError(domain: SUSparkleErrorDomain, code: code)

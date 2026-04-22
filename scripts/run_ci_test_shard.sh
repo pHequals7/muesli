@@ -22,6 +22,7 @@ case "${shard}" in
       MeetingChunkCollectorTests
       AppConfigTests
       CGPointCodableTests
+      UpdateFailureGuidanceTests
       WordCountTests
     )
     ;;
