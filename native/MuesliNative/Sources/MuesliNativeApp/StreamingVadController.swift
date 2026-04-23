@@ -82,6 +82,7 @@ final class StreamingVadController {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.maxDurationTimer?.invalidate()
+            guard self.lock.withLock({ $0.isActive }) else { return }
             self.maxDurationTimer = Timer.scheduledTimer(withTimeInterval: self.maxChunkDuration, repeats: true) { [weak self] _ in
                 self?.handleMaxDurationTimer()
             }

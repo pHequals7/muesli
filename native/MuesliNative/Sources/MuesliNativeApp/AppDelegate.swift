@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard controller?.shouldTerminateApplication() != false else {
+        if controller?.shouldTerminateApplication() == false {
             return .terminateCancel
         }
         return .terminateNow

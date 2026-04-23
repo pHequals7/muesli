@@ -1379,25 +1379,29 @@ final class MuesliController: NSObject {
 
     func shouldTerminateApplication() -> Bool {
         let state = meetingTerminationState
-        guard state != .none else { return true }
+        let messageText: String
+        let informativeText: String
+
+        switch state {
+        case .none:
+            return true
+        case .starting:
+            messageText = "Meeting recording is starting"
+            informativeText = "Quitting now will cancel the meeting recording before it has been saved."
+        case .recording:
+            messageText = "Meeting recording in progress"
+            informativeText = "Quitting now will stop the meeting recording and the current transcript may be lost. Stop the recording first if you want Muesli to save notes."
+        case .processing:
+            messageText = "Meeting transcription in progress"
+            informativeText = "Quitting now will interrupt transcription and the meeting notes may not be saved."
+        }
 
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        switch state {
-        case .starting:
-            alert.messageText = "Meeting recording is starting"
-            alert.informativeText = "Quitting now will cancel the meeting recording before it has been saved."
-        case .recording:
-            alert.messageText = "Meeting recording in progress"
-            alert.informativeText = "Quitting now will stop the meeting recording and the current transcript may be lost. Stop the recording first if you want Muesli to save notes."
-        case .processing:
-            alert.messageText = "Meeting transcription in progress"
-            alert.informativeText = "Quitting now will interrupt transcription and the meeting notes may not be saved."
-        case .none:
-            return true
-        }
+        alert.messageText = messageText
+        alert.informativeText = informativeText
         alert.addButton(withTitle: "Keep Muesli Running")
         alert.addButton(withTitle: "Quit Anyway")
 
