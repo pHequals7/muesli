@@ -10,6 +10,7 @@ struct OnboardingView: View {
     @State private var currentStep: Int
     @State private var userName: String
     @State private var selectedBackend: BackendOption
+    @State private var selectedCohereLanguage: CohereTranscribeLanguage
     @State private var summaryBackend: MeetingSummaryBackendOption = .openRouter
     @State private var apiKey = ""
     @State private var isSigningInChatGPT = false
@@ -23,7 +24,6 @@ struct OnboardingView: View {
     @State private var screenRecordingGranted = false
     @State private var systemAudioGranted = false
     @State private var permissionPollTimer: Timer?
-    @State private var isCheckingSystemAudioPermission = false
     @State private var grantingPermissionName: String?
     @State private var recentlyGrantedPermissionName: String?
 
@@ -56,6 +56,7 @@ struct OnboardingView: View {
         initialStep: Int = 0,
         initialUserName: String = "",
         initialBackend: BackendOption = .parakeetMultilingual,
+        initialCohereLanguage: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage,
         initialHotkey: HotkeyConfig = .default,
         initialSystemAudioRequested: Bool = false
     ) {
@@ -67,7 +68,7 @@ struct OnboardingView: View {
         let initialAccessibilityGranted = AXIsProcessTrusted()
         let initialInputMonitoringGranted = CGPreflightListenEventAccess()
         let initialScreenRecordingGranted = CGPreflightScreenCaptureAccess()
-        let initialSystemAudioGranted = initialSystemAudioRequested || CoreAudioSystemRecorder.checkSystemAudioPermission()
+        let initialSystemAudioGranted = initialSystemAudioRequested
         let initialPermissionsGranted = initialMicGranted
             && initialAccessibilityGranted
             && initialInputMonitoringGranted
@@ -80,6 +81,7 @@ struct OnboardingView: View {
         _currentStep = State(initialValue: effectiveInitialStep)
         _userName = State(initialValue: initialUserName)
         _selectedBackend = State(initialValue: initialBackend)
+        _selectedCohereLanguage = State(initialValue: initialCohereLanguage)
         _selectedHotkey = State(initialValue: initialHotkey)
         _micGranted = State(initialValue: initialMicGranted)
         _accessibilityGranted = State(initialValue: initialAccessibilityGranted)
@@ -153,6 +155,12 @@ struct OnboardingView: View {
             saveProgress(atStep: step)
         }
         .onChange(of: userName) { _, _ in
+            saveProgress(atStep: currentStep)
+        }
+        .onChange(of: selectedBackend) { _, _ in
+            saveProgress(atStep: currentStep)
+        }
+        .onChange(of: selectedCohereLanguage) { _, _ in
             saveProgress(atStep: currentStep)
         }
     }
@@ -314,12 +322,46 @@ struct OnboardingView: View {
                             modelCard(option: option)
                         }
                     }
+
+                    if selectedBackend.backend == BackendOption.cohereTranscribe.backend {
+                        cohereLanguageCard
+                    }
                 }
                 .padding(.horizontal, MuesliTheme.spacing32)
             }
 
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var cohereLanguageCard: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text("Cohere language")
+                .font(MuesliTheme.headline())
+                .foregroundStyle(MuesliTheme.textPrimary)
+
+            Text("Cohere does not auto-detect language, so pick the language you want it to transcribe.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            FixedWidthPopUp(
+                selection: selectedCohereLanguage.label,
+                options: CohereTranscribeLanguage.allCases.map(\.label)
+            ) { label in
+                guard let language = CohereTranscribeLanguage.allCases.first(where: { $0.label == label }) else { return }
+                selectedCohereLanguage = language
+            }
+            .frame(height: 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(MuesliTheme.spacing12)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+        .padding(.top, MuesliTheme.spacing8)
     }
 
     private func modelCard(option: BackendOption) -> some View {
@@ -397,8 +439,14 @@ struct OnboardingView: View {
         if appState.config.useCoreAudioTap {
             steps.append(("speaker.wave.2.fill", "System Audio", "Capture meeting audio from other participants", systemAudioGranted, {
                 Task {
-                    await CoreAudioSystemRecorder.requestSystemAudioAccess()
-                    await resolveSystemAudioPermissionAfterRequest()
+                    let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
+                    await MainActor.run {
+                        self.systemAudioGranted = granted
+                        if granted {
+                            self.notePermissionGranted("System Audio")
+                        }
+                        self.saveProgress(atStep: self.currentStep)
+                    }
                 }
             }))
             steps.append(("rectangle.dashed.badge.record", "Screen Recording", "Capture screen content for richer meeting context", screenRecordingGranted, {
@@ -614,41 +662,9 @@ struct OnboardingView: View {
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
-        refreshSystemAudioPermissionIfNeeded()
 
         if let grantingPermissionName, isPermissionGranted(named: grantingPermissionName) {
             notePermissionGranted(grantingPermissionName)
-        }
-    }
-
-    private func refreshSystemAudioPermissionIfNeeded() {
-        guard appState.config.useCoreAudioTap, !isCheckingSystemAudioPermission else { return }
-        isCheckingSystemAudioPermission = true
-
-        Task {
-            let granted = await Task.detached(priority: .utility) {
-                CoreAudioSystemRecorder.checkSystemAudioPermission()
-            }.value
-            await MainActor.run {
-                self.systemAudioGranted = granted
-                self.isCheckingSystemAudioPermission = false
-                if let grantingPermissionName, self.isPermissionGranted(named: grantingPermissionName) {
-                    self.notePermissionGranted(grantingPermissionName)
-                }
-            }
-        }
-    }
-
-    private func resolveSystemAudioPermissionAfterRequest() async {
-        let granted = await Task.detached(priority: .utility) {
-            CoreAudioSystemRecorder.checkSystemAudioPermission()
-        }.value
-        await MainActor.run {
-            self.systemAudioGranted = granted
-            if granted {
-                self.notePermissionGranted("System Audio")
-            }
-            self.saveProgress(atStep: self.currentStep)
         }
     }
 
@@ -693,6 +709,7 @@ struct OnboardingView: View {
             userName: userName,
             selectedBackendKey: selectedBackend.backend,
             selectedModelKey: selectedBackend.model,
+            selectedCohereLanguageCode: selectedCohereLanguage.rawValue,
             hotkeyKeyCode: selectedHotkey.keyCode,
             hotkeyLabel: selectedHotkey.label,
             systemAudioRequested: systemAudioGranted
@@ -1196,6 +1213,7 @@ struct OnboardingView: View {
         controller.completeOnboarding(
             userName: userName.trimmingCharacters(in: .whitespaces),
             backend: selectedBackend,
+            cohereLanguage: selectedCohereLanguage,
             hotkey: selectedHotkey,
             summaryBackend: summaryBackend,
             apiKey: withKey ? apiKey : nil

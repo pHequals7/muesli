@@ -242,6 +242,7 @@ actor TranscriptionCoordinator {
     func transcribeDictation(
         at url: URL,
         backend: BackendOption,
+        cohereLanguage: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage,
         enablePostProcessor: Bool = false,
         customWords: [[String: Any]] = [],
         appContext: String? = nil
@@ -260,7 +261,7 @@ actor TranscriptionCoordinator {
                 fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
             }
         }
-        var result = try await route(url: url, backend: backend)
+        var result = try await route(url: url, backend: backend, cohereLanguage: cohereLanguage)
         result = removeArtifacts(result)
         if !result.text.isEmpty {
             Qwen3PostProcessorLogging.logVerbose("Dictation raw transcript after artifact cleanup: \(result.text)")
@@ -278,12 +279,20 @@ actor TranscriptionCoordinator {
         return final
     }
 
-    func transcribeMeeting(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
+    func transcribeMeeting(
+        at url: URL,
+        backend: BackendOption,
+        cohereLanguage: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage
+    ) async throws -> SpeechTranscriptionResult {
         // Meetings intentionally skip Qwen/custom-word post-processing. Keep deterministic artifact/filler cleanup only.
-        cleanMeetingTranscript(try await route(url: url, backend: backend))
+        cleanMeetingTranscript(try await route(url: url, backend: backend, cohereLanguage: cohereLanguage))
     }
 
-    func transcribeMeetingChunk(at url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
+    func transcribeMeetingChunk(
+        at url: URL,
+        backend: BackendOption,
+        cohereLanguage: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage
+    ) async throws -> SpeechTranscriptionResult {
         // Meeting chunks intentionally skip Qwen/custom-word post-processing for reconciliation.
         // Run VAD to skip silent chunks (prevents hallucinations)
         if let vadManager {
@@ -298,7 +307,7 @@ actor TranscriptionCoordinator {
                 fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
             }
         }
-        return cleanMeetingTranscript(try await route(url: url, backend: backend))
+        return cleanMeetingTranscript(try await route(url: url, backend: backend, cohereLanguage: cohereLanguage))
     }
 
     func diarizeSystemAudio(at url: URL) async throws -> DiarizationResult? {
@@ -420,7 +429,11 @@ actor TranscriptionCoordinator {
         return SpeechTranscriptionResult(text: correctedText, segments: result.segments)
     }
 
-    private func route(url: URL, backend: BackendOption) async throws -> SpeechTranscriptionResult {
+    private func route(
+        url: URL,
+        backend: BackendOption,
+        cohereLanguage: CohereTranscribeLanguage
+    ) async throws -> SpeechTranscriptionResult {
         switch backend.backend {
         case "whisper":
             return try await transcribeWithWhisperKit(url: url)
@@ -431,7 +444,7 @@ actor TranscriptionCoordinator {
         case "canary":
             return try await transcribeWithCanaryQwen(url: url)
         case "cohere":
-            return try await transcribeWithCohere(url: url)
+            return try await transcribeWithCohere(url: url, language: cohereLanguage)
         default:
             return try await transcribeWithFluidAudio(url: url)
         }
@@ -505,10 +518,13 @@ actor TranscriptionCoordinator {
 
     // MARK: - Cohere Transcribe (CoreML)
 
-    private func transcribeWithCohere(url: URL) async throws -> SpeechTranscriptionResult {
+    private func transcribeWithCohere(
+        url: URL,
+        language: CohereTranscribeLanguage
+    ) async throws -> SpeechTranscriptionResult {
         if #available(macOS 15, *) {
             fputs("[muesli-native] transcribing with Cohere Transcribe: \(url.lastPathComponent)\n", stderr)
-            let result = try await cohereTranscriber.transcribe(wavURL: url)
+            let result = try await cohereTranscriber.transcribe(wavURL: url, language: language)
             fputs("[muesli-native] Cohere Transcribe result: \(result.text.prefix(80)) (took \(String(format: "%.3f", result.processingTime))s)\n", stderr)
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             return SpeechTranscriptionResult(

@@ -190,6 +190,13 @@ struct ModelsView: View {
         )
     }
 
+    private var cohereLanguageSelection: Binding<CohereTranscribeLanguage> {
+        Binding(
+            get: { appState.config.resolvedCohereLanguage },
+            set: { controller.selectCohereLanguage($0) }
+        )
+    }
+
     private var postProcessorSection: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
@@ -665,6 +672,24 @@ struct ModelsView: View {
                         .padding(.vertical, 3)
                         .background(MuesliTheme.surfacePrimary)
                         .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            }
+
+            if option.backend == BackendOption.cohereTranscribe.backend {
+                HStack(alignment: .center, spacing: MuesliTheme.spacing12) {
+                    Text("Language")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .frame(width: 64, alignment: .leading)
+
+                    Picker("", selection: cohereLanguageSelection) {
+                        ForEach(CohereTranscribeLanguage.allCases, id: \.self) { language in
+                            Text(language.label).tag(language)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 220, alignment: .leading)
                 }
             }
 

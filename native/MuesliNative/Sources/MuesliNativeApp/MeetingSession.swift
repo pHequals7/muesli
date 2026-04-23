@@ -300,7 +300,11 @@ final class MeetingSession {
             let chunkDuration = lastSystemChunkTiming?.durationSeconds ?? 0
             fputs("[meeting] transcribing final system chunk (offset=\(String(format: "%.0f", chunkOffset))s)\n", stderr)
             do {
-                let result = try await transcriptionCoordinator.transcribeMeetingChunk(at: lastSystemChunkURL, backend: backend)
+                let result = try await transcriptionCoordinator.transcribeMeetingChunk(
+                    at: lastSystemChunkURL,
+                    backend: backend,
+                    cohereLanguage: config.resolvedCohereLanguage
+                )
                 let normalizedSegments = normalizeSystemTranscription(
                     result: result,
                     startTime: chunkOffset,
@@ -561,7 +565,11 @@ final class MeetingSession {
                 if Task.isCancelled {
                     return []
                 }
-                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(at: chunkURL, backend: backend)
+                let result = try await self.transcriptionCoordinator.transcribeMeetingChunk(
+                    at: chunkURL,
+                    backend: backend,
+                    cohereLanguage: config.resolvedCohereLanguage
+                )
                 if !result.text.isEmpty {
                     fputs("[meeting] system chunk transcribed: \"\(String(result.text.prefix(60)))...\"\n", stderr)
                     let normalizedSegments = self.normalizeSystemTranscription(
@@ -717,7 +725,8 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeetingChunk(
                 at: url,
-                backend: backend
+                backend: backend,
+                cohereLanguage: config.resolvedCohereLanguage
             )
             if !result.text.isEmpty {
                 fputs("[meeting] mic chunk transcribed (raw): \"\(String(result.text.prefix(60)))...\"\n", stderr)
@@ -866,7 +875,8 @@ final class MeetingSession {
 
                     let result = try await transcriptionCoordinator.transcribeMeeting(
                         at: segmentURL,
-                        backend: backend
+                        backend: backend,
+                        cohereLanguage: config.resolvedCohereLanguage
                     )
                     repairedSegments.append(contentsOf: MicTurnNormalizer.normalize(
                         result: result,
@@ -946,7 +956,8 @@ final class MeetingSession {
 
                     let result = try await transcriptionCoordinator.transcribeMeeting(
                         at: segmentURL,
-                        backend: backend
+                        backend: backend,
+                        cohereLanguage: config.resolvedCohereLanguage
                     )
                     repairedSegments.append(contentsOf: normalizeSystemTranscription(
                         result: result,
@@ -976,7 +987,8 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeeting(
                 at: fullSessionMicURL,
-                backend: backend
+                backend: backend,
+                cohereLanguage: config.resolvedCohereLanguage
             )
             return MicTurnNormalizer.normalize(
                 result: result,
@@ -997,7 +1009,8 @@ final class MeetingSession {
         do {
             let result = try await transcriptionCoordinator.transcribeMeeting(
                 at: systemAudioURL,
-                backend: backend
+                backend: backend,
+                cohereLanguage: config.resolvedCohereLanguage
             )
             return normalizeSystemTranscription(
                 result: result,

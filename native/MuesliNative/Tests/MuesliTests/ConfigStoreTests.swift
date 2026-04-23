@@ -25,6 +25,7 @@ struct ConfigStoreTests {
         config.openAIModel = "gpt-5.4-pro"
         config.openRouterAPIKey = "sk-or-test-roundtrip"
         config.openRouterModel = "nvidia/nemotron-3-super-120b-a12b:free"
+        config.cohereLanguage = CohereTranscribeLanguage.german.rawValue
         config.meetingSummaryBackend = "openrouter"
         store.save(config)
 
@@ -33,6 +34,7 @@ struct ConfigStoreTests {
         #expect(loaded.openAIModel == "gpt-5.4-pro")
         #expect(loaded.openRouterAPIKey == "sk-or-test-roundtrip")
         #expect(loaded.openRouterModel == "nvidia/nemotron-3-super-120b-a12b:free")
+        #expect(loaded.cohereLanguage == CohereTranscribeLanguage.german.rawValue)
         #expect(loaded.meetingSummaryBackend == "openrouter")
 
         // Restore original

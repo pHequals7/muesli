@@ -117,6 +117,92 @@ enum CohereTranscribeUtils {
 
 // MARK: - Configuration
 
+enum CohereTranscribeLanguage: String, CaseIterable, Codable, Sendable {
+    case english = "en"
+    case french = "fr"
+    case german = "de"
+    case spanish = "es"
+    case italian = "it"
+    case portuguese = "pt"
+    case dutch = "nl"
+    case polish = "pl"
+    case greek = "el"
+    case arabic = "ar"
+    case japanese = "ja"
+    case chinese = "zh"
+    case vietnamese = "vi"
+    case korean = "ko"
+
+    static let defaultLanguage: Self = .english
+
+    var label: String {
+        switch self {
+        case .english: return "English"
+        case .french: return "French"
+        case .german: return "German"
+        case .spanish: return "Spanish"
+        case .italian: return "Italian"
+        case .portuguese: return "Portuguese"
+        case .dutch: return "Dutch"
+        case .polish: return "Polish"
+        case .greek: return "Greek"
+        case .arabic: return "Arabic"
+        case .japanese: return "Japanese"
+        case .chinese: return "Chinese"
+        case .vietnamese: return "Vietnamese"
+        case .korean: return "Korean"
+        }
+    }
+
+    var promptTokenId: Int32 {
+        switch self {
+        case .english: return 62
+        case .french: return 69
+        case .german: return 76
+        case .spanish: return 169
+        case .italian: return 97
+        case .portuguese: return 149
+        case .dutch: return 60
+        case .polish: return 148
+        case .greek: return 77
+        case .arabic: return 28
+        case .japanese: return 98
+        case .chinese: return 50
+        case .vietnamese: return 194
+        case .korean: return 110
+        }
+    }
+
+    var promptIds: [Int32] {
+        [
+            CohereTranscribeConfig.promptPrefixTokenId,
+            CohereTranscribeConfig.startOfContextTokenId,
+            CohereTranscribeConfig.startOfTranscriptTokenId,
+            CohereTranscribeConfig.undefinedEmotionTokenId,
+            promptTokenId,
+            promptTokenId,
+            CohereTranscribeConfig.punctuationTokenId,
+            CohereTranscribeConfig.noInverseTextNormalizationTokenId,
+            CohereTranscribeConfig.noTimestampTokenId,
+            CohereTranscribeConfig.noDiarizationTokenId,
+        ]
+    }
+
+    static func resolved(_ rawValue: String?) -> Self {
+        let normalized = rawValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let normalized, let language = Self(rawValue: normalized) else {
+            return defaultLanguage
+        }
+        return language
+    }
+
+    static func resolvedCode(_ rawValue: String?) -> String {
+        resolved(rawValue).rawValue
+    }
+}
+
 private enum CohereTranscribeConfig {
     static let repoId = "phequals/cohere-transcribe-coreml-mixed-precision"
     static let envOverride = "MUESLI_COHERE_MODEL_DIR"
@@ -130,11 +216,17 @@ private enum CohereTranscribeConfig {
 
     static let melLength = 3500
     static let encLen = 438
-    static let prefillLen = 10
+    static let promptPrefixTokenId: Int32 = 13764
+    static let startOfContextTokenId: Int32 = 7
+    static let startOfTranscriptTokenId: Int32 = 4
+    static let undefinedEmotionTokenId: Int32 = 16
+    static let punctuationTokenId: Int32 = 5
+    static let noInverseTextNormalizationTokenId: Int32 = 9
+    static let noTimestampTokenId: Int32 = 11
+    static let noDiarizationTokenId: Int32 = 13
     static let maxSeqLen = 512
     static let vocabSize = 16384
     static let eosTokenId = 3 // <|endoftext|>
-    static let promptIds: [Int32] = [13764, 7, 4, 16, 62, 62, 5, 9, 11, 13]
 
     // Mel spectrogram parameters
     static let sampleRate = 16_000
@@ -762,7 +854,10 @@ private final class CohereTranscribeManager {
         return mask
     }
 
-    func transcribe(audioSamples: [Float]) async throws -> (text: String, profile: CohereProfilingSummary) {
+    func transcribe(
+        audioSamples: [Float],
+        language: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage
+    ) async throws -> (text: String, profile: CohereProfilingSummary) {
         let start = CFAbsoluteTimeGetCurrent()
         let duration = Double(audioSamples.count) / Double(CohereTranscribeConfig.sampleRate)
         var profile = CohereProfilingSummary(audioDurationS: duration)
@@ -781,7 +876,11 @@ private final class CohereTranscribeManager {
             let melStart = CFAbsoluteTimeGetCurrent()
             let (chunkMel, realFrameCount) = models.melExtractor.compute(audio: chunkSamples)
             totalMelMs += (CFAbsoluteTimeGetCurrent() - melStart) * 1000
-            let result = try transcribeChunk(mel: chunkMel, realMelFrames: realFrameCount)
+            let result = try transcribeChunk(
+                mel: chunkMel,
+                realMelFrames: realFrameCount,
+                language: language
+            )
             if !result.transcript.isEmpty {
                 transcripts.append(result.transcript)
             }
@@ -806,11 +905,17 @@ private final class CohereTranscribeManager {
         return (merged, profile)
     }
 
-    private func transcribeChunk(mel: [Float], realMelFrames: Int) throws -> (transcript: String, generatedTokenCount: Int, timing: CohereTimingBreakdown) {
+    private func transcribeChunk(
+        mel: [Float],
+        realMelFrames: Int,
+        language: CohereTranscribeLanguage
+    ) throws -> (transcript: String, generatedTokenCount: Int, timing: CohereTimingBreakdown) {
         var timing = CohereTimingBreakdown()
         let melLength = CohereTranscribeConfig.melLength
         let nMels = CohereTranscribeConfig.nMels
         let encLen = CohereTranscribeConfig.encLen
+        let promptIds = language.promptIds
+        let promptLength = promptIds.count
 
         // Build mel MLMultiArray [1, 128, 3500] — mel is flat [nMels * melLength], already normalized & zero-padded
         let melArray = try MLMultiArray(shape: [1, NSNumber(value: nMels), NSNumber(value: melLength)], dataType: .float32)
@@ -849,9 +954,9 @@ private final class CohereTranscribeManager {
 
         // Prefill — pass encoder_mask so cross-attention ignores padded positions
         let prefillStart = CFAbsoluteTimeGetCurrent()
-        let promptArray = try MLMultiArray(shape: [1, NSNumber(value: CohereTranscribeConfig.prefillLen)], dataType: .int32)
-        let promptPtr = promptArray.dataPointer.bindMemory(to: Int32.self, capacity: CohereTranscribeConfig.prefillLen)
-        for (i, id) in CohereTranscribeConfig.promptIds.enumerated() {
+        let promptArray = try MLMultiArray(shape: [1, NSNumber(value: promptLength)], dataType: .int32)
+        let promptPtr = promptArray.dataPointer.bindMemory(to: Int32.self, capacity: promptLength)
+        for (i, id) in promptIds.enumerated() {
             promptPtr[i] = id
         }
 
@@ -874,9 +979,9 @@ private final class CohereTranscribeManager {
         timing.prefillMs = (CFAbsoluteTimeGetCurrent() - prefillStart) * 1000
 
         // Argmax on last position of prefill logits
-        var nextToken = argmaxLastPosition(logits: prefillLogits, seqLen: CohereTranscribeConfig.prefillLen)
+        var nextToken = argmaxLastPosition(logits: prefillLogits, seqLen: promptLength)
         var generatedIds: [Int] = []
-        var currentPosition = CohereTranscribeConfig.prefillLen
+        var currentPosition = promptLength
 
         // Autoregressive decode — encoder_mask passed each step for cross-attention masking
         let decodeStart = CFAbsoluteTimeGetCurrent()
@@ -886,8 +991,8 @@ private final class CohereTranscribeManager {
         // with minimum 15. The CoreML encoder can't do internal length masking, so the
         // decoder doesn't get a clean EOS signal — this caps hallucination/repetition.
         let maxNewTokens = models.encoderUsesDynamicLength
-            ? (CohereTranscribeConfig.maxSeqLen - CohereTranscribeConfig.prefillLen)
-            : min(CohereTranscribeConfig.maxSeqLen - CohereTranscribeConfig.prefillLen, tokenBudget)
+            ? (CohereTranscribeConfig.maxSeqLen - promptLength)
+            : min(CohereTranscribeConfig.maxSeqLen - promptLength, tokenBudget)
         let tokenIdArray = try MLMultiArray(shape: [1, 1], dataType: .int32)
         let tokenIdPtr = tokenIdArray.dataPointer.bindMemory(to: Int32.self, capacity: 1)
 
@@ -1099,7 +1204,10 @@ actor CohereTranscribeTranscriber {
         scheduleWarmupIfNeeded()
     }
 
-    func transcribe(wavURL: URL) async throws -> (text: String, processingTime: Double, profile: CohereProfilingSummary) {
+    func transcribe(
+        wavURL: URL,
+        language: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage
+    ) async throws -> (text: String, processingTime: Double, profile: CohereProfilingSummary) {
         try await loadModels()
         if let warmupTask {
             CohereProfilingLog.write("[cohere] waiting for background warmup to finish before dictation...")
@@ -1111,7 +1219,7 @@ actor CohereTranscribeTranscriber {
         let resampleStart = CFAbsoluteTimeGetCurrent()
         let samples = try converter.resampleAudioFile(wavURL)
         let resampleMs = (CFAbsoluteTimeGetCurrent() - resampleStart) * 1000
-        let inference = try await manager.transcribe(audioSamples: samples)
+        let inference = try await manager.transcribe(audioSamples: samples, language: language)
         let processingTime = CFAbsoluteTimeGetCurrent() - start
         var profile = inference.profile
         profile.resampleMs = resampleMs

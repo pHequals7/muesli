@@ -44,8 +44,10 @@
     }
 
     html, body {
-      width: 100%; height: 100%;
-      overflow: hidden;
+      width: 100%;
+      min-height: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
       background: var(--void);
       color: var(--text);
       font-family: var(--serif);
@@ -107,15 +109,26 @@
     .q.rev cite { color: rgba(107,163,247,0.5); }
 
     /* ── center content ── */
+    .page {
+      position: relative;
+      z-index: 10;
+    }
+
+    .hero {
+      min-height: 100svh;
+      padding: 108px 24px 88px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
     .core {
-      position: fixed;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
       text-align: center;
       z-index: 10;
       display: flex;
       flex-direction: column;
       align-items: center;
+      width: min(760px, calc(100vw - 48px));
     }
 
     .icon {
@@ -180,6 +193,22 @@
       animation: fadeUp 2s ease 1.28s forwards;
     }
 
+    .faq-link {
+      margin-top: 18px;
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.56);
+      text-decoration: none;
+      opacity: 0;
+      animation: fadeUp 2s ease 1.34s forwards;
+    }
+
+    .faq-link:hover {
+      color: rgba(255,255,255,0.84);
+    }
+
     .install-alt .install-label {
       font-family: var(--mono);
       font-size: 0.72rem;
@@ -200,39 +229,83 @@
       line-height: 1.5;
     }
 
-    .troubleshooting {
-      position: fixed;
-      left: 50%;
-      bottom: 76px;
-      transform: translateX(-50%);
+    .faq-section {
+      position: relative;
       z-index: 10;
-      width: min(720px, calc(100vw - 32px));
+      width: min(860px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 0 0 88px;
       opacity: 0;
       animation: footerIn 2s ease 1.4s forwards;
     }
 
-    .troubleshooting summary {
-      list-style: none;
-      cursor: pointer;
-      user-select: none;
-      text-align: center;
-      font-family: var(--system);
-      font-size: 19px;
-      color: rgba(255,255,255,0.75);
+    .faq-shell {
+      padding: 22px 24px 26px;
+      background: #191b1f;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 8px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.34);
     }
 
-    .troubleshooting p {
-      margin: 12px auto 0;
-      max-width: 640px;
-      line-height: 1.6;
+    .faq-heading {
+      margin-bottom: 18px;
       text-align: center;
+    }
+
+    .faq-heading span {
+      display: block;
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.62);
+    }
+
+    .faq-heading p {
+      margin-top: 8px;
       font-family: var(--system);
-      font-size: 19px;
-      color: rgba(255,255,255,0.9);
+      font-size: 1rem;
+      line-height: 1.5;
+      color: rgba(255,255,255,0.58);
+    }
+
+    .faq-list {
+      display: grid;
+      gap: 0;
+    }
+
+    .faq-item {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 18px;
+      margin-top: 18px;
+    }
+
+    .faq-item:first-child {
+      border-top: none;
+      padding-top: 0;
+      margin-top: 0;
+    }
+
+    .faq-item h2 {
+      text-align: left;
+      font-family: var(--system);
+      font-size: 1.1rem;
+      font-weight: 500;
+      line-height: 1.45;
+      color: rgba(255,255,255,0.82);
+    }
+
+    .faq-item p {
+      margin: 10px 0 0;
+      line-height: 1.65;
+      text-align: left;
+      font-family: var(--system);
+      font-size: 1.1rem;
+      color: rgba(255,255,255,0.76);
     }
 
     .install-alt .command-row,
-    .troubleshooting .command-row {
+    .faq-shell .command-row {
       display: inline-flex;
       align-items: center;
       gap: 8px;
@@ -241,16 +314,17 @@
       justify-content: center;
     }
 
-    .troubleshooting code {
+    .faq-shell code {
       padding: 6px 10px;
       background: rgba(255,255,255,0.1);
       border-radius: 6px;
-      font-size: 19px;
+      font-size: 1.1rem;
+      line-height: 1.5;
       color: rgba(255,255,255,1);
     }
 
     .install-alt button,
-    .troubleshooting button {
+    .faq-shell button {
       padding: 6px 10px;
       font-size: 14px;
       line-height: 1;
@@ -262,7 +336,7 @@
     }
 
     .install-alt button svg,
-    .troubleshooting button svg {
+    .faq-shell button svg {
       display: block;
       width: 14px;
       height: 14px;
@@ -277,7 +351,7 @@
     .topnav {
       position: fixed;
       top: 0; left: 0; right: 0;
-      z-index: 10;
+      z-index: 30;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -339,14 +413,16 @@
 
     /* ── footer ── */
     footer {
-      position: fixed;
-      bottom: 26px;
-      left: 0; right: 0;
+      position: relative;
+      left: auto; right: auto; bottom: auto;
       z-index: 10;
       display: flex;
       justify-content: center;
       align-items: center;
       gap: 14px;
+      width: min(860px, calc(100vw - 32px));
+      margin: 0 auto 26px;
+      padding: 0 0 24px;
       font-family: var(--mono);
       font-weight: 400;
       font-size: 0.68rem;
@@ -373,27 +449,33 @@
       .sub { font-size: 0.88rem; }
       .q { max-width: 200px !important; }
       .topnav { font-size: 0.8rem; gap: 20px; }
-      footer { bottom: 18px; font-size: 0.58rem; gap: 8px; flex-wrap: wrap; padding: 0 16px; }
+      .hero { min-height: 100svh; padding: 98px 16px 64px; }
+      footer { font-size: 0.58rem; gap: 8px; flex-wrap: wrap; width: calc(100vw - 24px); padding: 0 16px 24px; margin-bottom: 18px; }
       .get { font-size: 0.72rem; padding: 9px 24px; }
       .install-alt { margin-top: 12px; gap: 6px; }
       .install-alt span { font-size: 0.64rem; }
       .install-alt code { font-size: 0.7rem; max-width: calc(100vw - 40px); white-space: normal; }
-      .troubleshooting { bottom: 64px; width: calc(100vw - 24px); }
-      .troubleshooting summary,
-      .troubleshooting p,
-      .troubleshooting code { font-size: 16px; }
-      .troubleshooting button { font-size: 13px; }
+      .faq-link { font-size: 0.68rem; margin-top: 16px; }
+      .faq-section { width: calc(100vw - 24px); padding-bottom: 64px; }
+      .faq-shell { padding: 18px 16px 22px; }
+      .faq-heading span { font-size: 0.68rem; }
+      .faq-heading p { font-size: 0.9rem; }
+      .faq-item h2 { font-size: 1.1rem; }
+      .faq-item p,
+      .faq-shell code { font-size: 1.1rem; }
+      .faq-shell button { font-size: 13px; }
     }
     @media (max-width: 480px) {
       .name { font-size: 1.8rem; letter-spacing: -0.01em; }
       .sub { font-size: 0.78rem; }
+      .faq-item h2 { font-size: 1.1rem; }
+      .faq-item p { font-size: 1.1rem; }
     }
     @media (max-height: 500px) {
-      .core { top: 44%; }
       .sub { display: none; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .icon, .name, .sub, .get, .install-alt, .troubleshooting, .topnav, footer {
+      .icon, .name, .sub, .get, .install-alt, .faq-link, .faq-section, .topnav, footer {
         animation: none !important;
         opacity: 1 !important;
         transform: translateY(0) !important;
@@ -420,7 +502,7 @@
       "url": "https://github.com/pHequals7"
     },
     "license": "https://opensource.org/licenses/MIT",
-    "downloadUrl": "https://github.com/pHequals7/muesli/releases/download/v0.5.6/Muesli-0.5.6.dmg",
+    "downloadUrl": "https://github.com/pHequals7/muesli/releases/download/v0.6.1/Muesli-0.6.1.dmg",
     "softwareVersion": "1.0",
     "image": "https://freedspeech.xyz/og.png"
   }
@@ -452,51 +534,85 @@
   <!-- floating quotes (populated by JS) -->
   <div id="field"></div>
 
-  <!-- center: product identity -->
-  <div class="core">
-    <img class="icon" src="./icon.png" alt="Muesli" width="72" height="72">
-    <h1 class="name">muesli</h1>
-    <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcriptions</p>
-    <a class="get" href="https://github.com/pHequals7/muesli/releases/download/v0.5.6/Muesli-0.5.6.dmg">download for macOS</a>
-    <div class="install-alt">
-      <span class="install-label">or install with homebrew</span>
-      <span class="command-row">
-        <code id="brew-cmd">brew tap pHequals7/muesli && brew install --cask muesli</code>
-        <button aria-label="Copy Homebrew install command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('brew-cmd').textContent)">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="9" y="9" width="10" height="12" rx="2"></rect>
-            <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
-          </svg>
-        </button>
-      </span>
-    </div>
-  </div>
+  <main class="page">
+    <!-- center: product identity -->
+    <section class="hero">
+      <div class="core">
+        <img class="icon" src="./icon.png" alt="Muesli" width="72" height="72">
+        <h1 class="name">muesli</h1>
+        <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcriptions</p>
+        <a class="get" href="https://github.com/pHequals7/muesli/releases/download/v0.6.1/Muesli-0.6.1.dmg">download for macOS</a>
+        <div class="install-alt">
+          <span class="install-label">or install with homebrew</span>
+          <span class="command-row">
+            <code id="brew-cmd">brew tap pHequals7/muesli && brew install --cask muesli</code>
+            <button aria-label="Copy Homebrew install command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('brew-cmd').textContent)">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="9" y="9" width="10" height="12" rx="2"></rect>
+                <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+              </svg>
+            </button>
+          </span>
+        </div>
+        <a class="faq-link" href="#faq">faq below</a>
+      </div>
+    </section>
 
-  <details class="troubleshooting">
-    <summary>app won&rsquo;t open? &middot; troubleshooting</summary>
-    <p>
-      If macOS says &ldquo;Muesli is damaged,&rdquo; open <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. Or run in Terminal:
-      <span class="command-row">
-        <code id="xattr-cmd">sudo xattr -cr /Applications/Muesli.app</code>
-        <button aria-label="Copy troubleshooting command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('xattr-cmd').textContent)">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="9" y="9" width="10" height="12" rx="2"></rect>
-            <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
-          </svg>
-        </button>
-      </span>
-    </p>
-  </details>
+    <section class="faq-section" id="faq" aria-label="Common fixes FAQ">
+      <div class="faq-shell">
+        <div class="faq-heading">
+          <span>faq</span>
+          <p>Most support issues come down to permissions, duplicate app copies, or calendar access.</p>
+        </div>
+        <div class="faq-list">
+          <article class="faq-item">
+            <h2>App won&rsquo;t open?</h2>
+            <p>If macOS says Muesli is damaged, open <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. If that still doesn&rsquo;t clear it, run in Terminal:
+              <span class="command-row">
+                <code id="xattr-cmd">sudo xattr -cr /Applications/Muesli.app</code>
+                <button aria-label="Copy troubleshooting command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('xattr-cmd').textContent)">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="9" y="9" width="10" height="12" rx="2"></rect>
+                    <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+                  </svg>
+                </button>
+              </span>
+            </p>
+          </article>
+          <article class="faq-item">
+            <h2>Why isn&rsquo;t my transcription pasting into the input box?</h2>
+            <p>Usually this means Accessibility access is missing, stale, or attached to the wrong copy of Muesli. Open <b>System Settings &rarr; Privacy &amp; Security &rarr; Accessibility</b>, make sure <b>Muesli</b> is enabled, then quit and reopen it from <b>/Applications</b>. If it still fails, remove Muesli from Accessibility, add it back, and relaunch.</p>
+          </article>
+          <article class="faq-item">
+            <h2>Why doesn&rsquo;t the hotkey start dictation?</h2>
+            <p>The global hotkey depends on <b>Input Monitoring</b>. Open <b>System Settings &rarr; Privacy &amp; Security &rarr; Input Monitoring</b>, confirm Muesli is allowed, then relaunch the app from <b>/Applications</b>. If you changed the shortcut in Settings, make sure you&rsquo;re using the configured key instead of assuming the default.</p>
+          </article>
+          <article class="faq-item">
+            <h2>Why did Muesli stop working after an update or reinstall?</h2>
+            <p>macOS permissions are tied to a specific installed app path and signature. If you launch Muesli from Downloads, Desktop, or an older duplicate copy, paste and hotkey permissions can silently stop working. Keep one copy in <b>/Applications</b>, delete duplicates, then re-grant Accessibility and Input Monitoring if needed.</p>
+          </article>
+          <article class="faq-item">
+            <h2>Why is meeting recording failing or missing system audio?</h2>
+            <p>Muesli needs <b>Screen Recording</b> or <b>Screen &amp; System Audio Recording</b> permission for meeting capture. Open <b>System Settings &rarr; Privacy &amp; Security</b>, enable Muesli under the relevant recording pane, then relaunch. If microphone transcription works but meeting capture doesn&rsquo;t, this is usually the missing permission.</p>
+          </article>
+          <article class="faq-item">
+            <h2>Why isn&rsquo;t Muesli showing upcoming meetings?</h2>
+            <p>Upcoming meetings come from local macOS Calendar access, Google Calendar, or both. If the list is empty, first check Calendar permission. If you rely on Google Calendar, reconnect it in Settings and wait for the next refresh. If you use both, Muesli deduplicates matching events, so you should still only see one entry per meeting.</p>
+          </article>
+        </div>
+      </div>
+    </section>
 
-  <footer>
-    <span>mit license</span>
-    <span class="dot">&middot;</span>
-    <span>built with <a href="https://github.com/FluidInference/FluidAudio" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;text-underline-offset:2px">fluid audio</a> on apple silicon</span>
-    <span class="dot">&middot;</span>
-    <span><a href="./privacy.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">privacy</a></span>
-    <span class="dot">&middot;</span>
-    <span><a href="./terms.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">terms</a></span>
-  </footer>
+    <footer>
+      <span>mit license</span>
+      <span class="dot">&middot;</span>
+      <span>built with <a href="https://github.com/FluidInference/FluidAudio" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;text-underline-offset:2px">fluid audio</a> on apple silicon</span>
+      <span class="dot">&middot;</span>
+      <span><a href="./privacy.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">privacy</a></span>
+      <span class="dot">&middot;</span>
+      <span><a href="./terms.html" style="color:inherit;text-decoration:underline;text-underline-offset:2px">terms</a></span>
+    </footer>
+  </main>
 
 <script>
 /* ── github stars ── */

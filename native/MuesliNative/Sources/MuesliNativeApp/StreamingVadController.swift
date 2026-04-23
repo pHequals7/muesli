@@ -1,97 +1,220 @@
 import FluidAudio
 import Foundation
+import os
 
-/// Bridges real-time mic audio to VadManager's streaming API.
-/// Emits chunk boundary signals on speechEnd events for VAD-driven rotation.
+/// Bridges real-time meeting audio to VadManager's streaming API.
+///
+/// The key requirement here is single-flight state ownership: exactly one chunk
+/// may be processed against the mutable stream state at a time. Chunks can
+/// arrive faster than VAD inference finishes, so we queue them and drain
+/// serially rather than spawning overlapping Tasks that race the same state.
 final class StreamingVadController {
-    /// Called when VAD detects a natural speech boundary (rotation point).
+    /// Called when VAD detects a natural chunk boundary.
     var onChunkBoundary: (() -> Void)?
 
-    private let vadManager: VadManager
-    private var streamState: VadStreamState?
-    private var lastRotationTime: Date?
-    private var isActive = false
+    private struct State {
+        var generation = 0
+        var drainerEpoch = 0
+        var isActive = false
+        var isDraining = false
+        var pendingChunks: [[Float]] = []
+        var streamState: VadStreamState?
+        var lastRotationTime: Date?
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: State())
+    private let makeInitialState: @Sendable () async -> VadStreamState
+    private let processStreamChunk: @Sendable ([Float], VadStreamState) async throws -> VadStreamResult
+    private let logger = Logger(subsystem: "com.muesli.native", category: "StreamingVadController")
 
     /// Minimum chunk duration before allowing rotation (prevents rapid flipping).
-    private let minChunkDuration: TimeInterval = 3.0
+    private let minChunkDuration: TimeInterval
     /// Maximum chunk duration before forcing rotation (safety cap).
-    private let maxChunkDuration: TimeInterval = 60.0
-    /// Timer for max duration fallback.
+    private let maxChunkDuration: TimeInterval
     private var maxDurationTimer: Timer?
 
-    init(vadManager: VadManager) {
-        self.vadManager = vadManager
+    convenience init(vadManager: VadManager) {
+        self.init(
+            minChunkDuration: 3.0,
+            maxChunkDuration: 60.0,
+            makeInitialState: { await vadManager.makeStreamState() },
+            processStreamChunk: { samples, state in
+                try await vadManager.processStreamingChunk(samples, state: state)
+            }
+        )
+    }
+
+    internal init(
+        minChunkDuration: TimeInterval,
+        maxChunkDuration: TimeInterval,
+        makeInitialState: @escaping @Sendable () async -> VadStreamState,
+        processStreamChunk: @escaping @Sendable ([Float], VadStreamState) async throws -> VadStreamResult
+    ) {
+        self.minChunkDuration = minChunkDuration
+        self.maxChunkDuration = maxChunkDuration
+        self.makeInitialState = makeInitialState
+        self.processStreamChunk = processStreamChunk
     }
 
     func start() {
-        isActive = true
-        lastRotationTime = Date()
+        let startGeneration = lock.withLock { state -> Int? in
+            guard !state.isActive else { return nil }
+            state.generation += 1
+            state.isActive = true
+            state.isDraining = false
+            state.pendingChunks.removeAll(keepingCapacity: true)
+            state.streamState = nil
+            state.lastRotationTime = Date()
+            return state.generation
+        }
+        guard let startGeneration else { return }
 
-        // Initialize streaming state
-        Task {
-            streamState = await vadManager.makeStreamState()
+        Task { [weak self] in
+            guard let self else { return }
+            let initialState = await self.makeInitialState()
+            let shouldKickDrain = self.lock.withLock { state in
+                guard state.isActive, state.generation == startGeneration else { return false }
+                state.streamState = initialState
+                return !state.pendingChunks.isEmpty
+            }
+            if shouldKickDrain {
+                self.startDrainIfNeeded()
+            }
         }
 
-        // Max duration fallback timer
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            self.maxDurationTimer?.invalidate()
+            guard self.lock.withLock({ $0.isActive && $0.generation == startGeneration }) else { return }
             self.maxDurationTimer = Timer.scheduledTimer(withTimeInterval: self.maxChunkDuration, repeats: true) { [weak self] _ in
-                guard let self, self.isActive else { return }
-                fputs("[vad] max chunk duration reached, forcing rotation\n", stderr)
-                self.lastRotationTime = Date()
-                self.onChunkBoundary?()
+                self?.handleMaxDurationTimer()
             }
         }
     }
 
     func stop() {
-        isActive = false
-        maxDurationTimer?.invalidate()
-        maxDurationTimer = nil
-        streamState = nil
+        let stopGeneration = lock.withLock { state in
+            state.isActive = false
+            state.pendingChunks.removeAll(keepingCapacity: false)
+            state.streamState = nil
+            return state.generation
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.lock.withLock({ !$0.isActive && $0.generation == stopGeneration }) else { return }
+            self.maxDurationTimer?.invalidate()
+            self.maxDurationTimer = nil
+        }
     }
 
-    /// Feed a chunk of Float audio samples (4096 samples = 256ms at 16kHz).
+    /// Feed a chunk of Float audio samples (typically 4096 samples = 256ms at 16kHz).
     func processAudio(_ samples: [Float]) {
-        guard isActive, let currentState = streamState else { return }
+        guard !samples.isEmpty else { return }
+
+        let shouldStart = lock.withLock { state in
+            guard state.isActive else { return false }
+            state.pendingChunks.append(samples)
+            return state.streamState != nil && !state.isDraining
+        }
+
+        if shouldStart {
+            startDrainIfNeeded()
+        }
+    }
+
+    /// Notify that an external rotation just happened.
+    func notifyRotation() {
+        lock.withLock { state in
+            state.lastRotationTime = Date()
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.maxDurationTimer?.fireDate = Date().addingTimeInterval(self.maxChunkDuration)
+        }
+    }
+
+    private func handleMaxDurationTimer() {
+        let shouldRotate = lock.withLock { state in
+            guard state.isActive else { return false }
+            let now = Date()
+            let elapsed = now.timeIntervalSince(state.lastRotationTime ?? now)
+            guard elapsed >= self.minChunkDuration else { return false }
+            state.lastRotationTime = now
+            return true
+        }
+        guard shouldRotate else { return }
+        fputs("[vad] max chunk duration reached, forcing rotation\n", stderr)
+        onChunkBoundary?()
+    }
+
+    private func startDrainIfNeeded() {
+        let drainerEpoch = lock.withLock { state -> Int? in
+            guard state.isActive, state.streamState != nil, !state.isDraining else { return nil }
+            guard !state.pendingChunks.isEmpty else { return nil }
+            state.drainerEpoch += 1
+            state.isDraining = true
+            return state.drainerEpoch
+        }
+        guard let drainerEpoch else { return }
 
         Task { [weak self] in
-            guard let self else { return }
+            await self?.drainQueue(drainerEpoch: drainerEpoch)
+        }
+    }
+
+    private func drainQueue(drainerEpoch: Int) async {
+        while true {
+            let next: (generation: Int, chunk: [Float], streamState: VadStreamState)? = lock.withLock { state in
+                guard state.isActive, state.isDraining, state.drainerEpoch == drainerEpoch else {
+                    if !state.isActive {
+                        state.isDraining = false
+                        state.pendingChunks.removeAll(keepingCapacity: false)
+                    }
+                    return nil
+                }
+                guard let streamState = state.streamState else {
+                    state.isDraining = false
+                    return nil
+                }
+                guard !state.pendingChunks.isEmpty else {
+                    state.isDraining = false
+                    return nil
+                }
+                return (state.generation, state.pendingChunks.removeFirst(), streamState)
+            }
+
+            guard let next else { return }
+
             do {
-                let result = try await self.vadManager.processStreamingChunk(
-                    samples,
-                    state: currentState
-                )
-                self.streamState = result.state
+                let result = try await processStreamChunk(next.chunk, next.streamState)
 
-                // Check for speech end event
-                if let event = result.event, event.kind == .speechEnd {
+                let shouldRotate = lock.withLock { state in
+                    guard state.isActive, state.generation == next.generation else { return false }
+                    state.streamState = result.state
+
+                    guard let event = result.event, event.kind == .speechEnd else {
+                        return false
+                    }
+
                     let now = Date()
-                    let elapsed = now.timeIntervalSince(self.lastRotationTime ?? now)
+                    let elapsed = now.timeIntervalSince(state.lastRotationTime ?? now)
+                    guard elapsed >= self.minChunkDuration else { return false }
+                    state.lastRotationTime = now
+                    return true
+                }
 
-                    if elapsed >= self.minChunkDuration {
-                        fputs("[vad] speech end detected at \(String(format: "%.1f", elapsed))s, rotating chunk\n", stderr)
-                        self.lastRotationTime = now
-
-                        // Reset max duration timer
-                        DispatchQueue.main.async { [weak self] in
-                            self?.maxDurationTimer?.fireDate = Date().addingTimeInterval(self?.maxChunkDuration ?? 60)
-                        }
-
+                if shouldRotate {
+                    fputs("[vad] speech end detected, rotating chunk\n", stderr)
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        self.maxDurationTimer?.fireDate = Date().addingTimeInterval(self.maxChunkDuration)
                         self.onChunkBoundary?()
                     }
                 }
             } catch {
-                // VAD failure is non-critical — chunk will rotate on max duration fallback
+                logger.error("streaming VAD chunk failed: \(String(describing: error), privacy: .public)")
+                fputs("[vad] streaming chunk failed: \(error)\n", stderr)
             }
-        }
-    }
-
-    /// Notify that a rotation just happened (e.g., from external trigger).
-    func notifyRotation() {
-        lastRotationTime = Date()
-        DispatchQueue.main.async { [weak self] in
-            self?.maxDurationTimer?.fireDate = Date().addingTimeInterval(self?.maxChunkDuration ?? 60)
         }
     }
 }

@@ -97,6 +97,30 @@ struct TranscriptionCoordinatorTests {
     }
 }
 
+@Suite("CohereTranscribeLanguage")
+struct CohereTranscribeLanguageTests {
+
+    @Test("english prompt ids match the current default prompt")
+    func englishPromptIds() {
+        #expect(
+            CohereTranscribeLanguage.english.promptIds == [13764, 7, 4, 16, 62, 62, 5, 9, 11, 13]
+        )
+    }
+
+    @Test("german prompt ids swap in the german language token")
+    func germanPromptIds() {
+        #expect(
+            CohereTranscribeLanguage.german.promptIds == [13764, 7, 4, 16, 76, 76, 5, 9, 11, 13]
+        )
+    }
+
+    @Test("unset and unsupported codes fall back to english")
+    func resolvedFallbacks() {
+        #expect(CohereTranscribeLanguage.resolved(nil) == .english)
+        #expect(CohereTranscribeLanguage.resolved("xx") == .english)
+    }
+}
+
 @Suite("CohereTranscribeUtils")
 struct CohereTranscribeUtilsTests {
 

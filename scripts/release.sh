@@ -32,7 +32,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
 SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
-APP_DIR="/Applications/Muesli.app"
+INSTALL_DIR="${MUESLI_INSTALL_DIR:-/Applications}"
+APP_DIR="${MUESLI_RELEASE_APP_DIR:-$INSTALL_DIR/Muesli.app}"
 OUTPUT_DIR="$ROOT/dist-release"
 GENERATE_APPCAST="$ROOT/native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 TAP_REPO="${MUESLI_TAP_REPO:-pHequals7/homebrew-muesli}"
@@ -375,6 +376,12 @@ perl -0pi -e 's{^\h*<enclosure\b[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>\n}{}mg' 
 # Keep the marketing/docs surface aligned with the published GitHub Release.
 sed -i '' "s|https://github.com/pHequals7/muesli/releases/download/[^\"]*\\.dmg|$DOWNLOAD_URL|g" "$ROOT/docs/index.html"
 sed -i '' "s|https://github.com/pHequals7/muesli/releases/download/.*\\.dmg|$DOWNLOAD_URL|g" "$ROOT/docs/llms.txt"
+
+echo "  Verifying Sparkle update flow metadata..."
+"$ROOT/scripts/verify_update_flow.sh" \
+  --version "$VERSION" \
+  --dmg "$DMG_PATH" \
+  --require-notarized
 
 git add docs/appcast.xml docs/index.html docs/llms.txt
 if git diff --cached --quiet; then

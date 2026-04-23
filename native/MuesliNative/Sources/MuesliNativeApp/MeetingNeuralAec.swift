@@ -1,6 +1,46 @@
 import DTLNAecCoreML
-import DTLNAec512
 import Foundation
+
+enum MeetingAecModelBundle {
+    static let bundleName = "DTLNAecCoreML_DTLNAec512.bundle"
+
+    static func resolve(
+        mainBundle: Bundle = .main,
+        fileManager: FileManager = .default
+    ) throws -> Bundle {
+        let candidates = candidateURLs(mainBundle: mainBundle)
+
+        for url in candidates {
+            var isDirectory = ObjCBool(false)
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                continue
+            }
+            if let bundle = Bundle(url: url) {
+                return bundle
+            }
+        }
+
+        let searched = candidates.map(\.path).joined(separator: ", ")
+        throw NSError(
+            domain: "MeetingAecModelBundle",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Could not locate \(bundleName) in: \(searched)"]
+        )
+    }
+
+    static func candidateURLs(mainBundle: Bundle = .main) -> [URL] {
+        let rawCandidates = [
+            mainBundle.resourceURL?.appendingPathComponent(bundleName, isDirectory: true),
+            mainBundle.bundleURL.appendingPathComponent(bundleName, isDirectory: true),
+            mainBundle.executableURL?.deletingLastPathComponent().appendingPathComponent(bundleName, isDirectory: true),
+        ].compactMap { $0 }
+
+        var seen = Set<String>()
+        return rawCandidates.filter { url in
+            seen.insert(url.standardizedFileURL.path).inserted
+        }
+    }
+}
 
 final class MeetingNeuralAec {
     private var processor: DTLNAecEchoProcessor?
@@ -21,7 +61,7 @@ final class MeetingNeuralAec {
         guard !isLoaded else { return }
         let proc = DTLNAecEchoProcessor(modelSize: .large)
         do {
-            try await proc.loadModelsAsync(from: DTLNAec512.bundle)
+            try await proc.loadModelsAsync(from: MeetingAecModelBundle.resolve())
             processor = proc
             isLoaded = true
             fputs("[meeting-aec] DTLN-aec model preloaded\n", stderr)

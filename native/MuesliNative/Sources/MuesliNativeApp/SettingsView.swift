@@ -84,6 +84,10 @@ struct SettingsView: View {
         backendOptions(including: appState.selectedMeetingTranscriptionBackend)
     }
 
+    private var selectedCohereLanguage: CohereTranscribeLanguage {
+        appState.config.resolvedCohereLanguage
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
@@ -246,6 +250,18 @@ struct SettingsView: View {
                         }
                     }
                 }
+                if appState.selectedBackend.backend == BackendOption.cohereTranscribe.backend {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Cohere language") {
+                        settingsMenu(
+                            selection: selectedCohereLanguage.label,
+                            options: CohereTranscribeLanguage.allCases.map(\.label)
+                        ) { label in
+                            guard let language = CohereTranscribeLanguage.allCases.first(where: { $0.label == label }) else { return }
+                            controller.selectCohereLanguage(language)
+                        }
+                    }
+                }
                 Divider().background(MuesliTheme.surfaceBorder)
                 settingsRow("AI transcript cleanup") {
                     settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
@@ -301,6 +317,18 @@ struct SettingsView: View {
                     ) { label in
                         if let option = meetingBackendOptions.first(where: { $0.label == label }) {
                             controller.selectMeetingTranscriptionBackend(option)
+                        }
+                    }
+                }
+                if appState.selectedMeetingTranscriptionBackend.backend == BackendOption.cohereTranscribe.backend {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Cohere language") {
+                        settingsMenu(
+                            selection: selectedCohereLanguage.label,
+                            options: CohereTranscribeLanguage.allCases.map(\.label)
+                        ) { label in
+                            guard let language = CohereTranscribeLanguage.allCases.first(where: { $0.label == label }) else { return }
+                            controller.selectCohereLanguage(language)
                         }
                     }
                 }
