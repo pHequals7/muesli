@@ -166,8 +166,10 @@ final class StreamingVadController {
         while true {
             let next: (generation: Int, chunk: [Float], streamState: VadStreamState)? = lock.withLock { state in
                 guard state.isActive, state.isDraining, state.drainerEpoch == drainerEpoch else {
-                    state.isDraining = false
-                    state.pendingChunks.removeAll(keepingCapacity: false)
+                    if !state.isActive {
+                        state.isDraining = false
+                        state.pendingChunks.removeAll(keepingCapacity: false)
+                    }
                     return nil
                 }
                 guard let streamState = state.streamState else {
@@ -206,8 +208,8 @@ final class StreamingVadController {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
                         self.maxDurationTimer?.fireDate = Date().addingTimeInterval(self.maxChunkDuration)
+                        self.onChunkBoundary?()
                     }
-                    onChunkBoundary?()
                 }
             } catch {
                 logger.error("streaming VAD chunk failed: \(String(describing: error), privacy: .public)")

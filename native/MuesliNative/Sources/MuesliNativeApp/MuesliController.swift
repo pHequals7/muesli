@@ -1561,6 +1561,8 @@ final class MuesliController: NSObject {
         guard let activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             indicator.setMeetingRecording(false, config: config)
+            isStoppingMeetingRecording = false
+            endMeetingActivity()
             setState(.idle)
             return
         }
@@ -1582,6 +1584,8 @@ final class MuesliController: NSObject {
         guard let activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             indicator.setMeetingRecording(false, config: config)
+            isStoppingMeetingRecording = false
+            endMeetingActivity()
             setState(.idle)
             return
         }

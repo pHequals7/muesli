@@ -166,4 +166,42 @@ struct StreamingVadControllerTests {
         #expect(await probe.processedCount == 1)
         #expect(await probe.boundaryCount == 0)
     }
+
+    @Test("stale drainer does not clear restarted session queue")
+    func staleDrainerDoesNotClearRestartedSessionQueue() async throws {
+        let probe = StreamingVadTestProbe()
+        let controller = StreamingVadController(
+            minChunkDuration: 0,
+            maxChunkDuration: 3600,
+            makeInitialState: { VadStreamState.initial() },
+            processStreamChunk: { _, state in
+                await probe.processingStarted()
+                try? await Task.sleep(for: .milliseconds(120))
+                await probe.processingFinished()
+                return VadStreamResult(state: state, event: nil, probability: 0.0)
+            }
+        )
+
+        controller.start()
+        controller.processAudio([Float](repeating: 0, count: VadManager.chunkSize))
+
+        let startedDeadline = ContinuousClock.now + .seconds(1)
+        while await probe.inFlightCount == 0, ContinuousClock.now < startedDeadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        controller.stop()
+        controller.start()
+        for _ in 0..<3 {
+            controller.processAudio([Float](repeating: 0, count: VadManager.chunkSize))
+        }
+
+        let finishedDeadline = ContinuousClock.now + .seconds(2)
+        while await probe.processedCount < 4, ContinuousClock.now < finishedDeadline {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        controller.stop()
+
+        #expect(await probe.processedCount == 4)
+    }
 }
