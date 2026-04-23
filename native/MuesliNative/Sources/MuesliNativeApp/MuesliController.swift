@@ -120,6 +120,8 @@ final class MuesliController: NSObject {
     private var presentedMeetingDetection: MeetingDetection?
     private var meetingEndTimer: Timer?
     private var activeMeetingCalendarEndDate: Date?
+    private var meetingActivity: NSObjectProtocol?
+    private var isStoppingMeetingRecording = false
 
     init(runtime: RuntimePaths, dictationStore: DictationStore? = nil) {
         let loadedConfig = configStore.load()
@@ -307,6 +309,9 @@ final class MuesliController: NSObject {
         micActivityMonitor.stop()
         dismissPresentedMeetingDetection()
         meetingNotification.close()
+        activeMeetingSession?.discard()
+        activeMeetingSession = nil
+        endMeetingActivity()
         recorder.cancel()
         Task {
             await transcriptionCoordinator.shutdown()
@@ -848,9 +853,11 @@ final class MuesliController: NSObject {
                 let title = event.title
                 meetingStartingNowTimers[key]?.invalidate()
                 meetingStartingNowTimers[key] = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-                    guard let self, !self.isMeetingRecording() else { return }
-                    self.meetingStartingNowTimers.removeValue(forKey: key)
-                    self.showMeetingStartingNowNotification(title: title, meetingURL: meetingURL, endDate: endDate)
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, !self.isMeetingRecording() else { return }
+                        self.meetingStartingNowTimers.removeValue(forKey: key)
+                        self.showMeetingStartingNowNotification(title: title, meetingURL: meetingURL, endDate: endDate)
+                    }
                 }
             }
 
@@ -1358,7 +1365,53 @@ final class MuesliController: NSObject {
     }
 
     func isMeetingRecording() -> Bool {
-        activeMeetingSession?.isRecording == true
+        activeMeetingSession?.isRecording == true || isStoppingMeetingRecording
+    }
+
+    private var meetingTerminationState: MeetingTerminationState {
+        MeetingTerminationPolicy.state(
+            isStarting: isStartingMeetingRecording,
+            hasActiveSession: activeMeetingSession != nil,
+            isRecording: activeMeetingSession?.isRecording == true,
+            isStopping: isStoppingMeetingRecording
+        )
+    }
+
+    func shouldTerminateApplication() -> Bool {
+        let state = meetingTerminationState
+        guard state != .none else { return true }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        switch state {
+        case .starting:
+            alert.messageText = "Meeting recording is starting"
+            alert.informativeText = "Quitting now will cancel the meeting recording before it has been saved."
+        case .recording:
+            alert.messageText = "Meeting recording in progress"
+            alert.informativeText = "Quitting now will stop the meeting recording and the current transcript may be lost. Stop the recording first if you want Muesli to save notes."
+        case .processing:
+            alert.messageText = "Meeting transcription in progress"
+            alert.informativeText = "Quitting now will interrupt transcription and the meeting notes may not be saved."
+        case .none:
+            return true
+        }
+        alert.addButton(withTitle: "Keep Muesli Running")
+        alert.addButton(withTitle: "Quit Anyway")
+
+        let response = alert.runModal()
+        guard response == .alertSecondButtonReturn else {
+            return false
+        }
+
+        activeMeetingSession?.discard()
+        activeMeetingSession = nil
+        isStartingMeetingRecording = false
+        isStoppingMeetingRecording = false
+        endMeetingActivity()
+        return true
     }
 
     @objc func toggleMeetingRecording() {
@@ -1377,6 +1430,7 @@ final class MuesliController: NSObject {
     func startMeetingRecording(title: String = "Meeting") {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         isStartingMeetingRecording = true
+        beginMeetingActivity(reason: "Recording and transcribing a meeting")
         micActivityMonitor.suppressWhileActive()
         micActivityMonitor.refreshState()
         updateMeetingNotificationVisibility()
@@ -1394,6 +1448,7 @@ final class MuesliController: NSObject {
                 self.statusBarController?.setStatus("Idle")
                 self.statusBarController?.refresh()
                 self.setState(.idle)
+                self.endMeetingActivity()
 
                 let isSystemAudioError = error is CoreAudioSystemRecorder.RecorderError
                 let alert = NSAlert()
@@ -1506,6 +1561,8 @@ final class MuesliController: NSObject {
         }
         activeMeetingSession.discard()
         self.activeMeetingSession = nil
+        isStoppingMeetingRecording = false
+        endMeetingActivity()
         indicator.setMeetingRecording(false, config: config)
         micActivityMonitor.resumeAfterCooldown()
         micActivityMonitor.refreshState()
@@ -1516,12 +1573,14 @@ final class MuesliController: NSObject {
     }
 
     func stopMeetingRecording() {
+        guard !isStoppingMeetingRecording else { return }
         guard let activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             indicator.setMeetingRecording(false, config: config)
             setState(.idle)
             return
         }
+        isStoppingMeetingRecording = true
         meetingEndTimer?.invalidate()
         meetingEndTimer = nil
         meetingNotification.close()
@@ -1565,6 +1624,8 @@ final class MuesliController: NSObject {
             }
             await MainActor.run {
                 self.activeMeetingSession = nil
+                self.isStoppingMeetingRecording = false
+                self.endMeetingActivity()
                 self.setState(.idle)
                 self.micActivityMonitor.resumeAfterCooldown()
                 self.micActivityMonitor.refreshState()
@@ -1775,6 +1836,24 @@ final class MuesliController: NSObject {
         if !isDictationTestMode {
             indicator.setState(state, config: config)
         }
+    }
+
+    private func beginMeetingActivity(reason: String) {
+        guard meetingActivity == nil else { return }
+        meetingActivity = ProcessInfo.processInfo.beginActivity(
+            options: [
+                .userInitiatedAllowingIdleSystemSleep,
+                .suddenTerminationDisabled,
+                .automaticTerminationDisabled,
+            ],
+            reason: reason
+        )
+    }
+
+    private func endMeetingActivity() {
+        guard let activity = meetingActivity else { return }
+        ProcessInfo.processInfo.endActivity(activity)
+        meetingActivity = nil
     }
 
     private func dismissPresentedMeetingDetection() {
@@ -2262,8 +2341,8 @@ final class MuesliController: NSObject {
         guard delay > 0 else { return }
 
         meetingEndTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            guard let self, self.isMeetingRecording() else { return }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.isMeetingRecording() else { return }
                 self.meetingNotification.show(
                     title: "Meeting ended",
                     subtitle: "\(title) · scheduled time is over",
