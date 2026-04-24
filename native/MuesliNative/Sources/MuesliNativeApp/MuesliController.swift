@@ -74,6 +74,7 @@ final class MuesliController: NSObject {
     private let runtime: RuntimePaths
     private let configStore = ConfigStore()
     private let dictationStore: DictationStore
+    private let meetingHookDispatcher: MeetingHookDispatching
     let transcriptionCoordinator = TranscriptionCoordinator()
     private let hotkeyMonitor = HotkeyMonitor()
     private let recorder = MicrophoneRecorder()
@@ -123,12 +124,17 @@ final class MuesliController: NSObject {
     private var meetingActivity: NSObjectProtocol?
     private var isStoppingMeetingRecording = false
 
-    init(runtime: RuntimePaths, dictationStore: DictationStore? = nil) {
+    init(
+        runtime: RuntimePaths,
+        dictationStore: DictationStore? = nil,
+        meetingHookDispatcher: MeetingHookDispatching = MeetingHookRunner()
+    ) {
         let loadedConfig = configStore.load()
         self.runtime = runtime
         self.dictationStore = dictationStore ?? DictationStore(
             databaseURL: MuesliPaths.defaultDatabaseURL(appName: AppIdentity.supportDirectoryName)
         )
+        self.meetingHookDispatcher = meetingHookDispatcher
         self.config = loadedConfig
         if loadedConfig.recordingColorHex != "1e1e2e" {
             MuesliTheme.accentOverrideHex = loadedConfig.recordingColorHex
@@ -1644,7 +1650,7 @@ final class MuesliController: NSObject {
                 await MainActor.run {
                     self.setMeetingProcessingStatus("Finalizing")
                 }
-                let persistenceResult = try self.persistCompletedMeetingResult(result)
+                let persistenceResult = try self.persistCompletedMeetingResultAndDispatchHook(result)
                 completedMeetingID = persistenceResult.meetingID
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
@@ -1731,6 +1737,16 @@ final class MuesliController: NSObject {
                 recordingSaveError: .failedToSaveRecording(underlying: error)
             )
         }
+    }
+
+    func persistCompletedMeetingResultAndDispatchHook(_ result: MeetingSessionResult) throws -> CompletedMeetingPersistenceResult {
+        let persistenceResult = try persistCompletedMeetingResult(result)
+        meetingHookDispatcher.dispatchCompletedMeetingHook(
+            meetingID: persistenceResult.meetingID,
+            completedAt: result.endTime,
+            config: config
+        )
+        return persistenceResult
     }
 
     private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) throws -> String? {

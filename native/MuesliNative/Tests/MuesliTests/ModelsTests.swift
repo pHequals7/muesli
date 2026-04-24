@@ -260,6 +260,9 @@ struct AppConfigTests {
         #expect(config.hasCompletedOnboarding == false)
         #expect(config.userName.isEmpty)
         #expect(config.customMeetingTemplates.isEmpty)
+        #expect(config.meetingHookEnabled == false)
+        #expect(config.meetingHookPath.isEmpty)
+        #expect(config.meetingHookTimeoutSeconds == 30)
     }
 
     @Test("JSON encode/decode round-trip")
@@ -279,6 +282,9 @@ struct AppConfigTests {
                 icon: "dollarsign.circle"
             )
         ]
+        config.meetingHookEnabled = true
+        config.meetingHookPath = "/tmp/meeting-hook.sh"
+        config.meetingHookTimeoutSeconds = 45
 
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
@@ -292,6 +298,9 @@ struct AppConfigTests {
         #expect(decoded.customMeetingTemplates.count == 1)
         #expect(decoded.customMeetingTemplates.first?.name == "Customer Follow-Up")
         #expect(decoded.customMeetingTemplates.first?.icon == "dollarsign.circle")
+        #expect(decoded.meetingHookEnabled == true)
+        #expect(decoded.meetingHookPath == "/tmp/meeting-hook.sh")
+        #expect(decoded.meetingHookTimeoutSeconds == 45)
         #expect(decoded.meetingTranscriptionBackend == config.meetingTranscriptionBackend)
         #expect(decoded.indicatorAnchor == config.indicatorAnchor)
     }
@@ -313,6 +322,9 @@ struct AppConfigTests {
         #expect(json["default_meeting_template_id"] != nil)
         #expect(json["meeting_recording_save_policy"] != nil)
         #expect(json["custom_meeting_templates"] != nil)
+        #expect(json["meeting_hook_enabled"] != nil)
+        #expect(json["meeting_hook_path"] != nil)
+        #expect(json["meeting_hook_timeout_seconds"] != nil)
     }
 
     @Test("decodes with missing fields using defaults")
@@ -328,6 +340,9 @@ struct AppConfigTests {
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.meetingRecordingSavePolicy == .never)
         #expect(config.customMeetingTemplates.isEmpty)
+        #expect(config.meetingHookEnabled == false)
+        #expect(config.meetingHookPath.isEmpty)
+        #expect(config.meetingHookTimeoutSeconds == 30)
     }
 
     @Test("unsupported cohere language falls back to english")
