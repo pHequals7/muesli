@@ -442,6 +442,38 @@ struct SettingsView: View {
                 }
             }
 
+            settingsSection("Advanced") {
+                settingsRow("Enable post-meeting hook") {
+                    settingsSwitch(isOn: appState.config.meetingHookEnabled) { newValue in
+                        controller.updateConfig { $0.meetingHookEnabled = newValue }
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Hook script") {
+                    meetingHookPathPicker
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Timeout") {
+                    Stepper(
+                        value: Binding(
+                            get: { max(appState.config.meetingHookTimeoutSeconds, 1) },
+                            set: { newValue in
+                                controller.updateConfig { $0.meetingHookTimeoutSeconds = max(newValue, 1) }
+                            }
+                        ),
+                        in: 1...600
+                    ) {
+                        Text("\(max(appState.config.meetingHookTimeoutSeconds, 1)) seconds")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+                    }
+                }
+                Text("Advanced: runs a user-supplied executable after each completed meeting. The executable receives JSON on stdin and must already be runnable on its own.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .padding(.horizontal, MuesliTheme.spacing16)
+            }
+
             if appState.isGoogleCalendarAvailable {
                 settingsSection("Calendar") {
                     settingsRow("Google Calendar") {
@@ -824,6 +856,47 @@ struct SettingsView: View {
         }
     }
 
+    private func pickMeetingHookFile() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a hook script"
+        panel.prompt = "Choose Script"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.directoryURL = preferredMeetingHookDirectoryURL()
+
+        presentOpenPanel(panel) { url in
+            controller.updateConfig { $0.meetingHookPath = url.standardizedFileURL.path }
+        }
+    }
+
+    private func preferredMeetingHookDirectoryURL() -> URL {
+        let configuredPath = appState.config.meetingHookPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configuredPath.isEmpty {
+            let configuredURL = URL(fileURLWithPath: configuredPath).standardizedFileURL
+            if FileManager.default.fileExists(atPath: configuredURL.path) {
+                return configuredURL.deletingLastPathComponent()
+            }
+            return configuredURL.deletingLastPathComponent()
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop", isDirectory: true)
+    }
+
+    private func presentOpenPanel(_ panel: NSOpenPanel, onPick: @escaping (URL) -> Void) {
+        NSApp.activate()
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window) { response in
+                guard response == .OK, let url = panel.url else { return }
+                onPick(url)
+            }
+        } else {
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                onPick(url)
+            }
+        }
+    }
+
     // MARK: - Permissions
 
     private var permissionsSection: some View {
@@ -1022,6 +1095,58 @@ struct SettingsView: View {
     private func settingsMenu(selection: String, options: [String], onChange: @escaping (String) -> Void) -> some View {
         FixedWidthPopUp(selection: selection, options: options, onChange: onChange)
             .frame(height: 24)
+    }
+
+    @ViewBuilder
+    private var meetingHookPathPicker: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.badge.gearshape")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+
+                if appState.config.meetingHookPath.isEmpty {
+                    Text("Choose a script…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .lineLimit(1)
+                } else {
+                    Text(appState.config.meetingHookPath)
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+            .help(appState.config.meetingHookPath.isEmpty ? "No hook script selected" : appState.config.meetingHookPath)
+
+            Button {
+                pickMeetingHookFile()
+            } label: {
+                Image(systemName: "folder")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Choose hook script")
+        }
     }
 
     @ViewBuilder
