@@ -44,6 +44,42 @@ struct MeetingDetectorTests {
         #expect(d.evaluate(signals) == nil)
     }
 
+    @Test("currentDetection shows foreground browser meeting URL before mic starts")
+    func currentDetectionShowsForegroundBrowserMeetingURLBeforeMicStarts() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: false,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: true)],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.google.Chrome",
+                appName: "Chrome",
+                browserURL: "meet.google.com/pwm-txwq-txy"
+            )
+        )
+        #expect(d.currentDetection(signals)?.appName == "Chrome")
+        #expect(d.evaluate(signals) == nil)
+    }
+
+    @Test("currentDetection ignores non-meeting browser URL before mic starts")
+    func currentDetectionIgnoresNonMeetingBrowserURLBeforeMicStarts() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: false,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "com.google.Chrome", isActive: true)],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.google.Chrome",
+                appName: "Chrome",
+                browserURL: "example.com/docs"
+            )
+        )
+        #expect(d.currentDetection(signals) == nil)
+        #expect(d.evaluate(signals) == nil)
+    }
+
     @Test("calendar + mic + Zoom running uses Zoom as app name")
     func calendarPlusMicWithZoom() {
         let d = makeDetector()
@@ -455,6 +491,125 @@ struct MeetingDetectorTests {
         #expect(result?.appName == "Zoom")  // dedicated app preferred
     }
 
+    @Test("foreground snapshot preferred over background dedicated app")
+    func foregroundSnapshotPreferredOverBackgroundDedicatedApp() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [
+                RunningAppInfo(bundleID: "us.zoom.xos", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
+            ],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.google.Chrome",
+                appName: "Chrome",
+                browserURL: "meet.google.com/pwm-txwq-txy"
+            )
+        )
+        #expect(d.evaluate(signals)?.appName == "Chrome")
+    }
+
+    @Test("foreground meeting URL snapshot identifies unknown browser")
+    func foregroundMeetingURLSnapshotIdentifiesUnknownBrowser() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false)],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.example.Browser",
+                appName: "Example Browser",
+                browserURL: "meet.google.com/pwm-txwq-txy"
+            )
+        )
+        #expect(d.evaluate(signals)?.appName == "Example Browser")
+    }
+
+    @Test("foreground snapshot enriches calendar meeting app name")
+    func foregroundSnapshotEnrichesCalendarMeetingAppName() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: CalendarEventContext(id: "evt1", title: "Browser meeting"),
+            runningApps: [RunningAppInfo(bundleID: "us.zoom.xos", isActive: false)],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.google.Chrome",
+                appName: "Chrome",
+                browserURL: "meet.google.com/pwm-txwq-txy"
+            )
+        )
+        let result = d.evaluate(signals)
+        #expect(result?.appName == "Chrome")
+        #expect(result?.meetingTitle == "Browser meeting")
+    }
+
+    @Test("background WhatsApp does not override frontmost Chrome calendar meeting")
+    func backgroundWhatsAppDoesNotOverrideChromeCalendarMeeting() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: CalendarEventContext(id: "evt1", title: "Browser meeting"),
+            runningApps: [
+                RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
+            ]
+        )
+        let result = d.evaluate(signals)
+        #expect(result?.appName == "Chrome")
+        #expect(result?.meetingTitle == "Browser meeting")
+    }
+
+    @Test("background WhatsApp does not override frontmost Chrome mic meeting")
+    func backgroundWhatsAppDoesNotOverrideChromeMicMeeting() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [
+                RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
+            ]
+        )
+        #expect(d.evaluate(signals)?.appName == "Chrome")
+    }
+
+    @Test("background WhatsApp does not redetect after Chrome camera meeting")
+    func backgroundWhatsAppDoesNotRedetectAfterChromeCameraMeeting() {
+        let d = makeDetector()
+        let chromeSignals = MeetingSignals(
+            micActive: true,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: [
+                RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
+            ],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.google.Chrome",
+                appName: "Chrome",
+                browserURL: "meet.google.com/sqx-acjz-ffu"
+            )
+        )
+        #expect(d.evaluate(chromeSignals)?.appName == "Chrome")
+
+        let fallbackSignals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [
+                RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+            ]
+        )
+        #expect(d.evaluate(fallbackSignals) == nil)
+    }
+
     // MARK: - Multiple apps
 
     @Test("only one detection per evaluation cycle")
@@ -548,6 +703,38 @@ struct MeetingDetectorTests {
         let result = d.evaluate(signals)
         #expect(result != nil)
         #expect(result?.appName == "Chrome")
+    }
+
+    @Test("background WhatsApp does not override frontmost Chrome camera meeting")
+    func backgroundWhatsAppDoesNotOverrideChromeCameraMeeting() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: [
+                RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
+            ]
+        )
+        #expect(d.evaluate(signals)?.appName == "Chrome")
+    }
+
+    @Test("foreground snapshot identifies browser camera meeting")
+    func foregroundSnapshotIdentifiesBrowserCameraMeeting() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: true,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false)],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.google.Chrome",
+                appName: "Chrome",
+                browserURL: "meet.google.com/pwm-txwq-txy"
+            )
+        )
+        #expect(d.evaluate(signals)?.appName == "Chrome")
     }
 
     @Test("camera + mic + calendar includes event title")

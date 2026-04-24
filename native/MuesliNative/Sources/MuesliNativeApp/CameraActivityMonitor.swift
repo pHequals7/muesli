@@ -25,6 +25,10 @@ final class CameraActivityMonitor {
         removeDeviceListListener()
     }
 
+    func refresh() {
+        checkCameraState()
+    }
+
     // MARK: - Device List Listener
 
     /// Listens for camera hardware being added/removed (e.g. plugging in a USB webcam).
