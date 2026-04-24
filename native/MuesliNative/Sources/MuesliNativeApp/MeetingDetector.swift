@@ -85,7 +85,6 @@ final class MeetingDetector {
         "com.google.Chrome": "Chrome",
         "com.brave.Browser": "Brave",
         "company.thebrowser.Browser": "Arc",
-        "org.mozilla.firefox": "Firefox",
         "com.microsoft.edgemac": "Edge",
         "com.apple.Safari": "Safari",
     ]
