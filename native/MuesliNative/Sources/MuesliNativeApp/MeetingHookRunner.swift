@@ -13,8 +13,36 @@ struct MeetingHookEvent: Codable, Equatable {
     let completedAt: String
 }
 
+private final class BoundedOutputBuffer {
+    private let capacity: Int
+    private let queue = DispatchQueue(label: "com.muesli.native.meeting-hook-output-buffer")
+    private var data = Data()
+
+    init(capacity: Int) {
+        self.capacity = max(capacity, 1)
+    }
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        queue.sync {
+            data.append(chunk)
+            if data.count > capacity {
+                data.removeFirst(data.count - capacity)
+            }
+        }
+    }
+
+    func stringValue() -> String? {
+        queue.sync {
+            guard !data.isEmpty else { return nil }
+            return String(decoding: data, as: UTF8.self)
+        }
+    }
+}
+
 final class MeetingHookRunner: MeetingHookDispatching {
     private static let logger = Logger(subsystem: "com.muesli.native", category: "MeetingHook")
+    private static let maxLoggedStandardErrorBytes = 4096
 
     private let supportDirectory: URL
     private let fileManager: FileManager
@@ -82,7 +110,17 @@ final class MeetingHookRunner: MeetingHookDispatching {
         process.executableURL = URL(fileURLWithPath: trimmedPath)
         process.currentDirectoryURL = supportDirectory
         process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        let standardErrorPipe = Pipe()
+        let standardErrorBuffer = BoundedOutputBuffer(capacity: Self.maxLoggedStandardErrorBytes)
+        standardErrorPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            if chunk.isEmpty {
+                handle.readabilityHandler = nil
+                return
+            }
+            standardErrorBuffer.append(chunk)
+        }
+        process.standardError = standardErrorPipe
 
         let inputPipe = Pipe()
         process.standardInput = inputPipe
@@ -97,34 +135,41 @@ final class MeetingHookRunner: MeetingHookDispatching {
         do {
             try process.run()
         } catch {
+            standardErrorPipe.fileHandleForReading.readabilityHandler = nil
             writeLog("launch failed: id=\(event.id) path=\(trimmedPath) error=\(error.localizedDescription)")
             return
-        }
-
-        do {
-            try inputPipe.fileHandleForWriting.write(contentsOf: payloadData)
-        } catch {
-            writeLog("stdin write failed: id=\(event.id) path=\(trimmedPath) error=\(error.localizedDescription)")
-        }
-        do {
-            try inputPipe.fileHandleForWriting.close()
-        } catch {
-            writeLog("stdin close failed: id=\(event.id) path=\(trimmedPath) error=\(error.localizedDescription)")
         }
 
         let timeoutSeconds = max(config.meetingHookTimeoutSeconds, 1)
         writeLog("started: id=\(event.id) path=\(trimmedPath) timeout=\(timeoutSeconds)s")
 
-        if terminationSemaphore.wait(timeout: .now() + .seconds(timeoutSeconds)) == .timedOut {
-            writeLog("timed out: id=\(event.id) path=\(trimmedPath) timeout=\(timeoutSeconds)s")
+        do {
+            try inputPipe.fileHandleForWriting.write(contentsOf: payloadData)
+        } catch {
+            writeLog("stdin write failed: id=\(event.id) path=\(trimmedPath) error=\(error.localizedDescription)")
+            closeInputPipe(inputPipe, event: event, path: trimmedPath)
+            standardErrorPipe.fileHandleForReading.readabilityHandler = nil
             terminate(process: process, semaphore: terminationSemaphore)
+            drainStandardError(from: standardErrorPipe, into: standardErrorBuffer)
             return
         }
+        closeInputPipe(inputPipe, event: event, path: trimmedPath)
+
+        if terminationSemaphore.wait(timeout: .now() + .seconds(timeoutSeconds)) == .timedOut {
+            standardErrorPipe.fileHandleForReading.readabilityHandler = nil
+            terminate(process: process, semaphore: terminationSemaphore)
+            drainStandardError(from: standardErrorPipe, into: standardErrorBuffer)
+            writeLog("timed out: id=\(event.id) path=\(trimmedPath) timeout=\(timeoutSeconds)s\(standardErrorSuffix(from: standardErrorBuffer))")
+            return
+        }
+
+        standardErrorPipe.fileHandleForReading.readabilityHandler = nil
+        drainStandardError(from: standardErrorPipe, into: standardErrorBuffer)
 
         if terminationStatus == 0 {
             writeLog("completed: id=\(event.id) path=\(trimmedPath) exit=0")
         } else {
-            writeLog("failed: id=\(event.id) path=\(trimmedPath) exit=\(terminationStatus)")
+            writeLog("failed: id=\(event.id) path=\(trimmedPath) exit=\(terminationStatus)\(standardErrorSuffix(from: standardErrorBuffer))")
         }
     }
 
@@ -135,6 +180,35 @@ final class MeetingHookRunner: MeetingHookDispatching {
             kill(process.processIdentifier, SIGKILL)
             _ = semaphore.wait(timeout: .now() + .seconds(1))
         }
+    }
+
+    private func closeInputPipe(_ inputPipe: Pipe, event: MeetingHookEvent, path: String) {
+        do {
+            try inputPipe.fileHandleForWriting.close()
+        } catch {
+            writeLog("stdin close failed: id=\(event.id) path=\(path) error=\(error.localizedDescription)")
+        }
+    }
+
+    private func drainStandardError(from pipe: Pipe, into buffer: BoundedOutputBuffer) {
+        do {
+            if let trailingData = try pipe.fileHandleForReading.readToEnd(), !trailingData.isEmpty {
+                buffer.append(trailingData)
+            }
+            try pipe.fileHandleForReading.close()
+        } catch {
+            writeLog("stderr capture failed: error=\(error.localizedDescription)")
+        }
+    }
+
+    private func standardErrorSuffix(from buffer: BoundedOutputBuffer) -> String {
+        guard let value = buffer.stringValue() else { return "" }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let singleLine = trimmed
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        return " stderr=\(singleLine)"
     }
 
     private func writeLog(_ message: String) {

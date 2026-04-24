@@ -94,6 +94,7 @@ struct MeetingHookRunnerTests {
             name: "fail.sh",
             body: """
             #!/bin/sh
+            echo "hook stderr" >&2
             exit 7
             """
         )
@@ -110,6 +111,7 @@ struct MeetingHookRunnerTests {
         let log = try String(contentsOf: runner.logURL, encoding: .utf8)
         #expect(log.contains("failed: id=301"))
         #expect(log.contains("exit=7"))
+        #expect(log.contains("stderr=hook stderr"))
     }
 
     private func makeEvent(id: Int64) -> MeetingHookEvent {

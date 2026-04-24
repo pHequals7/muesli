@@ -1130,6 +1130,25 @@ struct SettingsView: View {
             )
             .help(appState.config.meetingHookPath.isEmpty ? "No hook script selected" : appState.config.meetingHookPath)
 
+            if !appState.config.meetingHookPath.isEmpty {
+                Button {
+                    controller.updateConfig { $0.meetingHookPath = "" }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .background(MuesliTheme.surfacePrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help("Clear hook script")
+            }
+
             Button {
                 pickMeetingHookFile()
             } label: {

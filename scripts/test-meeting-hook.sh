@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required for test-meeting-hook.sh." >&2
+  exit 1
+fi
+
 OUTPUT_DIR="${MUESLI_HOOK_TEST_DIR:-$HOME/Desktop/MuesliHookTest}"
 mkdir -p "$OUTPUT_DIR"
 
