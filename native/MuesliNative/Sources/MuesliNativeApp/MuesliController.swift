@@ -74,13 +74,15 @@ final class MuesliController: NSObject {
     private let runtime: RuntimePaths
     private let configStore = ConfigStore()
     private let dictationStore: DictationStore
+    private let meetingHookDispatcher: MeetingHookDispatching
     let transcriptionCoordinator = TranscriptionCoordinator()
     private let hotkeyMonitor = HotkeyMonitor()
     private let recorder = MicrophoneRecorder()
     private let indicator: FloatingIndicatorController
     private let calendarMonitor = CalendarMonitor()
-    private let micActivityMonitor = MicActivityMonitor()
+    private let meetingMonitor = MeetingMonitor()
     private let meetingNotification = MeetingNotificationController()
+    private let meetingSourceWindowLocator = MeetingSourceWindowLocator()
 
     private let chatGPTAuth = ChatGPTAuthManager.shared
     private let googleCalAuth = GoogleCalendarAuthManager.shared
@@ -116,19 +118,23 @@ final class MuesliController: NSObject {
     private var dataDidChangeObserver: NSObjectProtocol?
     private var isStartingMeetingRecording = false
     private var isShowingCalendarNotification = false
-    private var currentMeetingDetection: MeetingDetection?
-    private var presentedMeetingDetection: MeetingDetection?
+    private var presentedMeetingCandidate: MeetingCandidate?
     private var meetingEndTimer: Timer?
     private var activeMeetingCalendarEndDate: Date?
     private var meetingActivity: NSObjectProtocol?
     private var isStoppingMeetingRecording = false
 
-    init(runtime: RuntimePaths, dictationStore: DictationStore? = nil) {
+    init(
+        runtime: RuntimePaths,
+        dictationStore: DictationStore? = nil,
+        meetingHookDispatcher: MeetingHookDispatching = MeetingHookRunner()
+    ) {
         let loadedConfig = configStore.load()
         self.runtime = runtime
         self.dictationStore = dictationStore ?? DictationStore(
             databaseURL: MuesliPaths.defaultDatabaseURL(appName: AppIdentity.supportDirectoryName)
         )
+        self.meetingHookDispatcher = meetingHookDispatcher
         self.config = loadedConfig
         if loadedConfig.recordingColorHex != "1e1e2e" {
             MuesliTheme.accentOverrideHex = loadedConfig.recordingColorHex
@@ -211,7 +217,8 @@ final class MuesliController: NSObject {
                 app != NSRunningApplication.current
             else { return }
             Task { @MainActor [weak self] in
-                self?.lastExternalApp = app
+                guard let self else { return }
+                self.lastExternalApp = app
             }
         }
         dataDidChangeObserver = DistributedNotificationCenter.default().addObserver(
@@ -231,13 +238,38 @@ final class MuesliController: NSObject {
         historyWindowController = RecentHistoryWindowController(store: dictationStore, controller: self)
         refreshUI()
 
-        micActivityMonitor.calendarEventProvider = { [weak self] in
+        meetingMonitor.calendarEventProvider = { [weak self] in
             self?.calendarMonitor.currentOrNearbyEvent()
         }
-        micActivityMonitor.onMeetingDetectionStateChanged = { [weak self] detection in
+        meetingMonitor.detectionEnabledProvider = { [weak self] in
+            self?.config.showMeetingDetectionNotification ?? false
+        }
+        meetingMonitor.isRecordingProvider = { [weak self] in
+            self?.isMeetingRecording() ?? false
+        }
+        meetingMonitor.isStartingRecordingProvider = { [weak self] in
+            self?.isStartingMeetingRecording ?? false
+        }
+        meetingMonitor.isCalendarNotificationVisibleProvider = { [weak self] in
+            self?.isShowingCalendarNotification ?? false
+        }
+        meetingMonitor.promptVisibilityProvider = { [weak self] in
+            guard let self else {
+                return MeetingPromptVisibility(isVisible: false, currentPromptID: nil, shownAt: nil)
+            }
+            return MeetingPromptVisibility(
+                isVisible: self.meetingNotification.isVisible,
+                currentPromptID: self.meetingNotification.currentPromptID,
+                shownAt: self.meetingNotification.shownAt
+            )
+        }
+        meetingMonitor.onPromptCandidateChanged = { [weak self] candidate in
             guard let self else { return }
-            self.currentMeetingDetection = detection
-            self.updateMeetingNotificationVisibility()
+            if let candidate {
+                self.presentMeetingDetection(candidate)
+            } else {
+                self.dismissPresentedMeetingDetection()
+            }
         }
 
         // Defer permission-triggering monitors until after onboarding
@@ -245,7 +277,7 @@ final class MuesliController: NSObject {
             calendarMonitor.start()
             startCalendarMonitoring()
             if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
-            micActivityMonitor.start()
+            meetingMonitor.start()
         }
 
         Task { [weak self] in
@@ -308,7 +340,7 @@ final class MuesliController: NSObject {
         calendarMonitor.stop()
         meetingStartingNowTimers.values.forEach { $0.invalidate() }
         meetingStartingNowTimers.removeAll()
-        micActivityMonitor.stop()
+        meetingMonitor.stop()
         dismissPresentedMeetingDetection()
         meetingNotification.close()
         activeMeetingSession?.discard()
@@ -897,8 +929,8 @@ final class MuesliController: NSObject {
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
                 let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
-                self.micActivityMonitor.suppress(for: remaining)
-                self.micActivityMonitor.refreshState()
+                self.meetingMonitor.suppress(for: remaining)
+                self.meetingMonitor.refreshState()
             },
             onClose: { [weak self] in self?.isShowingCalendarNotification = false }
         )
@@ -1031,7 +1063,7 @@ final class MuesliController: NSObject {
         // Start monitors that were deferred during onboarding
         calendarMonitor.start()
         startCalendarMonitoring()
-        micActivityMonitor.start()
+        meetingMonitor.start()
 
         onboardingWindowController?.close()
         onboardingWindowController = nil
@@ -1438,8 +1470,8 @@ final class MuesliController: NSObject {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         isStartingMeetingRecording = true
         beginMeetingActivity(reason: "Recording and transcribing a meeting")
-        micActivityMonitor.suppressWhileActive()
-        micActivityMonitor.refreshState()
+        meetingMonitor.suppressWhileActive()
+        meetingMonitor.refreshState()
         updateMeetingNotificationVisibility()
         statusBarController?.setStatus("Starting meeting: \(title)")
         statusBarController?.refresh()
@@ -1450,8 +1482,8 @@ final class MuesliController: NSObject {
                 try await self.startMeetingRecordingWithSystemAudioRecovery(title: title)
             } catch {
                 fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
-                self.micActivityMonitor.resumeAfterCooldown()
-                self.micActivityMonitor.refreshState()
+                self.meetingMonitor.resumeAfterCooldown()
+                self.meetingMonitor.refreshState()
                 self.statusBarController?.setStatus("Idle")
                 self.statusBarController?.refresh()
                 self.setState(.idle)
@@ -1495,8 +1527,8 @@ final class MuesliController: NSObject {
             do {
                 try await meetingSession.start()
                 activeMeetingSession = meetingSession
-                micActivityMonitor.suppressWhileActive()
-                micActivityMonitor.refreshState()
+                meetingMonitor.suppressWhileActive()
+                meetingMonitor.refreshState()
                 statusBarController?.setStatus("Meeting: \(title)")
                 indicator.powerProvider = { [weak meetingSession] in
                     meetingSession?.currentPower() ?? -160
@@ -1537,8 +1569,8 @@ final class MuesliController: NSObject {
     /// Single entry point for "Join Only" from both notification panel and Coming Up section.
     func joinOnly(meetingURL: URL, endDate: Date?) {
         let remaining = endDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
-        micActivityMonitor.suppress(for: remaining)
-        micActivityMonitor.refreshState()
+        meetingMonitor.suppress(for: remaining)
+        meetingMonitor.refreshState()
         NSWorkspace.shared.open(meetingURL)
     }
 
@@ -1573,8 +1605,8 @@ final class MuesliController: NSObject {
         isStoppingMeetingRecording = false
         endMeetingActivity()
         indicator.setMeetingRecording(false, config: config)
-        micActivityMonitor.resumeAfterCooldown()
-        micActivityMonitor.refreshState()
+        meetingMonitor.resumeAfterCooldown()
+        meetingMonitor.refreshState()
         setState(.idle)
         statusBarController?.refresh()
         syncAppState()
@@ -1620,7 +1652,7 @@ final class MuesliController: NSObject {
                 await MainActor.run {
                     self.setMeetingProcessingStatus("Finalizing")
                 }
-                let persistenceResult = try self.persistCompletedMeetingResult(result)
+                let persistenceResult = try self.persistCompletedMeetingResultAndDispatchHook(result)
                 completedMeetingID = persistenceResult.meetingID
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
@@ -1638,14 +1670,14 @@ final class MuesliController: NSObject {
                 self.isStoppingMeetingRecording = false
                 self.endMeetingActivity()
                 self.setState(.idle)
-                self.micActivityMonitor.resumeAfterCooldown()
-                self.micActivityMonitor.refreshState()
+                self.meetingMonitor.resumeAfterCooldown()
+                self.meetingMonitor.refreshState()
                 self.statusBarController?.refresh()
                 self.historyWindowController?.reload()
                 self.syncAppState()
                 TelemetryDeck.signal("meeting.completed")
 
-                self.presentedMeetingDetection = nil
+                self.presentedMeetingCandidate = nil
                 let savedMeetingID = completedMeetingID
                 self.meetingNotification.show(
                     title: "Transcription complete",
@@ -1707,6 +1739,16 @@ final class MuesliController: NSObject {
                 recordingSaveError: .failedToSaveRecording(underlying: error)
             )
         }
+    }
+
+    func persistCompletedMeetingResultAndDispatchHook(_ result: MeetingSessionResult) throws -> CompletedMeetingPersistenceResult {
+        let persistenceResult = try persistCompletedMeetingResult(result)
+        meetingHookDispatcher.dispatchCompletedMeetingHook(
+            meetingID: persistenceResult.meetingID,
+            completedAt: result.endTime,
+            config: config
+        )
+        return persistenceResult
     }
 
     private func persistMeetingRecordingIfNeeded(for result: MeetingSessionResult) throws -> String? {
@@ -1868,51 +1910,66 @@ final class MuesliController: NSObject {
     }
 
     private func dismissPresentedMeetingDetection() {
-        guard presentedMeetingDetection != nil else { return }
-        presentedMeetingDetection = nil
-        // Only close the notification if it was a detection-based notification.
-        // Calendar-based notifications are managed separately and should not be dismissed
-        // when mic/camera detection state changes.
-        if !isShowingCalendarNotification {
+        guard let candidate = presentedMeetingCandidate else { return }
+        presentedMeetingCandidate = nil
+        meetingMonitor.markPromptClosed(candidate)
+        if !isShowingCalendarNotification,
+           meetingNotification.currentPromptID == candidate.id {
             meetingNotification.close()
         }
     }
 
     private func updateMeetingNotificationVisibility() {
-        guard config.showMeetingDetectionNotification else {
-            dismissPresentedMeetingDetection()
+        meetingMonitor.refreshState()
+    }
+
+    private func presentMeetingDetection(_ candidate: MeetingCandidate) {
+        guard config.showMeetingDetectionNotification,
+              !isShowingCalendarNotification,
+              !isMeetingRecording(),
+              !isStartingMeetingRecording else { return }
+
+        guard meetingNotification.currentPromptID != candidate.id || !meetingNotification.isVisible else {
+            presentedMeetingCandidate = candidate
             return
         }
 
-        // Don't replace a visible calendar notification with a detection notification
-        guard !isShowingCalendarNotification else { return }
-
-        guard !isMeetingRecording(), !isStartingMeetingRecording, let detection = currentMeetingDetection else {
-            dismissPresentedMeetingDetection()
-            return
-        }
-
-        guard presentedMeetingDetection != detection else { return }
-
-        let title = detection.meetingTitle ?? detection.appName
-        presentedMeetingDetection = detection
+        let title = candidate.meetingTitle ?? candidate.platform.displayName
+        presentedMeetingCandidate = candidate
+        let preferredScreen = meetingSourceWindowLocator.screen(for: candidate)
         meetingNotification.show(
+            promptID: candidate.id,
             title: "Meeting detected",
             subtitle: title,
+            preferredScreen: preferredScreen,
+            platform: MeetingPlatform(candidate.platform),
             onStartRecording: { [weak self] in
                 guard let self else { return }
-                self.presentedMeetingDetection = nil
-                self.micActivityMonitor.suppress()
-                self.micActivityMonitor.refreshState()
+                self.meetingMonitor.markRecordingStarted(candidate)
+                self.presentedMeetingCandidate = nil
                 self.startMeetingRecording(title: title)
             },
             onDismiss: { [weak self] in
                 guard let self else { return }
-                self.presentedMeetingDetection = nil
-                self.micActivityMonitor.suppress()
-                self.micActivityMonitor.refreshState()
+                self.presentedMeetingCandidate = nil
+                self.meetingMonitor.markPromptUserDismissed(candidate)
+                self.meetingMonitor.refreshState()
+            },
+            onAutoDismiss: { [weak self] in
+                guard let self else { return }
+                self.meetingMonitor.markPromptAutoDismissed(candidate)
+                if self.presentedMeetingCandidate == candidate {
+                    self.presentedMeetingCandidate = nil
+                }
+                self.meetingMonitor.refreshState()
+            },
+            onClose: { [weak self] in
+                guard let self, self.presentedMeetingCandidate == candidate else { return }
+                self.presentedMeetingCandidate = nil
+                self.meetingMonitor.markPromptClosed(candidate)
             }
         )
+        meetingMonitor.markPromptShown(candidate)
     }
 
     @MainActor
@@ -1960,7 +2017,7 @@ final class MuesliController: NSObject {
         }
 
         fputs("[muesli-native] recording start\n", stderr)
-        micActivityMonitor.suppressWhileActive()
+        meetingMonitor.suppressWhileActive()
 
         do {
             try recorder.start()
@@ -2034,7 +2091,7 @@ final class MuesliController: NSObject {
     private func handleToggleStart() {
         if isMeetingRecording() { return }
         fputs("[muesli-native] toggle dictation start\n", stderr)
-        micActivityMonitor.suppressWhileActive()
+        meetingMonitor.suppressWhileActive()
 
         // Nemotron streaming: live text at cursor in handsfree mode too
         if selectedBackend.backend == "nemotron" {
@@ -2111,7 +2168,7 @@ final class MuesliController: NSObject {
             historyWindowController?.reload()
             syncAppState()
             setState(.idle)
-            micActivityMonitor.resumeAfterCooldown()
+            meetingMonitor.resumeAfterCooldown()
             fputs("[muesli-native] Nemotron streaming done (\(String(format: "%.1f", duration))s)\n", stderr)
             return
         }
@@ -2188,7 +2245,7 @@ final class MuesliController: NSObject {
                     PasteController.paste(text: text)
                     SoundController.playDictationInsert(enabled: self.config.soundEnabled)
                     self.setState(.idle)
-                    self.micActivityMonitor.resumeAfterCooldown()
+                    self.meetingMonitor.resumeAfterCooldown()
                     TelemetryDeck.signal("dictation.completed", parameters: [
                         "backend": self.selectedBackend.backend,
                         "paste_method": "clipboard_restore",
@@ -2335,8 +2392,8 @@ final class MuesliController: NSObject {
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
                 let remaining = calendarEndDate.map { max($0.timeIntervalSinceNow, 120) } ?? 120
-                self.micActivityMonitor.suppress(for: remaining)
-                self.micActivityMonitor.refreshState()
+                self.meetingMonitor.suppress(for: remaining)
+                self.meetingMonitor.refreshState()
             },
             onClose: { [weak self] in self?.isShowingCalendarNotification = false }
         )

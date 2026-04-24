@@ -12,19 +12,27 @@ final class MeetingNotificationController {
     private var onJoinAndRecord: (() -> Void)?
     private var onJoinOnly: (() -> Void)?
     private var onDismiss: (() -> Void)?
+    private var onAutoDismiss: (() -> Void)?
+    private(set) var isVisible = false
+    private(set) var currentPromptID: String?
+    private(set) var shownAt: Date?
 
     private static let dismissDuration: TimeInterval = 15
 
     func show(
+        promptID: String? = nil,
         title: String,
         subtitle: String,
         actionLabel: String = "Start Recording",
         meetingURL: URL? = nil,
+        preferredScreen: NSScreen? = nil,
+        platform explicitPlatform: MeetingPlatform? = nil,
         dismissAfter: TimeInterval? = nil,
         onStartRecording: @escaping () -> Void,
         onJoinAndRecord: (() -> Void)? = nil,
         onJoinOnly: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
+        onAutoDismiss: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) {
         // Nil out onClose before close() so the old panel's teardown
@@ -38,23 +46,23 @@ final class MeetingNotificationController {
         self.onJoinAndRecord = onJoinAndRecord
         self.onJoinOnly = onJoinOnly
         self.onDismiss = onDismiss
+        self.onAutoDismiss = onAutoDismiss
 
         let hasJoinButton = meetingURL != nil && onJoinAndRecord != nil
-        let platform = meetingURL.flatMap { MeetingPlatform.detect(from: $0) }
+        let platform = explicitPlatform ?? meetingURL.flatMap { MeetingPlatform.detect(from: $0) }
 
-        // Use the screen with the mouse cursor so the notification appears where the user is looking
-        let mouseLocation = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) ?? NSScreen.main
-        guard let screen else { return }
         let width: CGFloat = 360
         let height: CGFloat = 70
         let margin: CGFloat = 16
-
-        let x = screen.visibleFrame.maxX - width - margin
-        let y = screen.visibleFrame.maxY - height - margin
+        guard let frame = verifiedNotificationFrame(
+            preferredScreen: preferredScreen,
+            width: width,
+            height: height,
+            margin: margin
+        ) else { return }
 
         let panel = NSPanel(
-            contentRect: NSRect(x: x, y: y, width: width, height: height),
+            contentRect: frame,
             styleMask: .borderless,
             backing: .buffered,
             defer: false
@@ -189,12 +197,18 @@ final class MeetingNotificationController {
             panel.animator().alphaValue = 1
         }
         self.panel = panel
+        isVisible = true
+        currentPromptID = promptID
+        shownAt = Date()
 
         // Auto-dismiss
         dismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.animateOut {
+                    let autoDismiss = self?.onAutoDismiss
+                    self?.onClose = nil
                     self?.close()
+                    autoDismiss?()
                 }
             }
         }
@@ -213,6 +227,10 @@ final class MeetingNotificationController {
         onJoinAndRecord = nil
         onJoinOnly = nil
         onDismiss = nil
+        onAutoDismiss = nil
+        isVisible = false
+        currentPromptID = nil
+        shownAt = nil
         onClose?()
         onClose = nil
     }
@@ -269,6 +287,55 @@ final class MeetingNotificationController {
             action?()
         }
     }
+
+    private func verifiedNotificationFrame(
+        preferredScreen: NSScreen?,
+        width: CGFloat,
+        height: CGFloat,
+        margin: CGFloat
+    ) -> NSRect? {
+        let orderedScreens = uniqueScreens(
+            [preferredScreen, screenForMouse(), NSScreen.main].compactMap { $0 } + NSScreen.screens
+        )
+
+        for screen in orderedScreens {
+            let frame = notificationFrame(on: screen, width: width, height: height, margin: margin)
+            if NSScreen.screens.contains(where: { $0.visibleFrame.contains(frame) }) {
+                return frame
+            }
+        }
+        return nil
+    }
+
+    private func screenForMouse() -> NSScreen? {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) })
+    }
+
+    private func notificationFrame(
+        on screen: NSScreen,
+        width: CGFloat,
+        height: CGFloat,
+        margin: CGFloat
+    ) -> NSRect {
+        let visible = screen.visibleFrame
+        let x = min(
+            max(visible.maxX - width - margin, visible.minX + margin),
+            visible.maxX - width
+        )
+        let y = min(
+            max(visible.maxY - height - margin, visible.minY + margin),
+            visible.maxY - height
+        )
+        return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func uniqueScreens(_ screens: [NSScreen]) -> [NSScreen] {
+        var seen = Set<ObjectIdentifier>()
+        return screens.filter { screen in
+            seen.insert(ObjectIdentifier(screen)).inserted
+        }
+    }
 }
 
 // MARK: - Meeting Platform Detection
@@ -290,6 +357,23 @@ enum MeetingPlatform {
         return nil
     }
 
+    init?(_ platform: MeetingCandidate.Platform) {
+        switch platform {
+        case .zoom:
+            self = .zoom
+        case .googleMeet:
+            self = .googleMeet
+        case .teams:
+            self = .teams
+        case .webex:
+            self = .webex
+        case .facetime:
+            self = .facetime
+        case .slack, .whatsApp, .unknown:
+            return nil
+        }
+    }
+
     func loadIcon() -> NSImage? {
         switch self {
         case .zoom:
@@ -305,6 +389,10 @@ enum MeetingPlatform {
             }
             return NSImage(systemSymbolName: "video.fill", accessibilityDescription: "Google Meet")
         case .teams:
+            if let url = Bundle.main.url(forResource: "teams", withExtension: "png"),
+               let image = NSImage(contentsOf: url) {
+                return image
+            }
             return NSImage(systemSymbolName: "person.3.fill", accessibilityDescription: "Teams")
         case .webex:
             return NSImage(systemSymbolName: "video.fill", accessibilityDescription: "Webex")
