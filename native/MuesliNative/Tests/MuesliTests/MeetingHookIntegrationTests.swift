@@ -33,6 +33,19 @@ struct MeetingHookIntegrationTests {
         #expect(invocation.meetingID > 0)
     }
 
+    @Test("completedAt uses the meeting end time")
+    func completedAtUsesMeetingEndTime() throws {
+        let store = try makeStore()
+        let spy = MeetingHookDispatcherSpy()
+        let controller = makeController(store: store, dispatcher: spy)
+        let result = makeMeetingResult()
+
+        _ = try controller.persistCompletedMeetingResultAndDispatchHook(result)
+
+        let invocation = try #require(spy.invocations.first)
+        #expect(invocation.completedAt == result.endTime)
+    }
+
     @Test("hook launch failure does not fail meeting persistence")
     func hookLaunchFailureDoesNotFailPersistence() throws {
         let store = try makeStore()

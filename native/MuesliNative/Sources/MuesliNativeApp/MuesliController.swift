@@ -1743,7 +1743,7 @@ final class MuesliController: NSObject {
         let persistenceResult = try persistCompletedMeetingResult(result)
         meetingHookDispatcher.dispatchCompletedMeetingHook(
             meetingID: persistenceResult.meetingID,
-            completedAt: Date(),
+            completedAt: result.endTime,
             config: config
         )
         return persistenceResult

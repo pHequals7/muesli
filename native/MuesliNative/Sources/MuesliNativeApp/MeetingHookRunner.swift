@@ -106,7 +106,11 @@ final class MeetingHookRunner: MeetingHookDispatching {
         } catch {
             writeLog("stdin write failed: id=\(event.id) path=\(trimmedPath) error=\(error.localizedDescription)")
         }
-        try? inputPipe.fileHandleForWriting.close()
+        do {
+            try inputPipe.fileHandleForWriting.close()
+        } catch {
+            writeLog("stdin close failed: id=\(event.id) path=\(trimmedPath) error=\(error.localizedDescription)")
+        }
 
         let timeoutSeconds = max(config.meetingHookTimeoutSeconds, 1)
         writeLog("started: id=\(event.id) path=\(trimmedPath) timeout=\(timeoutSeconds)s")

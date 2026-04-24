@@ -874,10 +874,10 @@ struct SettingsView: View {
         let configuredPath = appState.config.meetingHookPath.trimmingCharacters(in: .whitespacesAndNewlines)
         if !configuredPath.isEmpty {
             let configuredURL = URL(fileURLWithPath: configuredPath).standardizedFileURL
-            if FileManager.default.fileExists(atPath: configuredURL.path) {
-                return configuredURL.deletingLastPathComponent()
+            let parentDirectory = configuredURL.deletingLastPathComponent()
+            if FileManager.default.fileExists(atPath: parentDirectory.path) {
+                return parentDirectory
             }
-            return configuredURL.deletingLastPathComponent()
         }
         return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop", isDirectory: true)
     }
