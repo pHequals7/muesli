@@ -150,22 +150,25 @@ enum PostInstallChecker {
     ) -> Result<InstallWorkResult, Error> {
         do {
             let destinationURL = URL(fileURLWithPath: destinationPath)
-            if shouldReplaceExisting {
-                do {
-                    try FileManager.default.trashItem(at: destinationURL, resultingItemURL: nil)
-                } catch {
-                    throw NSError(
-                        domain: "PostInstallChecker",
-                        code: 1,
-                        userInfo: [
-                            NSLocalizedDescriptionKey:
-                                "Couldn't move existing \(appName) to Trash: \(error.localizedDescription)",
-                        ]
-                    )
+            let installParentURL = destinationURL.deletingLastPathComponent()
+            let tempURL = installParentURL.appendingPathComponent(
+                ".\(destinationURL.lastPathComponent).installing-\(UUID().uuidString)"
+            )
+            var shouldRemoveTempCopy = true
+            defer {
+                if shouldRemoveTempCopy {
+                    try? FileManager.default.removeItem(at: tempURL)
                 }
             }
 
-            try runProcess(executable: "/usr/bin/ditto", arguments: [bundlePath, destinationPath])
+            try runProcess(executable: "/usr/bin/ditto", arguments: [bundlePath, tempURL.path])
+            try replaceInstalledApp(
+                appName: appName,
+                tempURL: tempURL,
+                destinationURL: destinationURL,
+                shouldReplaceExisting: shouldReplaceExisting
+            )
+            shouldRemoveTempCopy = false
 
             // Nudge Launch Services so it picks up the freshly-copied bundle immediately,
             // rather than waiting for the next Spotlight re-index or user login.
@@ -181,6 +184,73 @@ enum PostInstallChecker {
             ))
         } catch {
             return .failure(error)
+        }
+    }
+
+    nonisolated private static func replaceInstalledApp(
+        appName: String,
+        tempURL: URL,
+        destinationURL: URL,
+        shouldReplaceExisting: Bool
+    ) throws {
+        let fileManager = FileManager.default
+        guard shouldReplaceExisting else {
+            try fileManager.moveItem(at: tempURL, to: destinationURL)
+            return
+        }
+
+        let backupURL = destinationURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(
+                "\(destinationURL.deletingPathExtension().lastPathComponent) Previous "
+                    + "\(UUID().uuidString).app"
+            )
+
+        do {
+            try fileManager.moveItem(at: destinationURL, to: backupURL)
+        } catch {
+            throw NSError(
+                domain: "PostInstallChecker",
+                code: 2,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Couldn't prepare existing \(appName) for replacement: \(error.localizedDescription)",
+                ]
+            )
+        }
+
+        do {
+            try fileManager.moveItem(at: tempURL, to: destinationURL)
+        } catch {
+            do {
+                if !fileManager.fileExists(atPath: destinationURL.path) {
+                    try fileManager.moveItem(at: backupURL, to: destinationURL)
+                }
+            } catch {
+                throw NSError(
+                    domain: "PostInstallChecker",
+                    code: 3,
+                    userInfo: [
+                        NSLocalizedDescriptionKey:
+                            "Couldn't install the new \(appName), and the previous copy could not be restored automatically. It is still available at \(backupURL.path).",
+                    ]
+                )
+            }
+
+            throw NSError(
+                domain: "PostInstallChecker",
+                code: 4,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Couldn't install the new \(appName): \(error.localizedDescription). The previous copy was restored.",
+                ]
+            )
+        }
+
+        do {
+            try fileManager.trashItem(at: backupURL, resultingItemURL: nil)
+        } catch {
+            fputs("[PostInstallChecker] old app cleanup failed: \(error.localizedDescription)\n", stderr)
         }
     }
 
