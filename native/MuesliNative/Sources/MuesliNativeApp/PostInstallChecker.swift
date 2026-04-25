@@ -24,6 +24,7 @@ private final class PostInstallSafetyTimer: @unchecked Sendable {
 @MainActor
 enum PostInstallChecker {
     private static var hasPresented = false
+    private static let keptDMGPathsDefaultsKey = "post_install_checker_kept_dmg_paths"
     // P2: hold a reference so the task isn't immediately discarded.
     private static var mountedDMGCheckTask: Task<Void, Never>?
     private static var installTask: Task<Void, Never>?
@@ -270,9 +271,13 @@ enum PostInstallChecker {
             findSourceDMGPathSync(volumePath: volumePath)
         }.value
         guard let sourceDMGPath else { return }
+        guard shouldEjectMountedDMG(appName: appName, sourceDMGPath: sourceDMGPath) else {
+            rememberKeptDMGPath(sourceDMGPath)
+            return
+        }
 
-        // App is installed and running — force-detach via hdiutil (handles busy Finder windows),
-        // then trash the source .dmg file. Finder's window closes as a side-effect of unmount.
+        // App is installed and the user confirmed cleanup — force-detach via hdiutil
+        // so a Finder window holding the volume isn't a blocker.
         let detached = await Task.detached(priority: .utility) {
             hdiutilDetach(mountPoint: volumePath)
         }.value
@@ -289,6 +294,36 @@ enum PostInstallChecker {
         } else {
             fputs("[PostInstallChecker] failed to eject volume at \(volumePath)\n", stderr)
         }
+    }
+
+    private static func shouldEjectMountedDMG(appName: String, sourceDMGPath: String) -> Bool {
+        if keptDMGPaths().contains(sourceDMGPath) {
+            return false
+        }
+
+        return runAlert(
+            message: String(format: NSLocalizedString("Eject %@ installer disk?",
+                comment: "Alert title: installed app found mounted installer disk"),
+                appName),
+            info: String(format: NSLocalizedString(
+                "%@ is already installed. It can eject the installer disk and move the downloaded DMG to Trash.",
+                comment: "Alert body: asks permission to clean up mounted installer disk"),
+                appName),
+            buttons: [
+                NSLocalizedString("Keep", comment: "Keep mounted installer disk button"),
+                NSLocalizedString("Eject and Trash DMG", comment: "Confirm installer cleanup button"),
+            ]
+        ) == .alertSecondButtonReturn
+    }
+
+    private static func keptDMGPaths() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: keptDMGPathsDefaultsKey) ?? [])
+    }
+
+    private static func rememberKeptDMGPath(_ sourceDMGPath: String) {
+        var paths = keptDMGPaths()
+        paths.insert(sourceDMGPath)
+        UserDefaults.standard.set(Array(paths).sorted(), forKey: keptDMGPathsDefaultsKey)
     }
 
     // Runs hdiutil detach with -force so a Finder window holding the volume isn't a blocker.
