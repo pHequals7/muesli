@@ -6,6 +6,12 @@ enum PostInstallChecker {
     private static var hasPresented = false
     // P2: hold a reference so the task isn't immediately discarded.
     private static var mountedDMGCheckTask: Task<Void, Never>?
+    private static var installTask: Task<Void, Never>?
+
+    private struct InstallWorkResult: Sendable {
+        let volumePath: String
+        let sourceDMGPath: String?
+    }
 
     static func check() {
         guard !hasPresented else { return }
@@ -65,44 +71,88 @@ enum PostInstallChecker {
                 ]
             ) == .alertFirstButtonReturn else { return }
 
-            do {
-                try FileManager.default.trashItem(at: destinationURL, resultingItemURL: nil)
-            } catch {
-                showInstallError("Couldn't move existing Muesli to Trash: \(error.localizedDescription)")
-                return
-            }
+            // The existing app is moved to Trash by the background install task below.
         }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = [bundlePath, destinationURL.path]
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            showInstallError(error.localizedDescription)
-            return
-        }
-        guard process.terminationStatus == 0 else {
-            showInstallError("ditto exited with status \(process.terminationStatus)")
-            return
-        }
-
-        // P3: nudge Launch Services so it picks up the freshly-copied bundle immediately,
-        // rather than waiting for the next Spotlight re-index or user login.
-        let lsregister = Process()
-        lsregister.executableURL = URL(
-            fileURLWithPath: "/System/Library/Frameworks/CoreServices.framework"
-                + "/Frameworks/LaunchServices.framework/Support/lsregister"
-        )
-        lsregister.arguments = ["-f", destinationURL.path]
-        try? lsregister.run()
-        lsregister.waitUntilExit()
 
         // Derive the DMG volume path from our bundle path (/Volumes/Muesli/Muesli.app → /Volumes/Muesli)
         let volumePath = URL(fileURLWithPath: bundlePath).deletingLastPathComponent().path
-        let sourceDMGPath = Self.findSourceDMGPathSync(volumePath: volumePath)
+        let progressWindow = showInstallProgress(appName: appName)
+        let shouldReplaceExisting = isDir.boolValue
 
+        installTask = Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                installFromDMG(
+                    bundlePath: bundlePath,
+                    destinationPath: destinationURL.path,
+                    appName: appName,
+                    shouldReplaceExisting: shouldReplaceExisting,
+                    volumePath: volumePath
+                )
+            }.value
+
+            progressWindow.close()
+
+            switch result {
+            case .success(let work):
+                relaunchInstalledApp(
+                    at: destinationURL,
+                    volumePath: work.volumePath,
+                    sourceDMGPath: work.sourceDMGPath
+                )
+            case .failure(let error):
+                showInstallError(error.localizedDescription)
+            }
+        }
+    }
+
+    nonisolated private static func installFromDMG(
+        bundlePath: String,
+        destinationPath: String,
+        appName: String,
+        shouldReplaceExisting: Bool,
+        volumePath: String
+    ) -> Result<InstallWorkResult, Error> {
+        do {
+            let destinationURL = URL(fileURLWithPath: destinationPath)
+            if shouldReplaceExisting {
+                do {
+                    try FileManager.default.trashItem(at: destinationURL, resultingItemURL: nil)
+                } catch {
+                    throw NSError(
+                        domain: "PostInstallChecker",
+                        code: 1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey:
+                                "Couldn't move existing \(appName) to Trash: \(error.localizedDescription)",
+                        ]
+                    )
+                }
+            }
+
+            try runProcess(executable: "/usr/bin/ditto", arguments: [bundlePath, destinationPath])
+
+            // Nudge Launch Services so it picks up the freshly-copied bundle immediately,
+            // rather than waiting for the next Spotlight re-index or user login.
+            try? runProcess(
+                executable: "/System/Library/Frameworks/CoreServices.framework"
+                    + "/Frameworks/LaunchServices.framework/Support/lsregister",
+                arguments: ["-f", destinationPath]
+            )
+
+            return .success(InstallWorkResult(
+                volumePath: volumePath,
+                sourceDMGPath: findSourceDMGPathSync(volumePath: volumePath)
+            ))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private static func relaunchInstalledApp(
+        at destinationURL: URL,
+        volumePath: String,
+        sourceDMGPath: String?
+    ) {
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         NSWorkspace.shared.openApplication(at: destinationURL, configuration: config) { _, error in
@@ -123,6 +173,53 @@ enum PostInstallChecker {
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { NSApp.terminate(nil) }
     }
 
+    private static func showInstallProgress(appName: String) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 116),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = String(format: NSLocalizedString("Installing %@",
+            comment: "Install progress window title"), appName)
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+
+        let content = NSView(frame: window.contentView?.bounds ?? .zero)
+        content.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(labelWithString: String(format: NSLocalizedString(
+            "Copying %@ to Applications...",
+            comment: "Install progress label"), appName))
+        label.font = .systemFont(ofSize: 13)
+        label.alignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        let spinner = NSProgressIndicator()
+        spinner.style = .spinning
+        spinner.controlSize = .regular
+        spinner.isIndeterminate = true
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimation(nil)
+
+        content.addSubview(spinner)
+        content.addSubview(label)
+        window.contentView = content
+
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            spinner.topAnchor.constraint(equalTo: content.topAnchor, constant: 22),
+            label.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 24),
+            label.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -24),
+            label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
+        ])
+
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return window
+    }
+
     private static func showInstallError(_ description: String) {
         fputs("[PostInstallChecker] install failed: \(description)\n", stderr)
         let alert = NSAlert()
@@ -137,11 +234,16 @@ enum PostInstallChecker {
     private static func checkForMountedDMG(appName: String) async {
         guard let volumeURL = findMountedInstallerVolume(appName: appName) else { return }
         let volumePath = volumeURL.path
-        guard let sourceDMGPath = await findSourceDMGPath(for: volumePath) else { return }
+        let sourceDMGPath = await Task.detached(priority: .utility) {
+            findSourceDMGPathSync(volumePath: volumePath)
+        }.value
+        guard let sourceDMGPath else { return }
 
         // App is installed and running — force-detach via hdiutil (handles busy Finder windows),
         // then trash the source .dmg file. Finder's window closes as a side-effect of unmount.
-        let detached = hdiutilDetach(mountPoint: volumePath)
+        let detached = await Task.detached(priority: .utility) {
+            hdiutilDetach(mountPoint: volumePath)
+        }.value
         if !detached {
             fputs("[PostInstallChecker] failed to eject volume at \(volumePath)\n", stderr)
         }
@@ -159,14 +261,13 @@ enum PostInstallChecker {
     }
 
     // Runs hdiutil detach with -force so a Finder window holding the volume isn't a blocker.
-    private static func hdiutilDetach(mountPoint: String) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-        process.arguments = ["detach", mountPoint, "-force", "-quiet"]
+    nonisolated private static func hdiutilDetach(mountPoint: String) -> Bool {
         do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
+            try runProcess(
+                executable: "/usr/bin/hdiutil",
+                arguments: ["detach", mountPoint, "-force", "-quiet"]
+            )
+            return true
         } catch {
             fputs("[PostInstallChecker] hdiutil detach error: \(error)\n", stderr)
             return false
@@ -186,12 +287,7 @@ enum PostInstallChecker {
         }
     }
 
-    private static func findSourceDMGPath(for volumePath: String) async -> String? {
-        findSourceDMGPathSync(volumePath: volumePath)
-    }
-
-    // Synchronous — safe to call on the main thread (fast, single hdiutil invocation).
-    private static func findSourceDMGPathSync(volumePath: String) -> String? {
+    nonisolated private static func findSourceDMGPathSync(volumePath: String) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
         process.arguments = ["info", "-plist"]
@@ -224,6 +320,27 @@ enum PostInstallChecker {
             }
         }
         return nil
+    }
+
+    nonisolated private static func runProcess(
+        executable: String,
+        arguments: [String]
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw NSError(
+                domain: "PostInstallChecker",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "\(URL(fileURLWithPath: executable).lastPathComponent) exited with status \(process.terminationStatus)",
+                ]
+            )
+        }
     }
 
     // MARK: - Alert helper

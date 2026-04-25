@@ -219,8 +219,10 @@ def draw_icon_column(canvas: Image.Image, cx, cy, label: str, font, S: int,
             icon_x = cx - icon_size // 2
             icon_y = cy - icon_size // 2
             canvas.paste(icon, (icon_x, icon_y), icon)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"Warning: could not render app icon at {icon_path}: {exc}")
+    elif icon_path:
+        print(f"Warning: app icon not found at {icon_path}; rendering empty icon box")
 
     # Stroke outline
     draw = ImageDraw.Draw(canvas)
