@@ -61,7 +61,7 @@ Start a meeting recording → Muesli captures your mic (You) and system audio (O
 
 ### Download (recommended)
 
-Download the latest `.dmg` from [Releases](https://github.com/pHequals7/muesli/releases), open it, and drag Muesli to your Applications folder.
+Download the latest `.dmg` from [Releases](https://github.com/pHequals7/muesli/releases), open it, and drag Muesli to Applications — or double-click to install automatically.
 
 ### Homebrew
 

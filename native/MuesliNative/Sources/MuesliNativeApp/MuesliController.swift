@@ -323,6 +323,8 @@ final class MuesliController: NSObject {
         } else if config.openDashboardOnLaunch {
             openHistoryWindow()
         }
+
+        PostInstallChecker.check()
     }
 
     func shutdown() {

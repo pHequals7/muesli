@@ -26,6 +26,10 @@ tmp-install/
 *.sqlite
 *.db
 
+# Generated DMG background assets (exported from Paper design)
+scripts/assets/dmg-background.png
+scripts/assets/dmg-background@2x.png
+
 # Signing/certificates & releases
 developerID_application.cer
 dist-notary/
