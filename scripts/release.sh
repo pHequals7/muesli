@@ -32,9 +32,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
 SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
-INSTALL_DIR="${MUESLI_INSTALL_DIR:-/Applications}"
-APP_DIR="${MUESLI_RELEASE_APP_DIR:-$INSTALL_DIR/Muesli.app}"
 OUTPUT_DIR="$ROOT/dist-release"
+INSTALL_DIR="${MUESLI_RELEASE_INSTALL_DIR:-$OUTPUT_DIR/install-root}"
+APP_DIR="${MUESLI_RELEASE_APP_DIR:-$INSTALL_DIR/Muesli.app}"
 GENERATE_APPCAST="$ROOT/native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 TAP_REPO="${MUESLI_TAP_REPO:-pHequals7/homebrew-muesli}"
 TAP_CASK_REL_PATH="${MUESLI_TAP_CASK_REL_PATH:-Casks/m/muesli.rb}"
@@ -151,7 +151,9 @@ echo "  Tests passed."
 
 # --- Step 2: Build and sign ---
 echo "[2/13] Building and signing..."
-echo "y" | "$ROOT/scripts/build_native_app.sh" > /dev/null 2>&1
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+echo "y" | MUESLI_INSTALL_DIR="$INSTALL_DIR" "$ROOT/scripts/build_native_app.sh" > /dev/null 2>&1
 echo "  Installed to $APP_DIR"
 
 # Verify signature
