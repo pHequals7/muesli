@@ -84,9 +84,11 @@ if [[ -z "$MOUNT_POINT" ]]; then
 fi
 
 echo "Configuring Finder window at: $MOUNT_POINT"
+open "$MOUNT_POINT" >/dev/null 2>&1 || true
+sleep 1
 
 # Configure Finder window via AppleScript:
-#   - 1080×760pt window (full artboard size), icon size 152, text size 13
+#   - 1080×760pt window (full artboard size), icon size 152
 #   - Custom dark background from .background/dmg-background.png (@2x Retina at 2160×1520)
 #   - App icon at left (260, 313), Applications symlink at right (820, 313)
 #   - No toolbar, no sidebar, icon view
@@ -95,7 +97,7 @@ echo "Configuring Finder window at: $MOUNT_POINT"
 # P1 fix: AppleScript requires a GUI session and Automation TCC consent.
 # On headless CI this can fail with -1743. Treat as a non-fatal warning so
 # the release pipeline continues — the DMG is functional, just with default layout.
-if ! osascript <<APPLESCRIPT 2>/dev/null
+if ! osascript <<APPLESCRIPT
 tell application "Finder"
   tell disk "${APP_NAME}"
     open
@@ -107,10 +109,11 @@ tell application "Finder"
     set theViewOptions to the icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 152
-    set text size of theViewOptions to 13
+    set text size of theViewOptions to 10
+    set label position of theViewOptions to bottom
     set background picture of theViewOptions to file ".background:dmg-background.png"
-    set position of item "${APP_NAME}.app" of container window to {260, 313}
-    set position of item "Applications" of container window to {820, 313}
+    set position of item "${APP_NAME}.app" of container window to {260, 305}
+    set position of item "Applications" of container window to {820, 305}
     set the bounds of container window to {100, 100, 1180, 860}
     close
     open

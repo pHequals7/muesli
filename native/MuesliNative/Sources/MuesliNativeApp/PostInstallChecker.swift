@@ -12,6 +12,10 @@ enum PostInstallChecker {
         hasPresented = true
 
         let bundlePath = Bundle.main.bundlePath
+        let bundleName = URL(fileURLWithPath: bundlePath).lastPathComponent
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? URL(fileURLWithPath: bundlePath).deletingPathExtension().lastPathComponent
 
         if bundlePath.hasPrefix("/Volumes/") {
             // Confirm it's a read-only DMG mount, not an external SSD or network share.
@@ -20,37 +24,41 @@ enum PostInstallChecker {
             guard values?.volumeIsReadOnly == true else { return }
 
             // Case 1: running directly from DMG — offer to install
-            offerInstall(from: bundlePath)
+            offerInstall(from: bundlePath, bundleName: bundleName, appName: appName)
         } else {
             // Case 2: running from /Applications — check if DMG is still mounted
-            mountedDMGCheckTask = Task { await checkForMountedDMG() }
+            mountedDMGCheckTask = Task { await checkForMountedDMG(appName: appName) }
         }
     }
 
     // MARK: - Case 1: Install from DMG
 
-    private static func offerInstall(from bundlePath: String) {
+    private static func offerInstall(from bundlePath: String, bundleName: String, appName: String) {
         guard runAlert(
-            message: NSLocalizedString("Install Muesli to Applications?",
+            message: String(format: NSLocalizedString("Install %@ to Applications?",
                 comment: "Alert title: user launched app directly from DMG"),
-            info: NSLocalizedString("Muesli will copy itself to your Applications folder and relaunch automatically.",
+                appName),
+            info: String(format: NSLocalizedString("%@ will copy itself to your Applications folder and relaunch automatically.",
                 comment: "Alert body: explains what the install action does"),
+                appName),
             buttons: [
                 NSLocalizedString("Install", comment: "Confirm install button"),
                 NSLocalizedString("Cancel", comment: "Cancel install button"),
             ]
         ) == .alertFirstButtonReturn else { return }
 
-        let destinationURL = URL(fileURLWithPath: "/Applications/Muesli.app")
+        let destinationURL = URL(fileURLWithPath: "/Applications").appendingPathComponent(bundleName)
 
         // P2: use isDirectory to confirm it's a bundle, not a stray file at that path.
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: destinationURL.path, isDirectory: &isDir), isDir.boolValue {
             guard runAlert(
-                message: NSLocalizedString("Replace existing Muesli?",
+                message: String(format: NSLocalizedString("Replace existing %@?",
                     comment: "Alert title: an older Muesli.app is already in Applications"),
-                info: NSLocalizedString("An older version of Muesli is already in Applications. Replace it?",
+                    appName),
+                info: String(format: NSLocalizedString("An older version of %@ is already in Applications. Replace it?",
                     comment: "Alert body: confirms replacing existing install"),
+                    appName),
                 buttons: [
                     NSLocalizedString("Replace", comment: "Confirm replace button"),
                     NSLocalizedString("Cancel", comment: "Cancel replace button"),
@@ -126,10 +134,10 @@ enum PostInstallChecker {
 
     // MARK: - Case 2: Eject mounted DMG
 
-    private static func checkForMountedDMG() async {
-        guard let volumeURL = findMuesliVolume() else { return }
+    private static func checkForMountedDMG(appName: String) async {
+        guard let volumeURL = findMountedInstallerVolume(appName: appName) else { return }
         let volumePath = volumeURL.path
-        let sourceDMGPath = await findSourceDMGPath(for: volumePath)
+        guard let sourceDMGPath = await findSourceDMGPath(for: volumePath) else { return }
 
         // App is installed and running — force-detach via hdiutil (handles busy Finder windows),
         // then trash the source .dmg file. Finder's window closes as a side-effect of unmount.
@@ -137,12 +145,12 @@ enum PostInstallChecker {
         if !detached {
             fputs("[PostInstallChecker] failed to eject volume at \(volumePath)\n", stderr)
         }
-        if detached, let dmgPath = sourceDMGPath {
+        if detached {
             await MainActor.run {
                 do {
                     try FileManager.default.trashItem(
-                        at: URL(fileURLWithPath: dmgPath), resultingItemURL: nil)
-                    fputs("[PostInstallChecker] trashed DMG: \(dmgPath)\n", stderr)
+                        at: URL(fileURLWithPath: sourceDMGPath), resultingItemURL: nil)
+                    fputs("[PostInstallChecker] trashed DMG: \(sourceDMGPath)\n", stderr)
                 } catch {
                     fputs("[PostInstallChecker] trash failed: \(error.localizedDescription)\n", stderr)
                 }
@@ -167,14 +175,14 @@ enum PostInstallChecker {
 
     // P2: use mountedVolumeURLs instead of contentsOfDirectory("/Volumes") — avoids
     // stale symlinks, firmlinks, and hidden entries that can appear under /Volumes.
-    private static func findMuesliVolume() -> URL? {
+    private static func findMountedInstallerVolume(appName: String) -> URL? {
         guard let volumes = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: [.volumeNameKey],
             options: [.skipHiddenVolumes]
         ) else { return nil }
         return volumes.first { url in
             let name = (try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? ""
-            return name.hasPrefix("Muesli")
+            return name == appName
         }
     }
 

@@ -2,8 +2,8 @@
 """
 Generate DMG background images for Muesli installer.
 Produces:
-  scripts/assets/dmg-background@2x.png  — 1080x760px (Retina master)
-  scripts/assets/dmg-background.png     — 540x380px  (1x downscale)
+  scripts/assets/dmg-background.png     — 1080x760px  (1x)
+  scripts/assets/dmg-background@2x.png  — 2160x1520px (Retina)
 
 Rendering at RENDER_SCALE× then LANCZOS downsample for SSAA.
 """
@@ -16,9 +16,21 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 # ---------------------------------------------------------------------------
 # Fonts (SF Pro — /Library/Fonts/ on macOS)
 # ---------------------------------------------------------------------------
-F_DISPLAY_BOLD  = "/Library/Fonts/SF-Pro-Display-Bold.otf"
-F_TEXT_REGULAR  = "/Library/Fonts/SF-Pro-Text-Regular.otf"
-F_TEXT_SEMIBOLD = "/Library/Fonts/SF-Pro-Text-Semibold.otf"
+F_DISPLAY_BOLD = [
+    "/Library/Fonts/SF-Pro-Display-Bold.otf",
+    "/System/Library/Fonts/SFNS.ttf",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+]
+F_TEXT_REGULAR = [
+    "/Library/Fonts/SF-Pro-Text-Regular.otf",
+    "/System/Library/Fonts/SFNS.ttf",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+]
+F_TEXT_SEMIBOLD = [
+    "/Library/Fonts/SF-Pro-Text-Semibold.otf",
+    "/System/Library/Fonts/SFNS.ttf",
+    "/System/Library/Fonts/HelveticaNeue.ttc",
+]
 
 # ---------------------------------------------------------------------------
 # Colour palette (Muesli Design System)
@@ -28,7 +40,7 @@ C_SURFACE = (0x26, 0x28, 0x30, 255)   # --surface-primary
 C_BORDER  = (255, 255, 255, 18)        # rgba(255,255,255,0.07)
 C_ACCENT  = (0x6b, 0xa3, 0xf7, 255)   # --accent blue
 C_TEXT    = (255, 255, 255, 235)       # rgba(255,255,255,0.92)
-C_SUBTEXT = (255, 255, 255, 158)       # rgba(255,255,255,0.62)
+C_SUBTEXT = (255, 255, 255, 205)       # rgba(255,255,255,0.80)
 C_OVERLAY = (255, 255, 255, 61)        # rgba(255,255,255,0.24) — divider
 
 RENDER_SCALE = 4
@@ -36,6 +48,16 @@ RENDER_SCALE = 4
 
 def rgba(c, a: int):
     return (c[0], c[1], c[2], a)
+
+
+def load_font(candidates, size: int):
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size=size)
+            except OSError:
+                continue
+    return ImageFont.load_default(size=size)
 
 
 # ---------------------------------------------------------------------------
@@ -110,15 +132,13 @@ def _cubic_bezier(x0, y0, cx1, cy1, cx2, cy2, x1, y1, steps=80):
 
 def draw_arrow(canvas: Image.Image, S: int):
     """
-    Corkscrew cubic Bézier arrow from Muesli box to Applications box.
-    Four chained segments for the loose spring shape.
+    Directional cubic Bézier arrow from Muesli box to Applications box.
+    Keep it simple so the installer reads as a clear drag gesture.
     Coordinates in 1x (1080×760) space; scaled by S.
     """
     segments_1x = [
-        ((348, 313), (366, 222), (418, 198), (458, 268)),
-        ((458, 268), (498, 338), (502, 386), (554, 356)),
-        ((554, 356), (606, 326), (614, 242), (664, 268)),
-        ((664, 268), (693, 284), (706, 305), (720, 298)),
+        ((350, 302), (420, 180), (500, 420), (580, 300)),
+        ((580, 300), (650, 210), (730, 268), (782, 310)),
     ]
     segments = [
         tuple((int(p[0]*S), int(p[1]*S)) for p in seg)
@@ -141,8 +161,8 @@ def draw_arrow(canvas: Image.Image, S: int):
     glow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
     gd = ImageDraw.Draw(glow)
     for i in range(n - 1):
-        gd.line([all_pts[i], all_pts[i + 1]], fill=C_ACCENT, width=18 * S)
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=12 * S))
+        gd.line([all_pts[i], all_pts[i + 1]], fill=C_ACCENT, width=14 * S)
+    glow = glow.filter(ImageFilter.GaussianBlur(radius=10 * S))
     gr, gg, gb, ga = glow.split()
     ga = ga.point(lambda v: int(v * 0.35))
     canvas.alpha_composite(Image.merge("RGBA", (gr, gg, gb, ga)))
@@ -152,10 +172,10 @@ def draw_arrow(canvas: Image.Image, S: int):
     for i in range(n - 1):
         t = i / (n - 1)
         alpha = int(40 + t * 215)
-        draw.line([all_pts[i], all_pts[i + 1]], fill=rgba(C_ACCENT, alpha), width=6 * S)
+        draw.line([all_pts[i], all_pts[i + 1]], fill=rgba(C_ACCENT, alpha), width=5 * S)
 
     # 3. Arrowhead oriented along final tangent
-    tip = (int(732*S), int(313*S))
+    tip = (int(790*S), int(313*S))
     dx = all_pts[-1][0] - all_pts[-8][0]
     dy = all_pts[-1][1] - all_pts[-8][1]
     length = math.hypot(dx, dy)
@@ -207,10 +227,19 @@ def draw_icon_column(canvas: Image.Image, cx, cy, label: str, font, S: int,
     draw.rounded_rectangle([lx, ty, rx, by], radius=radius,
                             fill=None, outline=C_BORDER, width=2 * S)
 
-    # Label below box
-    label_y = by + 16 * S
+    # Render the visible label in the artwork. Finder's own filename label is
+    # shifted to the side by create_dmg.sh because Finder does not expose a
+    # reliable icon-label colour setting.
+    label_y = by + 28 * S
     bbox = draw.textbbox((0, 0), label, font=font)
     tw = bbox[2] - bbox[0]
+    shadow_offset = 2 * S
+    draw.text(
+        (cx - tw // 2 + shadow_offset, label_y + shadow_offset),
+        label,
+        font=font,
+        fill=(0, 0, 0, 170),
+    )
     draw.text((cx - tw // 2, label_y), label, font=font, fill=C_TEXT)
 
 
@@ -234,10 +263,10 @@ def generate():
     S = RENDER_SCALE
     RW, RH = W * S, H * S
 
-    font_title    = ImageFont.truetype(F_DISPLAY_BOLD,  size=62 * S)
-    font_subtitle = ImageFont.truetype(F_TEXT_REGULAR,  size=20 * S)
-    font_label    = ImageFont.truetype(F_TEXT_SEMIBOLD, size=22 * S)
-    font_footer   = ImageFont.truetype(F_TEXT_REGULAR,  size=18 * S)
+    font_title    = load_font(F_DISPLAY_BOLD,  size=66 * S)
+    font_subtitle = load_font(F_TEXT_SEMIBOLD, size=23 * S)
+    font_label    = load_font(F_TEXT_SEMIBOLD, size=22 * S)
+    font_footer   = load_font(F_TEXT_SEMIBOLD, size=18 * S)
 
     # 1. Base canvas
     img = Image.new("RGBA", (RW, RH), C_BASE)
@@ -251,9 +280,9 @@ def generate():
     # 4. Header text
     draw = ImageDraw.Draw(img)
     draw_centred(draw, "Install Muesli", font_title,
-                 52 * S, C_TEXT, RW)
+                 46 * S, C_TEXT, RW)
     draw_centred(draw, "Drag to Applications \U0001f4c2  \u00b7  or double-click to install",
-                 font_subtitle, 134 * S, C_SUBTEXT, RW)
+                 font_subtitle, 136 * S, C_SUBTEXT, RW)
 
     # 5. Icon columns
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -278,17 +307,19 @@ def generate():
               "  You can then eject this disk.")
     draw_centred(draw, footer, font_footer, 520 * S, C_SUBTEXT, RW)
 
-    # 9. Downsample with LANCZOS and save
+    # 9. Downsample with LANCZOS and save. Keep the background referenced by
+    # Finder at full point resolution, and include a Retina sibling for systems
+    # that resolve @2x artwork.
     out_dir = os.path.join(os.path.dirname(__file__), "assets")
     os.makedirs(out_dir, exist_ok=True)
 
-    img.resize((W, H), Image.LANCZOS).save(
+    img.resize((W * 2, H * 2), Image.LANCZOS).save(
         os.path.join(out_dir, "dmg-background@2x.png"), "PNG")
-    img.resize((W // 2, H // 2), Image.LANCZOS).save(
+    img.resize((W, H), Image.LANCZOS).save(
         os.path.join(out_dir, "dmg-background.png"), "PNG")
 
-    print("Generated: scripts/assets/dmg-background.png (540x380) "
-          "and dmg-background@2x.png (1080x760)")
+    print("Generated: scripts/assets/dmg-background.png (1080x760) "
+          "and dmg-background@2x.png (2160x1520)")
 
 
 if __name__ == "__main__":
