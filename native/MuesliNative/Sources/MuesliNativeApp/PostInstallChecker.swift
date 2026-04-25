@@ -1,6 +1,26 @@
 import AppKit
 import Foundation
 
+private final class PostInstallSafetyTimer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var item: DispatchWorkItem?
+
+    func schedule(after delay: DispatchTimeInterval, execute block: @escaping () -> Void) {
+        let workItem = DispatchWorkItem(block: block)
+        lock.lock()
+        item = workItem
+        lock.unlock()
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    func cancel() {
+        lock.lock()
+        item?.cancel()
+        item = nil
+        lock.unlock()
+    }
+}
+
 @MainActor
 enum PostInstallChecker {
     private static var hasPresented = false
@@ -153,24 +173,32 @@ enum PostInstallChecker {
         volumePath: String,
         sourceDMGPath: String?
     ) {
+        let cleanupAndQuit = {
+            NSWorkspace.shared.unmountAndEjectDevice(atPath: volumePath)
+            if let dmgPath = sourceDMGPath {
+                try? FileManager.default.trashItem(
+                    at: URL(fileURLWithPath: dmgPath), resultingItemURL: nil)
+            }
+            NSApp.terminate(nil)
+        }
+
+        let safetyTimer = PostInstallSafetyTimer()
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
         NSWorkspace.shared.openApplication(at: destinationURL, configuration: config) { _, error in
-            if let error {
-                fputs("[PostInstallChecker] relaunch failed: \(error.localizedDescription)\n", stderr)
-            }
             DispatchQueue.main.async {
-                // Eject the DMG volume and trash the source file
-                NSWorkspace.shared.unmountAndEjectDevice(atPath: volumePath)
-                if let dmgPath = sourceDMGPath {
-                    try? FileManager.default.trashItem(
-                        at: URL(fileURLWithPath: dmgPath), resultingItemURL: nil)
+                safetyTimer.cancel()
+                if let error {
+                    fputs("[PostInstallChecker] relaunch failed: \(error.localizedDescription)\n", stderr)
+                    showInstallError(error.localizedDescription)
+                    return
                 }
-                NSApp.terminate(nil)
+                cleanupAndQuit()
             }
         }
+
         // Safety net: terminate after 4 s in case openApplication never calls back
-        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { NSApp.terminate(nil) }
+        safetyTimer.schedule(after: .seconds(4), execute: cleanupAndQuit)
     }
 
     private static func showInstallProgress(appName: String) -> NSWindow {
@@ -248,9 +276,6 @@ enum PostInstallChecker {
         let detached = await Task.detached(priority: .utility) {
             hdiutilDetach(mountPoint: volumePath)
         }.value
-        if !detached {
-            fputs("[PostInstallChecker] failed to eject volume at \(volumePath)\n", stderr)
-        }
         if detached {
             await MainActor.run {
                 do {
@@ -261,6 +286,8 @@ enum PostInstallChecker {
                     fputs("[PostInstallChecker] trash failed: \(error.localizedDescription)\n", stderr)
                 }
             }
+        } else {
+            fputs("[PostInstallChecker] failed to eject volume at \(volumePath)\n", stderr)
         }
     }
 

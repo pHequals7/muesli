@@ -324,7 +324,9 @@ final class MuesliController: NSObject {
             openHistoryWindow()
         }
 
-        PostInstallChecker.check()
+        if config.hasCompletedOnboarding {
+            PostInstallChecker.check()
+        }
     }
 
     func shutdown() {
