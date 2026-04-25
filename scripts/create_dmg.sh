@@ -25,6 +25,7 @@ fi
 # Extract version from Info.plist
 VERSION=$(defaults read "$APP_PATH/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "0.0.0")
 APP_NAME=$(defaults read "$APP_PATH/Contents/Info" CFBundleDisplayName 2>/dev/null || echo "Muesli")
+APP_BUNDLE_NAME="$(basename "$APP_PATH")"
 DMG_NAME="${APP_NAME}-${VERSION}.dmg"
 APPLESCRIPT_APP_NAME=$(APPLESCRIPT_VALUE="$APP_NAME" python3 - <<'PY'
 import os
@@ -33,7 +34,7 @@ value = os.environ["APPLESCRIPT_VALUE"]
 print('"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"')
 PY
 )
-APPLESCRIPT_APP_BUNDLE_NAME=$(APPLESCRIPT_VALUE="${APP_NAME}.app" python3 - <<'PY'
+APPLESCRIPT_APP_BUNDLE_NAME=$(APPLESCRIPT_VALUE="$APP_BUNDLE_NAME" python3 - <<'PY'
 import os
 
 value = os.environ["APPLESCRIPT_VALUE"]
@@ -98,6 +99,8 @@ if [[ -z "$MOUNT_POINT" ]]; then
 fi
 
 echo "Configuring Finder window at: $MOUNT_POINT"
+# Wait briefly for Finder to register the mounted volume. If Finder is slow or
+# unavailable, the AppleScript block below fails non-fatally and the DMG remains usable.
 open "$MOUNT_POINT" >/dev/null 2>&1 || true
 sleep 1
 

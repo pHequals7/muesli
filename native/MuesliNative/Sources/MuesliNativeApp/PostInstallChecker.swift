@@ -67,7 +67,9 @@ enum PostInstallChecker {
             offerInstall(from: bundlePath, bundleName: bundleName, appName: appName)
         } else {
             // Case 2: running from /Applications — check if DMG is still mounted
-            mountedDMGCheckTask = Task { await checkForMountedDMG(appName: appName) }
+            mountedDMGCheckTask = Task {
+                await checkForMountedDMG(appName: appName, bundleName: bundleName)
+            }
         }
     }
 
@@ -213,8 +215,8 @@ enum PostInstallChecker {
             }
         }
 
-        // Safety net: terminate after 4 s in case openApplication never calls back
-        safetyTimer.schedule(after: .seconds(4), execute: cleanupAndQuit)
+        // Safety net: terminate after 8 s in case openApplication never calls back.
+        safetyTimer.schedule(after: .seconds(8), execute: cleanupAndQuit)
     }
 
     private static func showInstallProgress(appName: String) -> NSWindow {
@@ -279,13 +281,16 @@ enum PostInstallChecker {
 
     // MARK: - Case 2: Eject mounted DMG
 
-    private static func checkForMountedDMG(appName: String) async {
-        guard let volumeURL = findMountedInstallerVolume(appName: appName) else { return }
+    private static func checkForMountedDMG(appName: String, bundleName: String) async {
+        guard let volumeURL = findMountedInstallerVolume(appName: appName, bundleName: bundleName) else { return }
         let volumePath = volumeURL.path
         let sourceDMGPath = await Task.detached(priority: .utility) {
             findSourceDMGPathSync(volumePath: volumePath)
         }.value
-        guard let sourceDMGPath else { return }
+        guard let sourceDMGPath else {
+            fputs("[PostInstallChecker] mounted installer volume has no source DMG: \(volumePath)\n", stderr)
+            return
+        }
         guard shouldEjectMountedDMG(appName: appName, sourceDMGPath: sourceDMGPath) else {
             rememberKeptDMGPath(sourceDMGPath)
             return
@@ -332,7 +337,12 @@ enum PostInstallChecker {
     }
 
     private static func keptDMGPaths() -> Set<String> {
-        Set(UserDefaults.standard.stringArray(forKey: keptDMGPathsDefaultsKey) ?? [])
+        let savedPaths = UserDefaults.standard.stringArray(forKey: keptDMGPathsDefaultsKey) ?? []
+        let existingPaths = savedPaths.filter { FileManager.default.fileExists(atPath: $0) }
+        if existingPaths.count != savedPaths.count {
+            UserDefaults.standard.set(existingPaths.sorted(), forKey: keptDMGPathsDefaultsKey)
+        }
+        return Set(existingPaths)
     }
 
     private static func rememberKeptDMGPath(_ sourceDMGPath: String) {
@@ -357,14 +367,17 @@ enum PostInstallChecker {
 
     // P2: use mountedVolumeURLs instead of contentsOfDirectory("/Volumes") — avoids
     // stale symlinks, firmlinks, and hidden entries that can appear under /Volumes.
-    private static func findMountedInstallerVolume(appName: String) -> URL? {
+    private static func findMountedInstallerVolume(appName: String, bundleName: String) -> URL? {
         guard let volumes = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: [.volumeNameKey],
             options: [.skipHiddenVolumes]
         ) else { return nil }
         return volumes.first { url in
             let name = (try? url.resourceValues(forKeys: [.volumeNameKey]).volumeName) ?? ""
-            return name == appName
+            guard name == appName else { return false }
+            return FileManager.default.fileExists(
+                atPath: url.appendingPathComponent(bundleName).path
+            )
         }
     }
 
@@ -410,15 +423,23 @@ enum PostInstallChecker {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
         try process.run()
         process.waitUntilExit()
+        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let errorText = String(data: errorData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard process.terminationStatus == 0 else {
+            let processName = URL(fileURLWithPath: executable).lastPathComponent
+            let description = errorText.isEmpty
+                ? "\(processName) exited with status \(process.terminationStatus)"
+                : "\(processName) exited with status \(process.terminationStatus): \(errorText)"
             throw NSError(
                 domain: "PostInstallChecker",
                 code: Int(process.terminationStatus),
                 userInfo: [
-                    NSLocalizedDescriptionKey:
-                        "\(URL(fileURLWithPath: executable).lastPathComponent) exited with status \(process.terminationStatus)",
+                    NSLocalizedDescriptionKey: description,
                 ]
             )
         }

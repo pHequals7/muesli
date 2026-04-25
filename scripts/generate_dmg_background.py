@@ -11,7 +11,10 @@ Rendering at RENDER_SCALE× then LANCZOS downsample for SSAA.
 import math
 import os
 import random
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+try:
+    from PIL import Image, ImageDraw, ImageFont, ImageFilter
+except ImportError as exc:
+    raise SystemExit("Pillow required: pip install Pillow") from exc
 
 # ---------------------------------------------------------------------------
 # Fonts (SF Pro — /Library/Fonts/ on macOS)
@@ -44,6 +47,7 @@ C_SUBTEXT = (255, 255, 255, 205)       # rgba(255,255,255,0.80)
 C_OVERLAY = (255, 255, 255, 61)        # rgba(255,255,255,0.24) — divider
 
 RENDER_SCALE = 4
+APP_DISPLAY_NAME = os.environ.get("MUESLI_DMG_APP_NAME", "Muesli")
 
 
 def rgba(c, a: int):
@@ -229,8 +233,7 @@ def draw_icon_column(canvas: Image.Image, cx, cy, label: str, font, S: int,
     draw.rounded_rectangle([lx, ty, rx, by], radius=radius,
                             fill=None, outline=C_BORDER, width=2 * S)
 
-    # Render the visible label in the artwork. Finder's own filename label is
-    # shifted to the side by create_dmg.sh because Finder does not expose a
+    # Render the visible label in the artwork because Finder does not expose a
     # reliable icon-label colour setting.
     label_y = by + 28 * S
     bbox = draw.textbbox((0, 0), label, font=font)
@@ -281,7 +284,7 @@ def generate():
 
     # 4. Header text
     draw = ImageDraw.Draw(img)
-    draw_centred(draw, "Install Muesli", font_title,
+    draw_centred(draw, f"Install {APP_DISPLAY_NAME}", font_title,
                  46 * S, C_TEXT, RW)
     draw_centred(draw, "Drag to Applications \U0001f4c2  \u00b7  or double-click to install",
                  font_subtitle, 136 * S, C_SUBTEXT, RW)
@@ -291,7 +294,7 @@ def generate():
     icon_path = os.path.normpath(os.path.join(script_dir, "assets", "muesli_app_icon.png"))
 
     icon_cy = 315 * S
-    draw_icon_column(img, cx=260 * S, cy=icon_cy, label="Muesli",
+    draw_icon_column(img, cx=260 * S, cy=icon_cy, label=APP_DISPLAY_NAME,
                      font=font_label, S=S, icon_path=icon_path)
     draw_icon_column(img, cx=820 * S, cy=icon_cy, label="Applications",
                      font=font_label, S=S)
@@ -305,7 +308,7 @@ def generate():
               fill=C_OVERLAY, width=1 * S)
 
     # 8. Footer
-    footer = ("After installing, Muesli will relaunch from Applications."
+    footer = (f"After installing, {APP_DISPLAY_NAME} will relaunch from Applications."
               "  You can then eject this disk.")
     draw_centred(draw, footer, font_footer, 520 * S, C_SUBTEXT, RW)
 
