@@ -26,6 +26,20 @@ fi
 VERSION=$(defaults read "$APP_PATH/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo "0.0.0")
 APP_NAME=$(defaults read "$APP_PATH/Contents/Info" CFBundleDisplayName 2>/dev/null || echo "Muesli")
 DMG_NAME="${APP_NAME}-${VERSION}.dmg"
+APPLESCRIPT_APP_NAME=$(APPLESCRIPT_VALUE="$APP_NAME" python3 - <<'PY'
+import os
+
+value = os.environ["APPLESCRIPT_VALUE"]
+print('"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"')
+PY
+)
+APPLESCRIPT_APP_BUNDLE_NAME=$(APPLESCRIPT_VALUE="${APP_NAME}.app" python3 - <<'PY'
+import os
+
+value = os.environ["APPLESCRIPT_VALUE"]
+print('"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"')
+PY
+)
 
 mkdir -p "$OUTPUT_DIR"
 DMG_PATH="$OUTPUT_DIR/$DMG_NAME"
@@ -99,7 +113,7 @@ sleep 1
 # the release pipeline continues — the DMG is functional, just with default layout.
 if ! osascript <<APPLESCRIPT
 tell application "Finder"
-  tell disk "${APP_NAME}"
+  tell disk ${APPLESCRIPT_APP_NAME}
     open
     set current view of container window to icon view
     set toolbar visible of container window to false
@@ -112,7 +126,7 @@ tell application "Finder"
     set text size of theViewOptions to 10
     set label position of theViewOptions to bottom
     set background picture of theViewOptions to file ".background:dmg-background.png"
-    set position of item "${APP_NAME}.app" of container window to {260, 305}
+    set position of item ${APPLESCRIPT_APP_BUNDLE_NAME} of container window to {260, 305}
     set position of item "Applications" of container window to {820, 305}
     set the bounds of container window to {100, 100, 1180, 860}
     close

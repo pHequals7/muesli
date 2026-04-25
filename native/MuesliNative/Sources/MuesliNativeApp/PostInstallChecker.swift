@@ -21,6 +21,19 @@ private final class PostInstallSafetyTimer: @unchecked Sendable {
     }
 }
 
+private final class PostInstallCleanupGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didRun = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didRun else { return false }
+        didRun = true
+        return true
+    }
+}
+
 @MainActor
 enum PostInstallChecker {
     private static var hasPresented = false
@@ -174,7 +187,9 @@ enum PostInstallChecker {
         volumePath: String,
         sourceDMGPath: String?
     ) {
+        let cleanupGate = PostInstallCleanupGate()
         let cleanupAndQuit = {
+            guard cleanupGate.claim() else { return }
             NSWorkspace.shared.unmountAndEjectDevice(atPath: volumePath)
             if let dmgPath = sourceDMGPath {
                 try? FileManager.default.trashItem(
