@@ -9,6 +9,7 @@ struct SidebarView: View {
 
     let appState: AppState
     let controller: MuesliController
+    @Environment(\.colorScheme) private var colorScheme
     @State private var meetingsExpanded = true
     @State private var renamingFolderID: Int64?
     @State private var renamingFolderName = ""
@@ -29,13 +30,69 @@ struct SidebarView: View {
         appState.config.userName
     }
 
-    private var hasPendingUpdate: Bool {
+    private struct UpdateCTA {
+        let label: String
+        let icon: String
+        let foreground: Color
+        let accessibilityLabel: String
+        let tooltip: String
+    }
+
+    private var pendingUpdateCTA: UpdateCTA? {
         switch appState.sparkleUpdateStatus {
-        case .available, .downloaded:
-            return true
+        case .available:
+            return UpdateCTA(
+                label: "Update Now",
+                icon: "arrow.down",
+                foreground: updateCTAForeground,
+                accessibilityLabel: "Update available",
+                tooltip: "Open About to install the update"
+            )
+        case .downloaded:
+            return UpdateCTA(
+                label: "Restart",
+                icon: "arrow.clockwise",
+                foreground: updateCTAForeground,
+                accessibilityLabel: "Update ready to install",
+                tooltip: "Open About to finish installing the update"
+            )
         case .idle, .checking, .busy, .installing, .upToDate, .disabled, .failed:
-            return false
+            return nil
         }
+    }
+
+    private var updateCTAForeground: Color {
+        let accentHex = appState.config.recordingColorHex
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "#", with: "")
+            .lowercased()
+
+        let defaultAccentHex = colorScheme == .dark
+            ? MuesliTheme.defaultAccentDarkHex
+            : MuesliTheme.defaultAccentLightHex
+
+        let value: UInt64
+        if accentHex == "1e1e2e" {
+            value = UInt64(defaultAccentHex)
+        } else {
+            guard accentHex.count == 6,
+                  let parsedValue = UInt64(accentHex, radix: 16) else {
+                value = UInt64(defaultAccentHex)
+                return foregroundColor(forAccentHex: value)
+            }
+            value = parsedValue
+        }
+
+        return foregroundColor(forAccentHex: value)
+    }
+
+    private func foregroundColor(forAccentHex value: UInt64) -> Color {
+        let red = Double((value >> 16) & 0xFF) / 255.0
+        let green = Double((value >> 8) & 0xFF) / 255.0
+        let blue = Double(value & 0xFF) / 255.0
+        // 0.45 on raw sRGB approximates the WCAG 0.18 threshold on linearized luminance.
+        let luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        return luminance > 0.45 ? Color.black.opacity(0.88) : Color.white
     }
 
     var body: some View {
@@ -52,7 +109,7 @@ struct SidebarView: View {
             Spacer()
 
             sidebarItem(tab: .settings, icon: "gearshape", label: "Settings")
-            sidebarItem(tab: .about, icon: "info.circle", label: "About", showsBadge: hasPendingUpdate)
+            sidebarItem(tab: .about, icon: "info.circle", label: "About", updateCTA: pendingUpdateCTA)
             darkModeToggle
                 .padding(.bottom, MuesliTheme.spacing16)
         }
@@ -276,7 +333,7 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func sidebarItem(tab: DashboardTab, icon: String, label: String, showsBadge: Bool = false) -> some View {
+    private func sidebarItem(tab: DashboardTab, icon: String, label: String, updateCTA: UpdateCTA? = nil) -> some View {
         let isSelected = appState.selectedTab == tab
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -292,15 +349,23 @@ struct SidebarView: View {
                     .font(MuesliTheme.headline())
                     .foregroundStyle(isSelected ? MuesliTheme.textPrimary : MuesliTheme.textSecondary)
                 Spacer()
-                if showsBadge {
-                    Circle()
-                        .fill(MuesliTheme.recording)
-                        .frame(width: 9, height: 9)
-                        .overlay(
-                            Circle()
-                                .stroke(MuesliTheme.backgroundDeep, lineWidth: 2)
-                        )
-                        .accessibilityLabel("Update available")
+                if let updateCTA {
+                    HStack(spacing: 4) {
+                        Image(systemName: updateCTA.icon)
+                            .font(.system(size: 9, weight: .bold))
+                        Text(updateCTA.label)
+                            .font(.system(size: 11, weight: .bold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(updateCTA.foreground)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.accent)
+                    .clipShape(Capsule())
+                    .shadow(color: MuesliTheme.accent.opacity(0.35), radius: 8, x: 0, y: 2)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(updateCTA.accessibilityLabel)
+                    .help(updateCTA.tooltip)
                 }
             }
             .padding(.horizontal, sidebarRowHorizontalPadding)
