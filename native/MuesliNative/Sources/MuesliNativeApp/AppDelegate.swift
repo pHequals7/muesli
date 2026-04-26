@@ -8,7 +8,7 @@ import MuesliCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: MuesliController?
     private(set) var updaterController: SPUStandardUpdaterController?
-    private let updateFailureGuidancePresenter = UpdateFailureGuidancePresenter()
+    private let sparkleUpdateDelegate = SparkleUpdateDelegate()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let telemetryConfig = TelemetryDeck.Config(appID: "7F2B7846-1CB5-4FE6-8ABC-56F217B06A86")
@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
-            updaterDelegate: updateFailureGuidancePresenter,
+            updaterDelegate: sparkleUpdateDelegate,
             userDriverDelegate: nil
         )
 
@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let controller = MuesliController(runtime: runtime)
             controller.updaterController = updaterController
+            sparkleUpdateDelegate.appState = controller.appState
             self.controller = controller
             controller.start()
         } catch {
@@ -53,11 +54,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @MainActor
-final class UpdateFailureGuidancePresenter: NSObject, SPUUpdaterDelegate {
+final class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate {
+    weak var appState: AppState?
     private var lastPresentedAt: Date?
+
+    func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        appState?.sparkleUpdateStatus = .checking
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        appState?.sparkleUpdateStatus = .available(version: item.displayVersionString)
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
+        appState?.sparkleUpdateStatus = .upToDate
+    }
+
+    func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
+        appState?.sparkleUpdateStatus = .downloaded(version: item.displayVersionString)
+    }
+
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        appState?.sparkleUpdateStatus = .installing(version: item.displayVersionString)
+    }
+
+    func updater(_ updater: SPUUpdater, userDidMake choice: SPUUserUpdateChoice, forUpdate item: SUAppcastItem, state: SPUUserUpdateState) {
+        switch choice {
+        case .install:
+            appState?.sparkleUpdateStatus = .installing(version: item.displayVersionString)
+        case .dismiss where state.stage == .downloaded:
+            appState?.sparkleUpdateStatus = .downloaded(version: item.displayVersionString)
+        case .dismiss:
+            appState?.sparkleUpdateStatus = .available(version: item.displayVersionString)
+        case .skip:
+            appState?.sparkleUpdateStatus = .idle
+        @unknown default:
+            appState?.sparkleUpdateStatus = .available(version: item.displayVersionString)
+        }
+    }
+
+    func updater(
+        _ updater: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        appState?.sparkleUpdateStatus = .downloaded(version: item.displayVersionString)
+        return false
+    }
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
         let nsError = error as NSError
+        appState?.sparkleUpdateStatus = .failed(message: nsError.localizedDescription)
         guard UpdateFailureGuidance.shouldShowFallback(for: nsError) else { return }
 
         // Sparkle shows its own error alert first. Delay briefly so this
@@ -66,6 +113,10 @@ final class UpdateFailureGuidancePresenter: NSObject, SPUUpdaterDelegate {
             try? await Task.sleep(nanoseconds: 400_000_000)
             self?.showManualInstallGuidance()
         }
+    }
+
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        appState?.sparkleLastCheckedAt = Date()
     }
 
     private func showManualInstallGuidance() {

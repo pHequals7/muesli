@@ -157,6 +157,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         menu.addItem(actionItem(title: "Settings…", action: #selector(MuesliController.openSettingsTab)))
+        menu.addItem(actionItem(title: "Check for Updates…", action: #selector(MuesliController.checkForUpdates)))
         statusLabel.isEnabled = false
         menu.addItem(statusLabel)
         menu.addItem(.separator())

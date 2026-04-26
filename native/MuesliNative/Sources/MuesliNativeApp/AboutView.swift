@@ -2,6 +2,7 @@ import SwiftUI
 import MuesliCore
 
 struct AboutView: View {
+    let appState: AppState
     let controller: MuesliController
 
     private let githubURL = "https://github.com/pHequals7/muesli"
@@ -23,6 +24,10 @@ struct AboutView: View {
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
+                if let banner = updateBanner {
+                    updateBannerView(banner)
+                }
+
                 // MARK: - App Info
                 sectionHeader("App Info")
                 aboutCard {
@@ -36,7 +41,7 @@ struct AboutView: View {
 
                     aboutRow("Check for Updates") {
                         actionButton("Check Now", icon: "arrow.triangle.2.circlepath") {
-                            // TODO: Wire to Sparkle SPUStandardUpdaterController
+                            controller.checkForUpdates()
                         }
                     }
                 }
@@ -114,6 +119,9 @@ struct AboutView: View {
             .padding(MuesliTheme.spacing32)
         }
         .background(MuesliTheme.backgroundBase)
+        .task {
+            controller.refreshUpdateInformation()
+        }
     }
 
     // MARK: - Components
@@ -138,6 +146,104 @@ struct AboutView: View {
         .overlay(
             RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
                 .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private struct UpdateBanner {
+        let icon: String
+        let title: String
+        let message: String
+        let tint: Color
+        let actionTitle: String?
+    }
+
+    private var updateBanner: UpdateBanner? {
+        switch appState.sparkleUpdateStatus {
+        case .idle:
+            return nil
+        case .checking:
+            return UpdateBanner(
+                icon: "arrow.triangle.2.circlepath",
+                title: "Checking for updates",
+                message: "Muesli is checking the appcast for the latest version.",
+                tint: MuesliTheme.transcribing,
+                actionTitle: nil
+            )
+        case .available(let version):
+            return UpdateBanner(
+                icon: "exclamationmark.triangle.fill",
+                title: "Muesli \(version) is available",
+                message: "An update is available. Start the updater to download and install it.",
+                tint: MuesliTheme.transcribing,
+                actionTitle: "Install Update"
+            )
+        case .downloaded(let version):
+            return UpdateBanner(
+                icon: "exclamationmark.triangle.fill",
+                title: "Muesli \(version) is ready to install",
+                message: "The update has been downloaded and is waiting for you to finish installation.",
+                tint: MuesliTheme.transcribing,
+                actionTitle: "Install Update"
+            )
+        case .installing(let version):
+            return UpdateBanner(
+                icon: "arrow.down.circle.fill",
+                title: "Installing Muesli \(version)",
+                message: "Sparkle is preparing the update. Muesli may relaunch when installation finishes.",
+                tint: MuesliTheme.transcribing,
+                actionTitle: nil
+            )
+        case .upToDate:
+            return UpdateBanner(
+                icon: "checkmark.circle.fill",
+                title: "Muesli is up to date",
+                message: "No newer version was found in the appcast.",
+                tint: MuesliTheme.success,
+                actionTitle: nil
+            )
+        case .failed(let message):
+            return UpdateBanner(
+                icon: "xmark.octagon.fill",
+                title: "Update check failed",
+                message: message,
+                tint: MuesliTheme.recording,
+                actionTitle: "Try Again"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func updateBannerView(_ banner: UpdateBanner) -> some View {
+        HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
+            Image(systemName: banner.icon)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(banner.tint)
+                .frame(width: 22)
+
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
+                Text(banner.title)
+                    .font(MuesliTheme.headline())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Text(banner.message)
+                    .font(MuesliTheme.callout())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: MuesliTheme.spacing16)
+
+            if let actionTitle = banner.actionTitle {
+                actionButton(actionTitle, icon: "arrow.down.circle") {
+                    controller.checkForUpdates()
+                }
+            }
+        }
+        .padding(MuesliTheme.spacing16)
+        .background(banner.tint.opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(banner.tint.opacity(0.45), lineWidth: 1)
         )
     }
 

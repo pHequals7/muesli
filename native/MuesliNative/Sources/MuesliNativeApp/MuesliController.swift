@@ -1114,7 +1114,15 @@ final class MuesliController: NSObject {
     }
 
     @objc func checkForUpdates() {
+        appState.sparkleUpdateStatus = .checking
         updaterController?.checkForUpdates(nil)
+    }
+
+    func refreshUpdateInformation() {
+        guard case .idle = appState.sparkleUpdateStatus else { return }
+        guard let updater = updaterController?.updater, updater.canCheckForUpdates else { return }
+        appState.sparkleUpdateStatus = .checking
+        updater.checkForUpdateInformation()
     }
 
     @objc func quitApp() {
