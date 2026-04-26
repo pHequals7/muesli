@@ -15,14 +15,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TelemetryDeck.initialize(config: telemetryConfig)
         TelemetryDeck.signal("app.launched")
 
-        if Self.hasConfiguredSparkleFeed {
-            updaterController = SPUStandardUpdaterController(
-                startingUpdater: true,
-                updaterDelegate: sparkleUpdateDelegate,
-                userDriverDelegate: nil
-            )
-        }
-
         do {
             let runtime = try RuntimePaths.resolve()
             AppFonts.registerIfNeeded(runtime: runtime)
@@ -30,8 +22,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NSApplication.shared.applicationIconImage = image
             }
             let controller = MuesliController(runtime: runtime)
-            controller.updaterController = updaterController
             sparkleUpdateDelegate.appState = controller.appState
+            if Self.hasConfiguredSparkleFeed {
+                let updaterController = SPUStandardUpdaterController(
+                    startingUpdater: true,
+                    updaterDelegate: sparkleUpdateDelegate,
+                    userDriverDelegate: nil
+                )
+                controller.updaterController = updaterController
+                self.updaterController = updaterController
+            }
             self.controller = controller
             controller.start()
         } catch {
@@ -100,15 +100,6 @@ final class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate {
         @unknown default:
             appState?.sparkleUpdateStatus = .available(version: item.displayVersionString)
         }
-    }
-
-    func updater(
-        _ updater: SPUUpdater,
-        willInstallUpdateOnQuit item: SUAppcastItem,
-        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
-    ) -> Bool {
-        appState?.sparkleUpdateStatus = .downloaded(version: item.displayVersionString)
-        return false
     }
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
