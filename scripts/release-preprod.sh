@@ -308,11 +308,12 @@ echo "[11/11] Updating preprod appcast..."
 
 perl -0pi -e 's{https://pHequals7\.github\.io/muesli/(MuesliPreprod-([0-9][0-9A-Za-z\.\-]*)\.dmg)}{"https://github.com/pHequals7/muesli/releases/download/v$2/$1"}ge' "$APPCAST_PATH"
 perl -0pi -e 's{^\h*<enclosure\b[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>\n}{}mg' "$APPCAST_PATH"
-python3 - "$APPCAST_PATH" "$VERSION" <<'PY'
+perl -0pi -e 's{^\h*<sparkle:deltas>\s*</sparkle:deltas>\n}{}mg' "$APPCAST_PATH"
+python3 - "$APPCAST_PATH" "$SPARKLE_BUILD_VERSION" "$VERSION" <<'PY'
 import re
 import sys
 
-appcast_path, version = sys.argv[1], sys.argv[2]
+appcast_path, sparkle_version, short_version = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(appcast_path, encoding="utf-8").read()
 
 item_re = re.compile(r"\n[ \t]*<item>\n.*?\n[ \t]*</item>", re.S)
@@ -322,12 +323,15 @@ if not items:
 
 target = None
 for item in items:
-    if f"<sparkle:version>{version}</sparkle:version>" in item.group(0):
+    if (
+        f"<sparkle:version>{sparkle_version}</sparkle:version>" in item.group(0)
+        and f"<sparkle:shortVersionString>{short_version}</sparkle:shortVersionString>" in item.group(0)
+    ):
         target = item
         break
 
 if target is None:
-    raise SystemExit(f"ERROR: generated appcast is missing version {version}")
+    raise SystemExit(f"ERROR: generated appcast is missing version {short_version} ({sparkle_version})")
 if target == items[0]:
     raise SystemExit(0)
 
