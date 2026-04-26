@@ -109,6 +109,11 @@ final class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
         let nsError = error as NSError
+        if UpdateFailureGuidance.isNoUpdateError(nsError) {
+            appState?.sparkleUpdateStatus = .upToDate
+            return
+        }
+
         appState?.sparkleUpdateStatus = .failed(message: nsError.localizedDescription)
         guard UpdateFailureGuidance.shouldShowFallback(for: nsError) else { return }
 
@@ -122,6 +127,15 @@ final class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
         appState?.sparkleLastCheckedAt = Date()
+        guard let error else { return }
+        let nsError = error as NSError
+        // didAbortWithError is the primary error callback; this keeps the
+        // final-cycle handler self-contained for any Sparkle path that ends here.
+        if UpdateFailureGuidance.isNoUpdateError(nsError) {
+            appState?.sparkleUpdateStatus = .upToDate
+        } else {
+            appState?.sparkleUpdateStatus = .failed(message: nsError.localizedDescription)
+        }
     }
 
     private func showManualInstallGuidance() {
@@ -158,16 +172,7 @@ enum UpdateFailureGuidance {
     static func isNoUpdateError(_ error: NSError) -> Bool {
         guard error.domain == SUSparkleErrorDomain else { return false }
         if error.code == noUpdateErrorCode { return true }
-        if error.userInfo[SPUNoUpdateFoundReasonKey] != nil { return true }
-
-        // Some Sparkle paths report the no-update condition via localized text
-        // while still routing through the error callback. Treat that as a
-        // successful check so the About banner never shows a red failure for
-        // an up-to-date app.
-        let message = error.localizedDescription.lowercased()
-        return message.contains("up to date")
-            || message.contains("up-to-date")
-            || message.contains("no update")
+        return error.userInfo[SPUNoUpdateFoundReasonKey] != nil
     }
 
     static func shouldShowFallback(for error: NSError) -> Bool {

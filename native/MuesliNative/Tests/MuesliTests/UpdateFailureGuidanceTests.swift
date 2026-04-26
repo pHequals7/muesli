@@ -23,15 +23,15 @@ struct UpdateFailureGuidanceTests {
         #expect(UpdateFailureGuidance.isNoUpdateError(error))
     }
 
-    @Test("classifies localized up-to-date message as up to date")
-    func classifiesLocalizedUpToDateMessage() {
+    @Test("does not classify localized text alone as up to date")
+    func rejectsLocalizedTextWithoutSparkleSignal() {
         let error = NSError(
             domain: SUSparkleErrorDomain,
             code: 1002,
             userInfo: [NSLocalizedDescriptionKey: "You’re up to date!"]
         )
 
-        #expect(UpdateFailureGuidance.isNoUpdateError(error))
+        #expect(!UpdateFailureGuidance.isNoUpdateError(error))
     }
 
     @Test("does not classify unrelated Sparkle errors as up to date")
