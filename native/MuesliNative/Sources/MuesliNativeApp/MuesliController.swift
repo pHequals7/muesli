@@ -1114,8 +1114,12 @@ final class MuesliController: NSObject {
     }
 
     @objc func checkForUpdates() {
+        guard let updaterController else {
+            appState.sparkleUpdateStatus = .disabled(message: "Update checks are disabled for this build.")
+            return
+        }
         appState.sparkleUpdateStatus = .checking
-        updaterController?.checkForUpdates(nil)
+        updaterController.checkForUpdates(nil)
     }
 
     func refreshUpdateInformation() {

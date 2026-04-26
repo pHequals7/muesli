@@ -15,11 +15,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TelemetryDeck.initialize(config: telemetryConfig)
         TelemetryDeck.signal("app.launched")
 
-        updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
-            updaterDelegate: sparkleUpdateDelegate,
-            userDriverDelegate: nil
-        )
+        if Self.hasConfiguredSparkleFeed {
+            updaterController = SPUStandardUpdaterController(
+                startingUpdater: true,
+                updaterDelegate: sparkleUpdateDelegate,
+                userDriverDelegate: nil
+            )
+        }
 
         do {
             let runtime = try RuntimePaths.resolve()
@@ -50,6 +52,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return .terminateCancel
         }
         return .terminateNow
+    }
+
+    private static var hasConfiguredSparkleFeed: Bool {
+        guard let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String else {
+            return false
+        }
+        return !feedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

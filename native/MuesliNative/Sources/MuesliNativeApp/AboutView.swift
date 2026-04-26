@@ -201,6 +201,14 @@ struct AboutView: View {
                 tint: MuesliTheme.success,
                 actionTitle: nil
             )
+        case .disabled(let message):
+            return UpdateBanner(
+                icon: "minus.circle.fill",
+                title: "Updates are disabled",
+                message: message,
+                tint: MuesliTheme.textTertiary,
+                actionTitle: nil
+            )
         case .failed(let message):
             return UpdateBanner(
                 icon: "xmark.octagon.fill",

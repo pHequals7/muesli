@@ -24,6 +24,7 @@ enum SparkleUpdateStatus: Equatable {
     case downloaded(version: String)
     case installing(version: String)
     case upToDate
+    case disabled(message: String)
     case failed(message: String)
 }
 
