@@ -20,6 +20,7 @@ enum MeetingsNavigationState: Equatable {
 enum SparkleUpdateStatus: Equatable {
     case idle
     case checking
+    case busy(message: String)
     case available(version: String)
     case downloaded(version: String)
     case installing(version: String)

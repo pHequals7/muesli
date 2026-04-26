@@ -33,7 +33,7 @@ struct SidebarView: View {
         switch appState.sparkleUpdateStatus {
         case .available, .downloaded:
             return true
-        case .idle, .checking, .installing, .upToDate, .disabled, .failed:
+        case .idle, .checking, .busy, .installing, .upToDate, .disabled, .failed:
             return false
         }
     }

@@ -41,7 +41,7 @@ struct AboutView: View {
 
                     aboutRow("Check for Updates") {
                         actionButton("Check Now", icon: "arrow.triangle.2.circlepath") {
-                            controller.checkForUpdates()
+                            controller.retryUpdateCheck()
                         }
                     }
                 }
@@ -119,9 +119,6 @@ struct AboutView: View {
             .padding(MuesliTheme.spacing32)
         }
         .background(MuesliTheme.backgroundBase)
-        .task {
-            controller.refreshUpdateInformation()
-        }
     }
 
     // MARK: - Components
@@ -154,7 +151,30 @@ struct AboutView: View {
         let title: String
         let message: String
         let tint: Color
-        let actionTitle: String?
+        let action: UpdateBannerAction?
+    }
+
+    private enum UpdateBannerAction {
+        case install
+        case retry
+
+        var title: String {
+            switch self {
+            case .install:
+                return "Install Update"
+            case .retry:
+                return "Try Again"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .install:
+                return "arrow.down.circle"
+            case .retry:
+                return "arrow.triangle.2.circlepath"
+            }
+        }
     }
 
     private var updateBanner: UpdateBanner? {
@@ -167,7 +187,15 @@ struct AboutView: View {
                 title: "Checking for updates",
                 message: "Muesli is checking the appcast for the latest version.",
                 tint: MuesliTheme.transcribing,
-                actionTitle: nil
+                action: nil
+            )
+        case .busy(let message):
+            return UpdateBanner(
+                icon: "clock.arrow.circlepath",
+                title: "Updater is busy",
+                message: message,
+                tint: MuesliTheme.transcribing,
+                action: nil
             )
         case .available(let version):
             return UpdateBanner(
@@ -175,7 +203,7 @@ struct AboutView: View {
                 title: "Muesli \(version) is available",
                 message: "An update is available. Start the updater to download and install it.",
                 tint: MuesliTheme.transcribing,
-                actionTitle: "Install Update"
+                action: .install
             )
         case .downloaded(let version):
             return UpdateBanner(
@@ -183,7 +211,7 @@ struct AboutView: View {
                 title: "Muesli \(version) is ready to install",
                 message: "Quit and reopen Muesli to finish installing the update.",
                 tint: MuesliTheme.transcribing,
-                actionTitle: nil
+                action: nil
             )
         case .installing(let version):
             return UpdateBanner(
@@ -191,7 +219,7 @@ struct AboutView: View {
                 title: "Installing Muesli \(version)",
                 message: "Sparkle is preparing the update. Muesli may relaunch when installation finishes.",
                 tint: MuesliTheme.transcribing,
-                actionTitle: nil
+                action: nil
             )
         case .upToDate:
             return UpdateBanner(
@@ -199,7 +227,7 @@ struct AboutView: View {
                 title: "Muesli is up to date",
                 message: "No newer version was found in the appcast.",
                 tint: MuesliTheme.success,
-                actionTitle: nil
+                action: nil
             )
         case .disabled(let message):
             return UpdateBanner(
@@ -207,7 +235,7 @@ struct AboutView: View {
                 title: "Updates are disabled",
                 message: message,
                 tint: MuesliTheme.textTertiary,
-                actionTitle: nil
+                action: nil
             )
         case .failed(let message):
             return UpdateBanner(
@@ -215,7 +243,7 @@ struct AboutView: View {
                 title: "Update check failed",
                 message: message,
                 tint: MuesliTheme.recording,
-                actionTitle: "Try Again"
+                action: .retry
             )
         }
     }
@@ -240,9 +268,14 @@ struct AboutView: View {
 
             Spacer(minLength: MuesliTheme.spacing16)
 
-            if let actionTitle = banner.actionTitle {
-                actionButton(actionTitle, icon: "arrow.down.circle") {
-                    controller.checkForUpdates()
+            if let action = banner.action {
+                actionButton(action.title, icon: action.icon) {
+                    switch action {
+                    case .install:
+                        controller.installAvailableUpdate()
+                    case .retry:
+                        controller.retryUpdateCheck()
+                    }
                 }
             }
         }
