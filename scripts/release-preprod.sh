@@ -93,6 +93,12 @@ TAG="v${VERSION}"
 DMG_PATH="$OUTPUT_DIR/${APP_NAME}-${VERSION}.dmg"
 RELEASE_TITLE="${APP_NAME} ${VERSION}"
 
+if [[ ! "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-preprod\.([0-9]+)$ ]]; then
+  echo "ERROR: preprod version must look like 0.6.3-preprod.1" >&2
+  exit 1
+fi
+SPARKLE_BUILD_VERSION="$((10#${BASH_REMATCH[1]} * 100000000 + 10#${BASH_REMATCH[2]} * 1000000 + 10#${BASH_REMATCH[3]} * 1000 + 10#${BASH_REMATCH[4]}))"
+
 RELEASE_NOTES="$(cat <<EOF
 ## ${APP_NAME} ${VERSION}
 
@@ -127,6 +133,8 @@ echo "  Tests passed."
 echo "[2/11] Building and signing..."
 MUESLI_INSTALL_DIR="$INSTALL_DIR" \
   MUESLI_BUILD_VERSION="$VERSION" \
+  MUESLI_BUNDLE_VERSION="$SPARKLE_BUILD_VERSION" \
+  MUESLI_SHORT_VERSION="$VERSION" \
   MUESLI_APP_NAME="$APP_NAME" \
   MUESLI_APP_BUNDLE_NAME="${APP_NAME}.app" \
   MUESLI_BUNDLE_ID="$BUNDLE_ID" \
@@ -334,7 +342,9 @@ open(appcast_path, "w", encoding="utf-8").write(updated)
 PY
 
 "$ROOT/scripts/verify_update_flow.sh" \
-  --version "$VERSION" \
+  --version "$SPARKLE_BUILD_VERSION" \
+  --short-version "$VERSION" \
+  --artifact-version "$VERSION" \
   --appcast "$APPCAST_PATH" \
   --dmg "$DMG_PATH" \
   --app-name "$APP_NAME" \

@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APPCAST="$ROOT/docs/appcast.xml"
 VERSION=""
+SHORT_VERSION=""
+ARTIFACT_VERSION=""
 DMG_PATH=""
 APP_NAME="Muesli"
 EXPECTED_FEED_URL="https://pHequals7.github.io/muesli/appcast.xml"
@@ -19,6 +21,8 @@ Sparkle will install.
 
 Options:
   --version <version>       Require the latest appcast item to match this version.
+  --short-version <version> Require the latest short/display version. Defaults to --version.
+  --artifact-version <ver>  Version string used in the DMG filename. Defaults to --version.
   --appcast <path>          Appcast XML path. Defaults to docs/appcast.xml.
   --dmg <path>              DMG path. Defaults to dist-release/Muesli-<version>.dmg.
   --app-name <name>         App bundle/update artifact name. Defaults to Muesli.
@@ -33,6 +37,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --version)
       VERSION="${2:?missing value for --version}"
+      shift 2
+      ;;
+    --short-version)
+      SHORT_VERSION="${2:?missing value for --short-version}"
+      shift 2
+      ;;
+    --artifact-version)
+      ARTIFACT_VERSION="${2:?missing value for --artifact-version}"
       shift 2
       ;;
     --appcast)
@@ -71,12 +83,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+SHORT_VERSION="${SHORT_VERSION:-$VERSION}"
+ARTIFACT_VERSION="${ARTIFACT_VERSION:-$VERSION}"
+
 if [[ ! -f "$APPCAST" ]]; then
   echo "ERROR: appcast not found: $APPCAST" >&2
   exit 1
 fi
 
-if ! APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" "$APP_NAME" <<'PY'
+if ! APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" "$SHORT_VERSION" "$ARTIFACT_VERSION" "$APP_NAME" <<'PY'
 import base64
 import re
 import shlex
@@ -85,7 +100,9 @@ import xml.etree.ElementTree as ET
 
 appcast_path = sys.argv[1]
 expected_version = sys.argv[2]
-app_name = sys.argv[3]
+expected_short_version = sys.argv[3]
+artifact_version = sys.argv[4]
+app_name = sys.argv[5]
 sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 
 try:
@@ -111,12 +128,10 @@ if not version:
     raise SystemExit("ERROR: latest appcast item is missing sparkle:version")
 if not short_version:
     raise SystemExit("ERROR: latest appcast item is missing sparkle:shortVersionString")
-# Muesli deliberately uses the marketing version as CFBundleVersion too, so
-# The Sparkle appcast version and shortVersionString should remain identical.
-if version != short_version:
-    raise SystemExit(f"ERROR: latest appcast version mismatch: {version} != {short_version}")
 if expected_version and version != expected_version:
     raise SystemExit(f"ERROR: latest appcast version is {version}, expected {expected_version}")
+if expected_short_version and short_version != expected_short_version:
+    raise SystemExit(f"ERROR: latest appcast short version is {short_version}, expected {expected_short_version}")
 if enclosure is None:
     raise SystemExit("ERROR: latest appcast item is missing enclosure")
 
@@ -126,7 +141,8 @@ signature = enclosure.attrib.get(f"{{{sparkle_ns}}}edSignature", "")
 if not signature:
     raise SystemExit("ERROR: latest appcast enclosure is missing sparkle:edSignature")
 
-expected_url = f"https://github.com/pHequals7/muesli/releases/download/v{version}/{app_name}-{version}.dmg"
+expected_artifact_version = artifact_version or version
+expected_url = f"https://github.com/pHequals7/muesli/releases/download/v{expected_artifact_version}/{app_name}-{expected_artifact_version}.dmg"
 if url != expected_url:
     raise SystemExit(f"ERROR: latest appcast URL is {url!r}, expected {expected_url!r}")
 
@@ -161,6 +177,7 @@ if not re.fullmatch(r"[0-9][0-9A-Za-z.\-]*", version):
 
 for key, value in {
     "APPCAST_VERSION": version,
+    "APPCAST_SHORT_VERSION": short_version,
     "APPCAST_URL": url,
     "APPCAST_LENGTH": str(length_int),
     "APPCAST_SIGNATURE": signature,
@@ -182,7 +199,7 @@ if [[ "$SKIP_DMG" == "1" ]]; then
 fi
 
 if [[ -z "$DMG_PATH" ]]; then
-  DMG_PATH="$ROOT/dist-release/${APP_NAME}-${APPCAST_VERSION}.dmg"
+  DMG_PATH="$ROOT/dist-release/${APP_NAME}-${ARTIFACT_VERSION}.dmg"
 fi
 
 if [[ ! -f "$DMG_PATH" ]]; then
@@ -248,8 +265,8 @@ BUNDLE_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLI
 FEED_URL="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$INFO_PLIST")"
 PUBLIC_ED_KEY="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$INFO_PLIST")"
 
-if [[ "$BUNDLE_SHORT_VERSION" != "$APPCAST_VERSION" || "$BUNDLE_VERSION" != "$APPCAST_VERSION" ]]; then
-  echo "ERROR: app bundle version ${BUNDLE_SHORT_VERSION}/${BUNDLE_VERSION} does not match appcast ${APPCAST_VERSION}" >&2
+if [[ "$BUNDLE_SHORT_VERSION" != "$APPCAST_SHORT_VERSION" || "$BUNDLE_VERSION" != "$APPCAST_VERSION" ]]; then
+  echo "ERROR: app bundle version ${BUNDLE_SHORT_VERSION}/${BUNDLE_VERSION} does not match appcast ${APPCAST_SHORT_VERSION}/${APPCAST_VERSION}" >&2
   exit 1
 fi
 
