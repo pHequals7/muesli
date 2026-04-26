@@ -64,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 @MainActor
 final class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate {
+    private static let noUpdateErrorCode = 1001
+
     weak var appState: AppState?
     private var lastPresentedAt: Date?
 
@@ -76,7 +78,13 @@ final class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate {
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
-        appState?.sparkleUpdateStatus = .upToDate
+        let nsError = error as NSError
+        if nsError.domain == SUSparkleErrorDomain,
+           nsError.code == Self.noUpdateErrorCode {
+            appState?.sparkleUpdateStatus = .upToDate
+        } else {
+            appState?.sparkleUpdateStatus = .failed(message: nsError.localizedDescription)
+        }
     }
 
     func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {

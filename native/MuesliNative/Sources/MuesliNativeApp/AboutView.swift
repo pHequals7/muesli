@@ -181,9 +181,9 @@ struct AboutView: View {
             return UpdateBanner(
                 icon: "exclamationmark.triangle.fill",
                 title: "Muesli \(version) is ready to install",
-                message: "The update has been downloaded and is waiting for you to finish installation.",
+                message: "Quit and reopen Muesli to finish installing the update.",
                 tint: MuesliTheme.transcribing,
-                actionTitle: "Install Update"
+                actionTitle: nil
             )
         case .installing(let version):
             return UpdateBanner(
