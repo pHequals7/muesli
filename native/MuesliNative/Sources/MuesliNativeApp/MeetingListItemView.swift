@@ -41,6 +41,12 @@ struct MeetingListItemView: View {
             }
 
             HStack(spacing: MuesliTheme.spacing4) {
+                if record.status != .completed {
+                    statusBadge
+                    Text("\u{2022}")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
                 Text(formatMeta())
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textSecondary)
@@ -189,6 +195,16 @@ struct MeetingListItemView: View {
 
     // MARK: - Formatting
 
+    private var statusBadge: some View {
+        Text(statusLabel(record.status))
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(statusColor(record.status))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(statusColor(record.status).opacity(0.12))
+            .clipShape(Capsule())
+    }
+
     private func formatMeta() -> String {
         let time = formatTime(record.startTime)
         let duration = formatDuration(record.durationSeconds)
@@ -217,11 +233,47 @@ struct MeetingListItemView: View {
     }
 
     private func previewText() -> String {
-        let source = record.formattedNotes.isEmpty ? record.rawTranscript : record.formattedNotes
+        let source: String
+        if !record.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           record.status != .completed {
+            source = record.manualNotes
+        } else {
+            source = record.formattedNotes.isEmpty ? record.rawTranscript : record.formattedNotes
+        }
         let compact = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         if compact.count > 88 {
             return String(compact.prefix(85)) + "..."
         }
-        return compact
+        return compact.isEmpty ? "No notes yet" : compact
+    }
+
+    private func statusLabel(_ status: MeetingStatus) -> String {
+        switch status {
+        case .recording:
+            return "Recording"
+        case .processing:
+            return "Processing"
+        case .completed:
+            return "Completed"
+        case .noteOnly:
+            return "Note only"
+        case .failed:
+            return "Needs attention"
+        }
+    }
+
+    private func statusColor(_ status: MeetingStatus) -> Color {
+        switch status {
+        case .recording:
+            return MuesliTheme.recording
+        case .processing:
+            return MuesliTheme.accent
+        case .completed:
+            return MuesliTheme.success
+        case .noteOnly:
+            return MuesliTheme.textSecondary
+        case .failed:
+            return MuesliTheme.transcribing
+        }
     }
 }

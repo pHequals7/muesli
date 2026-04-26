@@ -109,6 +109,7 @@ final class MeetingSession {
     private var systemChunkTimingTracker = MeetingChunkTimingTracker()
     private var systemChunkRecorder: PCMChunkRecorder?
     var onProgress: ((MeetingProcessingStage) -> Void)?
+    var manualNotesProvider: (() async -> String?)?
     private let screenContextCollector = MeetingScreenContextCollector()
 
     /// Current mic power level for waveform visualization.
@@ -471,11 +472,14 @@ final class MeetingSession {
         Self.logger.info("visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(self.config.useCoreAudioTap)")
         fputs("[meeting] visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(config.useCoreAudioTap)\n", stderr)
         onProgress?(.summarizingNotes)
+        let manualNotes = await manualNotesProvider?()
         let formattedNotes = await MeetingSummaryClient.summarize(
             transcript: rawTranscript,
             meetingTitle: generatedTitle,
             config: config,
             template: templateSnapshot,
+            existingNotes: manualNotes,
+            manualNotesToRetain: manualNotes,
             visualContext: visualContext.isEmpty ? nil : visualContext
         )
 

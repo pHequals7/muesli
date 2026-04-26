@@ -16,6 +16,7 @@ struct MeetingDetailView: View {
     @State private var isEditingNotes = false
     @State private var editableTitle: String
     @State private var editableNotes: String
+    @State private var editableManualNotes: String
     @State private var pendingTemplateID: String
     @State private var documentMode: MeetingDocumentMode
     @State private var titleSaveTask: DispatchWorkItem?
@@ -38,6 +39,7 @@ struct MeetingDetailView: View {
         let initialTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
         _editableTitle = State(initialValue: meeting?.title ?? "")
         _editableNotes = State(initialValue: meeting.map { Self.notesContent(for: $0) } ?? "")
+        _editableManualNotes = State(initialValue: meeting?.manualNotes ?? "")
         _pendingTemplateID = State(initialValue: initialTemplateID)
         _documentMode = State(initialValue: meeting.map(Self.defaultDocumentMode(for:)) ?? .notes)
     }
@@ -55,6 +57,9 @@ struct MeetingDetailView: View {
                 }
                 .background(MuesliTheme.backgroundBase)
                 .onChange(of: meeting.id) { _, _ in
+                    syncLocalState(with: meeting)
+                }
+                .onChange(of: meeting.status) { _, _ in
                     syncLocalState(with: meeting)
                 }
                 .onChange(of: appState.config.customMeetingTemplates) { _, _ in
@@ -133,26 +138,35 @@ struct MeetingDetailView: View {
                 Spacer(minLength: MuesliTheme.spacing16)
 
                 VStack(alignment: .trailing, spacing: 10) {
-                    documentModePicker
-
-                    ViewThatFits(in: .horizontal) {
+                    if showsManualNotesEditor(for: meeting) {
                         HStack(spacing: MuesliTheme.spacing8) {
-                            templateMenu(for: meeting, appliedTemplate: appliedTemplate)
-                            recordingAction(for: meeting)
-                            summaryAction(for: meeting)
-                            editButton(for: meeting)
-                            deleteButton
+                            statusChip(for: meeting)
+                            if meeting.status == .noteOnly || meeting.status == .failed {
+                                deleteButton
+                            }
                         }
+                    } else {
+                        documentModePicker
 
-                        VStack(alignment: .trailing, spacing: MuesliTheme.spacing8) {
+                        ViewThatFits(in: .horizontal) {
                             HStack(spacing: MuesliTheme.spacing8) {
                                 templateMenu(for: meeting, appliedTemplate: appliedTemplate)
                                 recordingAction(for: meeting)
                                 summaryAction(for: meeting)
-                            }
-                            HStack(spacing: MuesliTheme.spacing8) {
                                 editButton(for: meeting)
                                 deleteButton
+                            }
+
+                            VStack(alignment: .trailing, spacing: MuesliTheme.spacing8) {
+                                HStack(spacing: MuesliTheme.spacing8) {
+                                    templateMenu(for: meeting, appliedTemplate: appliedTemplate)
+                                    recordingAction(for: meeting)
+                                    summaryAction(for: meeting)
+                                }
+                                HStack(spacing: MuesliTheme.spacing8) {
+                                    editButton(for: meeting)
+                                    deleteButton
+                                }
                             }
                         }
                     }
@@ -171,7 +185,30 @@ struct MeetingDetailView: View {
 
     @ViewBuilder
     private func content(for meeting: MeetingRecord) -> some View {
-        if isEditingNotes {
+        if showsManualNotesEditor(for: meeting) {
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+                manualNotesToolbar(for: meeting)
+
+                MarkdownRichTextEditor(
+                    text: $editableManualNotes,
+                    shouldFocus: meeting.status == .recording
+                )
+                .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
+                .background(MuesliTheme.backgroundBase)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                .overlay(
+                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                        .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                )
+                .onChange(of: editableManualNotes) { _, _ in
+                    saveManualNotes(meetingID: meeting.id)
+                }
+            }
+            .padding(.horizontal, 40)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else if isEditingNotes {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
                 contentToolbar(for: meeting)
 
@@ -222,6 +259,15 @@ struct MeetingDetailView: View {
         .tint(MuesliTheme.accent)
         .frame(width: 220)
         .disabled(isEditingNotes)
+    }
+
+    private func showsManualNotesEditor(for meeting: MeetingRecord) -> Bool {
+        switch meeting.status {
+        case .recording, .processing, .noteOnly, .failed:
+            return true
+        case .completed:
+            return false
+        }
     }
 
     @ViewBuilder
@@ -390,6 +436,74 @@ struct MeetingDetailView: View {
             .buttonStyle(.plain)
         }
         .frame(maxWidth: 980, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func manualNotesToolbar(for meeting: MeetingRecord) -> some View {
+        HStack(spacing: MuesliTheme.spacing8) {
+            statusChip(for: meeting)
+
+            Spacer()
+
+            markdownToolbarButton("H1", label: "Heading") {
+                appendManualMarkdown("# ")
+            }
+            markdownToolbarButton("B", label: "Bold") {
+                appendManualMarkdown("**bold text**")
+            }
+            markdownToolbarButton("list.bullet", label: "Bullet") {
+                appendManualMarkdown("- ")
+            }
+            markdownToolbarButton("checklist", label: "Checkbox") {
+                appendManualMarkdown("- [ ] ")
+            }
+        }
+        .frame(maxWidth: 980, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func statusChip(for meeting: MeetingRecord) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(statusColor(for: meeting.status))
+                .frame(width: 7, height: 7)
+            Text(statusLabel(for: meeting.status))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(MuesliTheme.textSecondary)
+        }
+        .padding(.horizontal, MuesliTheme.spacing8)
+        .padding(.vertical, 6)
+        .background(MuesliTheme.surfacePrimary)
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func markdownToolbarButton(_ title: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Group {
+                if title.contains(".") {
+                    Image(systemName: title)
+                        .font(.system(size: 12, weight: .semibold))
+                } else {
+                    Text(title)
+                        .font(.system(size: 12, weight: .bold))
+                }
+            }
+            .foregroundStyle(MuesliTheme.textSecondary)
+            .frame(width: 30, height: 28)
+            .background(MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(label)
     }
 
     @ViewBuilder
@@ -578,6 +692,9 @@ struct MeetingDetailView: View {
     }
 
     static func notesContent(for meeting: MeetingRecord) -> String {
+        if meeting.status == .noteOnly {
+            return meeting.manualNotes
+        }
         if meeting.notesState != .structuredNotes {
             return "# \(meeting.title)\n\n## Raw Transcript\n\n\(meeting.rawTranscript)"
         }
@@ -585,7 +702,12 @@ struct MeetingDetailView: View {
     }
 
     private static func defaultDocumentMode(for meeting: MeetingRecord) -> MeetingDocumentMode {
-        meeting.notesState == .structuredNotes ? .notes : .transcript
+        if meeting.status == .noteOnly || meeting.status == .recording || meeting.status == .processing || meeting.status == .failed {
+            return .notes
+        }
+        return meeting.notesState == .structuredNotes
+            ? MeetingDocumentMode.notes
+            : MeetingDocumentMode.transcript
     }
 
     private func debounceSaveTitle(meetingID: Int64) {
@@ -604,6 +726,47 @@ struct MeetingDetailView: View {
         let item = DispatchWorkItem { c.updateMeetingNotes(id: meetingID, notes: notes) }
         notesSaveTask = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
+    }
+
+    private func saveManualNotes(meetingID: Int64) {
+        controller.updateMeetingManualNotes(id: meetingID, notes: editableManualNotes)
+    }
+
+    private func appendManualMarkdown(_ markdown: String) {
+        if !editableManualNotes.isEmpty, !editableManualNotes.hasSuffix("\n") {
+            editableManualNotes += "\n"
+        }
+        editableManualNotes += markdown
+    }
+
+    private func statusLabel(for status: MeetingStatus) -> String {
+        switch status {
+        case .recording:
+            return "Recording"
+        case .processing:
+            return "Processing"
+        case .completed:
+            return "Completed"
+        case .noteOnly:
+            return "Note only"
+        case .failed:
+            return "Needs attention"
+        }
+    }
+
+    private func statusColor(for status: MeetingStatus) -> Color {
+        switch status {
+        case .recording:
+            return MuesliTheme.recording
+        case .processing:
+            return MuesliTheme.accent
+        case .completed:
+            return MuesliTheme.success
+        case .noteOnly:
+            return MuesliTheme.textTertiary
+        case .failed:
+            return MuesliTheme.transcribing
+        }
     }
 
     private var summaryErrorBinding: Binding<Bool> {
@@ -644,6 +807,7 @@ struct MeetingDetailView: View {
     private func syncLocalState(with meeting: MeetingRecord?) {
         editableTitle = meeting?.title ?? ""
         editableNotes = meeting.map { Self.notesContent(for: $0) } ?? ""
+        editableManualNotes = meeting?.manualNotes ?? ""
         pendingTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
         documentMode = meeting.map(Self.defaultDocumentMode(for:)) ?? .notes
     }

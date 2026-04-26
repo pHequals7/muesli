@@ -6,6 +6,14 @@ public enum MeetingNotesState: String, Codable, Sendable {
     case structuredNotes = "structured_notes"
 }
 
+public enum MeetingStatus: String, Codable, Sendable {
+    case recording
+    case processing
+    case completed
+    case noteOnly = "note_only"
+    case failed
+}
+
 public enum MeetingTemplateKind: String, Codable, Sendable {
     case auto
     case builtin
@@ -49,6 +57,8 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
     public let micAudioPath: String?
     public let systemAudioPath: String?
     public let savedRecordingPath: String?
+    public let status: MeetingStatus
+    public let manualNotes: String
     public let selectedTemplateID: String?
     public let selectedTemplateName: String?
     public let selectedTemplateKind: MeetingTemplateKind?
@@ -67,6 +77,8 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         micAudioPath: String? = nil,
         systemAudioPath: String? = nil,
         savedRecordingPath: String? = nil,
+        status: MeetingStatus = .completed,
+        manualNotes: String = "",
         selectedTemplateID: String? = nil,
         selectedTemplateName: String? = nil,
         selectedTemplateKind: MeetingTemplateKind? = nil,
@@ -84,10 +96,57 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         self.micAudioPath = micAudioPath
         self.systemAudioPath = systemAudioPath
         self.savedRecordingPath = savedRecordingPath
+        self.status = status
+        self.manualNotes = manualNotes
         self.selectedTemplateID = selectedTemplateID
         self.selectedTemplateName = selectedTemplateName
         self.selectedTemplateKind = selectedTemplateKind
         self.selectedTemplatePrompt = selectedTemplatePrompt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case startTime
+        case durationSeconds
+        case rawTranscript
+        case formattedNotes
+        case wordCount
+        case folderID
+        case calendarEventID
+        case micAudioPath
+        case systemAudioPath
+        case savedRecordingPath
+        case status
+        case manualNotes
+        case selectedTemplateID
+        case selectedTemplateName
+        case selectedTemplateKind
+        case selectedTemplatePrompt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try c.decode(Int64.self, forKey: .id),
+            title: try c.decode(String.self, forKey: .title),
+            startTime: try c.decode(String.self, forKey: .startTime),
+            durationSeconds: try c.decode(Double.self, forKey: .durationSeconds),
+            rawTranscript: try c.decode(String.self, forKey: .rawTranscript),
+            formattedNotes: try c.decode(String.self, forKey: .formattedNotes),
+            wordCount: try c.decode(Int.self, forKey: .wordCount),
+            folderID: try c.decodeIfPresent(Int64.self, forKey: .folderID),
+            calendarEventID: try c.decodeIfPresent(String.self, forKey: .calendarEventID),
+            micAudioPath: try c.decodeIfPresent(String.self, forKey: .micAudioPath),
+            systemAudioPath: try c.decodeIfPresent(String.self, forKey: .systemAudioPath),
+            savedRecordingPath: try c.decodeIfPresent(String.self, forKey: .savedRecordingPath),
+            status: (try? c.decode(MeetingStatus.self, forKey: .status)) ?? .completed,
+            manualNotes: (try? c.decode(String.self, forKey: .manualNotes)) ?? "",
+            selectedTemplateID: try c.decodeIfPresent(String.self, forKey: .selectedTemplateID),
+            selectedTemplateName: try c.decodeIfPresent(String.self, forKey: .selectedTemplateName),
+            selectedTemplateKind: try c.decodeIfPresent(MeetingTemplateKind.self, forKey: .selectedTemplateKind),
+            selectedTemplatePrompt: try c.decodeIfPresent(String.self, forKey: .selectedTemplatePrompt)
+        )
     }
 
     public var notesState: MeetingNotesState {

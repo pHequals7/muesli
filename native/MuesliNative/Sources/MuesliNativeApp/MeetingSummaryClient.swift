@@ -31,11 +31,13 @@ enum MeetingSummaryClient {
         config: AppConfig,
         template: MeetingTemplateSnapshot = MeetingTemplates.auto.snapshot,
         existingNotes: String? = nil,
+        manualNotesToRetain: String? = nil,
         visualContext: String? = nil
     ) async -> String {
         let backend = (config.meetingSummaryBackend.isEmpty ? MeetingSummaryBackendOption.openAI.backend : config.meetingSummaryBackend).lowercased()
+        let generatedNotes: String
         if backend == MeetingSummaryBackendOption.chatGPT.backend {
-            return await summarizeWithChatGPT(
+            generatedNotes = await summarizeWithChatGPT(
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
@@ -43,9 +45,10 @@ enum MeetingSummaryClient {
                 template: template,
                 visualContext: visualContext
             )
+            return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
         }
         if backend == MeetingSummaryBackendOption.openRouter.backend {
-            return await summarizeWithOpenRouter(
+            generatedNotes = await summarizeWithOpenRouter(
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
@@ -53,8 +56,9 @@ enum MeetingSummaryClient {
                 template: template,
                 visualContext: visualContext
             )
+            return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
         }
-        return await summarizeWithOpenAI(
+        generatedNotes = await summarizeWithOpenAI(
             transcript: transcript,
             meetingTitle: meetingTitle,
             existingNotes: existingNotes,
@@ -62,13 +66,14 @@ enum MeetingSummaryClient {
             template: template,
             visualContext: visualContext
         )
+        return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
     }
 
     static func summaryInstructions(for template: MeetingTemplateSnapshot, existingNotes: String? = nil) -> String {
         let notePreservationInstructions: String
         if let existingNotes,
            !existingNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            notePreservationInstructions = "\n\nCurrent notes may also be provided. Preserve any concrete user-added details, clarifications, and edits from those notes when they do not conflict with the transcript. Reformat that information into the requested template instead of discarding it."
+            notePreservationInstructions = "\n\nCurrent notes may also be provided. Preserve every concrete user-added detail, clarification, decision, and edit from those notes when they do not conflict with the transcript. These manual notes must not be skipped. Reformat that information into the requested template instead of discarding it."
         } else {
             notePreservationInstructions = ""
         }
@@ -96,6 +101,21 @@ enum MeetingSummaryClient {
 
         prompt += "Raw transcript:\n\(transcript)"
         return prompt
+    }
+
+    static func notesByRetainingManualNotes(generatedNotes: String, manualNotes: String?) -> String {
+        let trimmedManualNotes = manualNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmedManualNotes.isEmpty else { return generatedNotes }
+
+        let trimmedGeneratedNotes = generatedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let manualSection = "## Manual Notes\n\n\(trimmedManualNotes)"
+        if trimmedGeneratedNotes.contains(manualSection) {
+            return trimmedGeneratedNotes
+        }
+        if trimmedGeneratedNotes.isEmpty {
+            return manualSection
+        }
+        return "\(trimmedGeneratedNotes)\n\n\(manualSection)"
     }
 
     private static func summarizeWithOpenAI(

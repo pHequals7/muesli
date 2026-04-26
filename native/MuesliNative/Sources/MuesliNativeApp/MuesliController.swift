@@ -109,6 +109,7 @@ final class MuesliController: NSObject {
     private(set) var selectedMeetingTranscriptionBackend: BackendOption
     private(set) var selectedMeetingSummaryBackend: MeetingSummaryBackendOption
     private var activeMeetingSession: MeetingSession?
+    private var activeMeetingID: Int64?
     private var dictationStartedAt: Date?
     private var _streamingDictationController: Any?  // StreamingDictationController (macOS 15+)
     private var isNemotronStreaming = false
@@ -349,6 +350,10 @@ final class MuesliController: NSObject {
         meetingNotification.close()
         activeMeetingSession?.discard()
         activeMeetingSession = nil
+        if let activeMeetingID {
+            resolveLiveMeetingAfterStopFailure(id: activeMeetingID)
+            self.activeMeetingID = nil
+        }
         endMeetingActivity()
         recorder.cancel()
         Task {
@@ -894,7 +899,7 @@ final class MuesliController: NSObject {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, !self.isMeetingRecording() else { return }
                         self.meetingStartingNowTimers.removeValue(forKey: key)
-                        self.showMeetingStartingNowNotification(title: title, meetingURL: meetingURL, endDate: endDate)
+                        self.showMeetingStartingNowNotification(title: title, calendarEventID: key, meetingURL: meetingURL, endDate: endDate)
                     }
                 }
             }
@@ -904,7 +909,7 @@ final class MuesliController: NSObject {
     }
 
     /// Show a "Meeting starting now" notification — independent of Marauder's Map.
-    private func showMeetingStartingNowNotification(title: String, meetingURL: URL?, endDate: Date?) {
+    private func showMeetingStartingNowNotification(title: String, calendarEventID: String?, meetingURL: URL?, endDate: Date?) {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         isShowingCalendarNotification = true
 
@@ -916,13 +921,13 @@ final class MuesliController: NSObject {
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.startMeetingRecording(title: title)
+                self.startMeetingRecording(title: title, calendarEventID: calendarEventID)
                 self.scheduleMeetingEndNotification(endDate: endDate, title: title)
             },
             onJoinAndRecord: meetingURL != nil ? { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.joinAndRecord(title: title, meetingURL: meetingURL!, endDate: endDate)
+                self.joinAndRecord(title: title, meetingURL: meetingURL!, endDate: endDate, calendarEventID: calendarEventID)
             } : nil,
             onJoinOnly: meetingURL != nil ? { [weak self] in
                 guard let self else { return }
@@ -1283,7 +1288,8 @@ final class MuesliController: NSObject {
                 meetingTitle: plan.promptTitle,
                 config: self.config,
                 template: templateSnapshot,
-                existingNotes: self.notesContextForResummary(meeting)
+                existingNotes: self.notesContextForResummary(meeting),
+                manualNotesToRetain: meeting.manualNotes
             )
 
             do {
@@ -1313,9 +1319,18 @@ final class MuesliController: NSObject {
     // MARK: - Meeting Editing
 
     private func notesContextForResummary(_ meeting: MeetingRecord) -> String? {
-        guard meeting.notesState == .structuredNotes else { return nil }
-        let trimmed = meeting.formattedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : meeting.formattedNotes
+        var parts: [String] = []
+        if meeting.notesState == .structuredNotes {
+            let trimmed = meeting.formattedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                parts.append(meeting.formattedNotes)
+            }
+        }
+        let manualNotes = meeting.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !manualNotes.isEmpty {
+            parts.append("Manual notes:\n\(manualNotes)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 
     func updateMeetingTitle(id: Int64, title: String) {
@@ -1325,6 +1340,11 @@ final class MuesliController: NSObject {
 
     func updateMeetingNotes(id: Int64, notes: String) {
         try? dictationStore.updateMeetingNotes(id: id, formattedNotes: notes)
+        syncAppState()
+    }
+
+    func updateMeetingManualNotes(id: Int64, notes: String) {
+        try? dictationStore.updateMeetingManualNotes(id: id, manualNotes: notes)
         syncAppState()
     }
 
@@ -1573,8 +1593,30 @@ final class MuesliController: NSObject {
         startMeetingRecording(title: title)
     }
 
-    func startMeetingRecording(title: String = "Meeting") {
+    func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false) {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
+        let templateSnapshot = defaultMeetingTemplate()
+        let meetingID: Int64
+        do {
+            meetingID = try dictationStore.createLiveMeeting(
+                title: title,
+                calendarEventID: calendarEventID,
+                startTime: Date(),
+                selectedTemplateID: templateSnapshot.id,
+                selectedTemplateName: templateSnapshot.name,
+                selectedTemplateKind: templateSnapshot.kind,
+                selectedTemplatePrompt: templateSnapshot.prompt
+            )
+            activeMeetingID = meetingID
+            syncAppState()
+            if openDocument {
+                showMeetingDocument(id: meetingID)
+            }
+        } catch {
+            fputs("[muesli-native] failed to create live meeting: \(error)\n", stderr)
+            presentErrorAlert(title: "Meeting failed to start", message: error.localizedDescription)
+            return
+        }
         isStartingMeetingRecording = true
         beginMeetingActivity(reason: "Recording and transcribing a meeting")
         meetingMonitor.suppressWhileActive()
@@ -1586,9 +1628,10 @@ final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.startMeetingRecordingWithSystemAudioRecovery(title: title)
+                try await self.startMeetingRecordingWithSystemAudioRecovery(title: title, calendarEventID: calendarEventID, meetingID: meetingID)
             } catch {
                 fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
+                self.resolveLiveMeetingAfterStartFailure(id: meetingID)
                 self.meetingMonitor.resumeAfterCooldown()
                 self.meetingMonitor.refreshState()
                 self.statusBarController?.setStatus("Idle")
@@ -1618,13 +1661,18 @@ final class MuesliController: NSObject {
         }
     }
 
-    private func startMeetingRecordingWithSystemAudioRecovery(title: String) async throws {
+    func startQuickNoteMeeting() {
+        startMeetingRecording(title: "Meeting", openDocument: true)
+        openHistoryWindow()
+    }
+
+    private func startMeetingRecordingWithSystemAudioRecovery(title: String, calendarEventID: String?, meetingID: Int64) async throws {
         var shouldRetryAfterPermissionRequest = config.useCoreAudioTap
 
         while true {
             let meetingSession = MeetingSession(
                 title: title,
-                calendarEventID: nil,
+                calendarEventID: calendarEventID,
                 backend: selectedMeetingTranscriptionBackend,
                 runtime: runtime,
                 config: config,
@@ -1632,8 +1680,15 @@ final class MuesliController: NSObject {
             )
 
             do {
+                meetingSession.manualNotesProvider = { [weak self] in
+                    await MainActor.run {
+                        guard let self else { return nil }
+                        return try? self.dictationStore.meeting(id: meetingID)?.manualNotes
+                    }
+                }
                 try await meetingSession.start()
                 activeMeetingSession = meetingSession
+                activeMeetingID = meetingID
                 meetingMonitor.suppressWhileActive()
                 meetingMonitor.refreshState()
                 statusBarController?.setStatus("Meeting: \(title)")
@@ -1666,9 +1721,9 @@ final class MuesliController: NSObject {
 
     /// Open meeting URL, start recording, schedule end notification, and suppress detection.
     /// Single entry point for "Join & Record" from both notification panel and Coming Up section.
-    func joinAndRecord(title: String, meetingURL: URL, endDate: Date?) {
+    func joinAndRecord(title: String, meetingURL: URL, endDate: Date?, calendarEventID: String? = nil) {
         NSWorkspace.shared.open(meetingURL)
-        startMeetingRecording(title: title)
+        startMeetingRecording(title: title, calendarEventID: calendarEventID)
         scheduleMeetingEndNotification(endDate: endDate, title: title)
     }
 
@@ -1701,6 +1756,10 @@ final class MuesliController: NSObject {
     func discardMeetingRecording() {
         guard let activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
+            if let activeMeetingID {
+                resolveLiveMeetingAfterDiscard(id: activeMeetingID)
+                self.activeMeetingID = nil
+            }
             indicator.setMeetingRecording(false, config: config)
             isStoppingMeetingRecording = false
             endMeetingActivity()
@@ -1709,6 +1768,10 @@ final class MuesliController: NSObject {
         }
         activeMeetingSession.discard()
         self.activeMeetingSession = nil
+        if let activeMeetingID {
+            resolveLiveMeetingAfterDiscard(id: activeMeetingID)
+            self.activeMeetingID = nil
+        }
         isStoppingMeetingRecording = false
         endMeetingActivity()
         indicator.setMeetingRecording(false, config: config)
@@ -1718,6 +1781,72 @@ final class MuesliController: NSObject {
         statusBarController?.refresh()
         syncAppState()
         updateMeetingNotificationVisibility()
+    }
+
+    private func resolveLiveMeetingAfterDiscard(id: Int64) {
+        let manualNotes = (try? dictationStore.meeting(id: id)?.manualNotes) ?? ""
+        if manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? dictationStore.deleteMeeting(id: id)
+            if appState.selectedMeetingID == id {
+                appState.selectedMeetingID = nil
+                appState.selectedMeetingRecord = nil
+                appState.meetingsNavigationState = .browser
+            }
+            syncAppState()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Keep manual notes?"
+        alert.informativeText = "This recording will be discarded, but this meeting has manually written notes. Keep them as a note-only meeting or delete the draft?"
+        alert.addButton(withTitle: "Keep Notes")
+        alert.addButton(withTitle: "Delete Draft")
+        alert.buttons.dropFirst().first?.hasDestructiveAction = true
+        if alert.runModal() == .alertFirstButtonReturn {
+            try? dictationStore.updateMeetingStatus(id: id, status: .noteOnly)
+        } else {
+            try? dictationStore.deleteMeeting(id: id)
+            if appState.selectedMeetingID == id {
+                appState.selectedMeetingID = nil
+                appState.selectedMeetingRecord = nil
+                appState.meetingsNavigationState = .browser
+            }
+        }
+        syncAppState()
+    }
+
+    private func resolveLiveMeetingAfterStartFailure(id: Int64) {
+        let manualNotes = (try? dictationStore.meeting(id: id)?.manualNotes) ?? ""
+        if manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? dictationStore.deleteMeeting(id: id)
+            if appState.selectedMeetingID == id {
+                appState.selectedMeetingID = nil
+                appState.selectedMeetingRecord = nil
+                appState.meetingsNavigationState = .browser
+            }
+        } else {
+            try? dictationStore.updateMeetingStatus(id: id, status: .failed)
+        }
+        if activeMeetingID == id {
+            activeMeetingID = nil
+        }
+        syncAppState()
+    }
+
+    private func resolveLiveMeetingAfterStopFailure(id: Int64) {
+        let manualNotes = (try? dictationStore.meeting(id: id)?.manualNotes) ?? ""
+        if manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            try? dictationStore.deleteMeeting(id: id)
+            if appState.selectedMeetingID == id {
+                appState.selectedMeetingID = nil
+                appState.selectedMeetingRecord = nil
+                appState.meetingsNavigationState = .browser
+            }
+        } else {
+            try? dictationStore.updateMeetingStatus(id: id, status: .failed)
+        }
+        syncAppState()
     }
 
     func stopMeetingRecording() {
@@ -1734,6 +1863,11 @@ final class MuesliController: NSObject {
         meetingEndTimer?.invalidate()
         meetingEndTimer = nil
         meetingNotification.close()
+        let liveMeetingID = activeMeetingID
+        if let liveMeetingID {
+            try? dictationStore.updateMeetingStatus(id: liveMeetingID, status: .processing)
+            syncAppState()
+        }
         indicator.setMeetingRecording(false, config: config)
         indicator.setTranscribingTitle("Transcribing", config: config)
         setState(.transcribing)
@@ -1759,7 +1893,7 @@ final class MuesliController: NSObject {
                 await MainActor.run {
                     self.setMeetingProcessingStatus("Finalizing")
                 }
-                let persistenceResult = try self.persistCompletedMeetingResultAndDispatchHook(result)
+                let persistenceResult = try self.persistCompletedMeetingResultAndDispatchHook(result, existingMeetingID: liveMeetingID)
                 completedMeetingID = persistenceResult.meetingID
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     self.presentErrorAlert(title: "Meeting Recording", message: recordingSaveError.localizedDescription)
@@ -1771,9 +1905,13 @@ final class MuesliController: NSObject {
                 } else {
                     self.presentErrorAlert(title: "Meeting Recording", message: error.localizedDescription)
                 }
+                if let liveMeetingID {
+                    self.resolveLiveMeetingAfterStopFailure(id: liveMeetingID)
+                }
             }
             await MainActor.run {
                 self.activeMeetingSession = nil
+                self.activeMeetingID = nil
                 self.isStoppingMeetingRecording = false
                 self.endMeetingActivity()
                 self.setState(.idle)
@@ -1816,40 +1954,58 @@ final class MuesliController: NSObject {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    func persistCompletedMeetingResult(_ result: MeetingSessionResult) throws -> CompletedMeetingPersistenceResult {
-        let meetingID = try dictationStore.insertMeeting(
-            title: result.title,
-            calendarEventID: result.calendarEventID,
-            startTime: result.startTime,
-            endTime: result.endTime,
-            rawTranscript: result.rawTranscript,
-            formattedNotes: result.formattedNotes,
-            micAudioPath: nil,
-            systemAudioPath: nil,
-            savedRecordingPath: nil,
-            selectedTemplateID: result.templateSnapshot.id,
-            selectedTemplateName: result.templateSnapshot.name,
-            selectedTemplateKind: result.templateSnapshot.kind,
-            selectedTemplatePrompt: result.templateSnapshot.prompt
-        )
-
+    func persistCompletedMeetingResult(_ result: MeetingSessionResult, existingMeetingID: Int64? = nil) throws -> CompletedMeetingPersistenceResult {
+        let meetingID: Int64
+        var savedRecordingPath: String?
+        var recordingSaveError: MeetingLifecycleError?
         do {
-            if let savedRecordingPath = try persistMeetingRecordingIfNeeded(for: result) {
-                try dictationStore.updateMeetingSavedRecordingPath(id: meetingID, path: savedRecordingPath)
-            }
-            return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: nil)
+            savedRecordingPath = try persistMeetingRecordingIfNeeded(for: result)
         } catch let error as MeetingLifecycleError {
-            return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: error)
+            recordingSaveError = error
         } catch {
-            return CompletedMeetingPersistenceResult(
-                meetingID: meetingID,
-                recordingSaveError: .failedToSaveRecording(underlying: error)
+            recordingSaveError = .failedToSaveRecording(underlying: error)
+        }
+
+        if let existingMeetingID {
+            try dictationStore.completeLiveMeeting(
+                id: existingMeetingID,
+                title: result.title,
+                calendarEventID: result.calendarEventID,
+                startTime: result.startTime,
+                endTime: result.endTime,
+                rawTranscript: result.rawTranscript,
+                formattedNotes: result.formattedNotes,
+                micAudioPath: nil,
+                systemAudioPath: nil,
+                savedRecordingPath: savedRecordingPath,
+                selectedTemplateID: result.templateSnapshot.id,
+                selectedTemplateName: result.templateSnapshot.name,
+                selectedTemplateKind: result.templateSnapshot.kind,
+                selectedTemplatePrompt: result.templateSnapshot.prompt
+            )
+            meetingID = existingMeetingID
+        } else {
+            meetingID = try dictationStore.insertMeeting(
+                title: result.title,
+                calendarEventID: result.calendarEventID,
+                startTime: result.startTime,
+                endTime: result.endTime,
+                rawTranscript: result.rawTranscript,
+                formattedNotes: result.formattedNotes,
+                micAudioPath: nil,
+                systemAudioPath: nil,
+                savedRecordingPath: savedRecordingPath,
+                selectedTemplateID: result.templateSnapshot.id,
+                selectedTemplateName: result.templateSnapshot.name,
+                selectedTemplateKind: result.templateSnapshot.kind,
+                selectedTemplatePrompt: result.templateSnapshot.prompt
             )
         }
+        return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: recordingSaveError)
     }
 
-    func persistCompletedMeetingResultAndDispatchHook(_ result: MeetingSessionResult) throws -> CompletedMeetingPersistenceResult {
-        let persistenceResult = try persistCompletedMeetingResult(result)
+    func persistCompletedMeetingResultAndDispatchHook(_ result: MeetingSessionResult, existingMeetingID: Int64? = nil) throws -> CompletedMeetingPersistenceResult {
+        let persistenceResult = try persistCompletedMeetingResult(result, existingMeetingID: existingMeetingID)
         meetingHookDispatcher.dispatchCompletedMeetingHook(
             meetingID: persistenceResult.meetingID,
             completedAt: result.endTime,
@@ -2422,6 +2578,7 @@ final class MuesliController: NSObject {
                 // Reuse the same notification method as the timer path
                 self.showMeetingStartingNowNotification(
                     title: info.title,
+                    calendarEventID: info.id,
                     meetingURL: event?.meetingURL,
                     endDate: event?.endDate
                 )
@@ -2451,7 +2608,7 @@ final class MuesliController: NSObject {
         let meetingURL = event.meetingURL ?? calendarEvent?.meetingURL
 
         if config.autoRecordMeetings, !isMeetingRecording() {
-            startMeetingRecording(title: event.title)
+            startMeetingRecording(title: event.title, calendarEventID: event.id)
             scheduleMeetingEndNotification(endDate: calendarEndDate, title: event.title)
             return
         }
@@ -2482,13 +2639,13 @@ final class MuesliController: NSObject {
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.startMeetingRecording(title: title)
+                self.startMeetingRecording(title: title, calendarEventID: event.id)
                 self.scheduleMeetingEndNotification(endDate: calendarEndDate, title: title)
             },
             onJoinAndRecord: meetingURL != nil ? { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.joinAndRecord(title: title, meetingURL: meetingURL!, endDate: calendarEndDate)
+                self.joinAndRecord(title: title, meetingURL: meetingURL!, endDate: calendarEndDate, calendarEventID: event.id)
             } : nil,
             onJoinOnly: meetingURL != nil ? { [weak self] in
                 guard let self else { return }

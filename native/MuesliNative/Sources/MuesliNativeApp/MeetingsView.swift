@@ -498,6 +498,27 @@ struct MeetingsView: View {
     @ViewBuilder
     private var browserHeaderActions: some View {
         HStack(spacing: MuesliTheme.spacing8) {
+            Button {
+                controller.startQuickNoteMeeting()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Quick Note")
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(MuesliTheme.backgroundBase)
+                .padding(.horizontal, MuesliTheme.spacing12)
+                .padding(.vertical, 8)
+                .background(appState.isMeetingRecording ? MuesliTheme.surfacePrimary : MuesliTheme.accent)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            }
+            .buttonStyle(.plain)
+            .disabled(appState.isMeetingRecording)
+            .help("Start a quick meeting note")
+            .fixedSize()
+
             sortButton
             dateFilterButton
 

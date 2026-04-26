@@ -76,6 +76,8 @@ struct DictationStoreTests {
         #expect(inserted?.selectedTemplateID == "one-to-one")
         #expect(inserted?.selectedTemplateKind == .builtin)
         #expect(inserted?.savedRecordingPath == nil)
+        #expect(inserted?.status == .completed)
+        #expect(inserted?.manualNotes == "")
     }
 
     @Test("migration adds saved recording path column to legacy meeting schema")
@@ -99,6 +101,77 @@ struct DictationStoreTests {
 
         let inserted = try store.recentMeetings(limit: 1).first
         #expect(inserted?.savedRecordingPath == "/tmp/meeting.wav")
+    }
+
+    @Test("live meeting starts as recording with empty manual notes")
+    func createLiveMeeting() throws {
+        let store = try makeStore()
+        let start = Date()
+
+        let id = try store.createLiveMeeting(
+            title: "Quick Note",
+            calendarEventID: nil,
+            startTime: start,
+            selectedTemplateID: "auto",
+            selectedTemplateName: "Auto",
+            selectedTemplateKind: .auto,
+            selectedTemplatePrompt: "## Summary"
+        )
+
+        let meeting = try #require(try store.meeting(id: id))
+        #expect(meeting.title == "Quick Note")
+        #expect(meeting.status == .recording)
+        #expect(meeting.manualNotes == "")
+        #expect(meeting.rawTranscript == "")
+        #expect(meeting.formattedNotes == "")
+        #expect(meeting.selectedTemplateID == "auto")
+    }
+
+    @Test("manual notes update independently from final notes")
+    func updateManualNotes() throws {
+        let store = try makeStore()
+        let id = try store.createLiveMeeting(title: "Quick Note", calendarEventID: nil, startTime: Date())
+
+        try store.updateMeetingManualNotes(id: id, manualNotes: "- Decision: ship today")
+
+        let meeting = try #require(try store.meeting(id: id))
+        #expect(meeting.manualNotes == "- Decision: ship today")
+        #expect(meeting.formattedNotes == "")
+    }
+
+    @Test("live meeting completes the same row")
+    func completeLiveMeetingUpdatesExistingRow() throws {
+        let store = try makeStore()
+        let start = Date()
+        let id = try store.createLiveMeeting(title: "Draft", calendarEventID: nil, startTime: start)
+        try store.updateMeetingManualNotes(id: id, manualNotes: "- Keep this")
+
+        try store.completeLiveMeeting(
+            id: id,
+            title: "Generated Title",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(120),
+            rawTranscript: "hello world",
+            formattedNotes: "## Summary\nHello\n\n## Manual Notes\n\n- Keep this",
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            savedRecordingPath: nil,
+            selectedTemplateID: "auto",
+            selectedTemplateName: "Auto",
+            selectedTemplateKind: .auto,
+            selectedTemplatePrompt: "## Summary"
+        )
+
+        let meetings = try store.recentMeetings(limit: 10)
+        #expect(meetings.count == 1)
+        let completed = try #require(meetings.first)
+        #expect(completed.id == id)
+        #expect(completed.status == .completed)
+        #expect(completed.title == "Generated Title")
+        #expect(completed.rawTranscript == "hello world")
+        #expect(completed.wordCount == 2)
+        #expect(completed.manualNotes == "- Keep this")
     }
 
     @Test("insert and retrieve dictation")
@@ -729,6 +802,17 @@ struct DictationStoreTests {
 
         let byNotes = try store.searchMeetings(query: "Prioritized")
         #expect(byNotes.count == 1)
+    }
+
+    @Test("searchMeetings matches manual notes")
+    func searchMeetingsManualNotes() throws {
+        let store = try makeStore()
+        let id = try store.createLiveMeeting(title: "Quick Note", calendarEventID: nil, startTime: Date())
+        try store.updateMeetingManualNotes(id: id, manualNotes: "Escalate renewal risk")
+
+        let results = try store.searchMeetings(query: "renewal")
+
+        #expect(results.map(\.id).contains(id))
     }
 
     @Test("search is case-insensitive for ASCII")

@@ -61,7 +61,8 @@ struct MeetingSummaryClientTests {
             existingNotes: "## Notes\n- User added follow-up detail"
         )
 
-        #expect(instructions.contains("Preserve any concrete user-added details"))
+        #expect(instructions.contains("Preserve every concrete user-added detail"))
+        #expect(instructions.contains("must not be skipped"))
         #expect(instructions.contains("requested template instead of discarding it"))
     }
 
@@ -76,6 +77,38 @@ struct MeetingSummaryClientTests {
         #expect(prompt.contains("Current notes to preserve and reformat:"))
         #expect(prompt.contains("User added detail"))
         #expect(prompt.contains("Raw transcript:\nTranscript body"))
+    }
+
+    @Test("final notes retain manual notes verbatim")
+    func finalNotesRetainManualNotesVerbatim() {
+        let result = MeetingSummaryClient.notesByRetainingManualNotes(
+            generatedNotes: "## Summary\n- Shipped the plan",
+            manualNotes: "- Decision: ship today\n- [ ] Follow up with Priy"
+        )
+
+        #expect(result.contains("## Summary"))
+        #expect(result.contains("## Manual Notes"))
+        #expect(result.contains("- Decision: ship today"))
+        #expect(result.contains("- [ ] Follow up with Priy"))
+    }
+
+    @Test("fallback summary retains manual notes")
+    func fallbackSummaryRetainsManualNotes() async {
+        var config = AppConfig()
+        config.openAIAPIKey = ""
+        config.meetingSummaryBackend = "openai"
+
+        let result = await MeetingSummaryClient.summarize(
+            transcript: "Hello world",
+            meetingTitle: "Test",
+            config: config,
+            existingNotes: "- Manual decision",
+            manualNotesToRetain: "- Manual decision"
+        )
+
+        #expect(result.contains("## Raw Transcript"))
+        #expect(result.contains("## Manual Notes"))
+        #expect(result.contains("- Manual decision"))
     }
 
     @Test("summary user prompt includes meeting context when provided")

@@ -169,6 +169,8 @@ struct MeetingListRow: Encodable {
     let durationSeconds: Double
     let wordCount: Int
     let folderID: Int64?
+    let status: String
+    let manualNotes: String
     let notesState: String
     let selectedTemplateID: String
     let selectedTemplateName: String
@@ -181,6 +183,8 @@ struct MeetingListRow: Encodable {
         durationSeconds = record.durationSeconds
         wordCount = record.wordCount
         folderID = record.folderID
+        status = record.status.rawValue
+        manualNotes = record.manualNotes
         notesState = record.notesState.rawValue
         selectedTemplateID = record.appliedTemplateID
         selectedTemplateName = record.appliedTemplateName
@@ -197,6 +201,8 @@ struct MeetingDetailPayload: Encodable {
     let formattedNotes: String
     let wordCount: Int
     let folderID: Int64?
+    let status: String
+    let manualNotes: String
     let notesState: String
     let calendarEventID: String?
     let micAudioPath: String?
@@ -216,6 +222,8 @@ struct MeetingDetailPayload: Encodable {
         formattedNotes = record.formattedNotes
         wordCount = record.wordCount
         folderID = record.folderID
+        status = record.status.rawValue
+        manualNotes = record.manualNotes
         notesState = record.notesState.rawValue
         calendarEventID = record.calendarEventID
         micAudioPath = record.micAudioPath
