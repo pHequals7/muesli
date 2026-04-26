@@ -29,6 +29,15 @@ struct SidebarView: View {
         appState.config.userName
     }
 
+    private var hasPendingUpdate: Bool {
+        switch appState.sparkleUpdateStatus {
+        case .available, .downloaded:
+            return true
+        case .idle, .checking, .installing, .upToDate, .disabled, .failed:
+            return false
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
             sidebarHeader
@@ -43,7 +52,7 @@ struct SidebarView: View {
             Spacer()
 
             sidebarItem(tab: .settings, icon: "gearshape", label: "Settings")
-            sidebarItem(tab: .about, icon: "info.circle", label: "About")
+            sidebarItem(tab: .about, icon: "info.circle", label: "About", showsBadge: hasPendingUpdate)
             darkModeToggle
                 .padding(.bottom, MuesliTheme.spacing16)
         }
@@ -267,7 +276,7 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func sidebarItem(tab: DashboardTab, icon: String, label: String) -> some View {
+    private func sidebarItem(tab: DashboardTab, icon: String, label: String, showsBadge: Bool = false) -> some View {
         let isSelected = appState.selectedTab == tab
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -283,6 +292,16 @@ struct SidebarView: View {
                     .font(MuesliTheme.headline())
                     .foregroundStyle(isSelected ? MuesliTheme.textPrimary : MuesliTheme.textSecondary)
                 Spacer()
+                if showsBadge {
+                    Circle()
+                        .fill(MuesliTheme.recording)
+                        .frame(width: 9, height: 9)
+                        .overlay(
+                            Circle()
+                                .stroke(MuesliTheme.backgroundDeep, lineWidth: 2)
+                        )
+                        .accessibilityLabel("Update available")
+                }
             }
             .padding(.horizontal, sidebarRowHorizontalPadding)
             .padding(.vertical, MuesliTheme.spacing8)
