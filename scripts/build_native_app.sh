@@ -14,6 +14,8 @@ APP_BUNDLE_NAME="${MUESLI_APP_BUNDLE_NAME:-$APP_NAME.app}"
 APP_EXECUTABLE_NAME="${MUESLI_EXECUTABLE_NAME:-Muesli}"
 APP_SUPPORT_DIR_NAME="${MUESLI_SUPPORT_DIR_NAME:-$APP_DISPLAY_NAME}"
 BUNDLE_ID="${MUESLI_BUNDLE_ID:-com.muesli.app}"
+SPARKLE_FEED_URL="${MUESLI_SPARKLE_FEED_URL-https://pHequals7.github.io/muesli/appcast.xml}"
+SPARKLE_EDKEY="${MUESLI_SPARKLE_EDKEY-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}"
 STAGED_APP_DIR="$DIST_DIR/$APP_BUNDLE_NAME"
 APP_DIR="$INSTALL_DIR/$APP_BUNDLE_NAME"
 DEFAULT_SIGN_IDENTITY="Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)"
@@ -119,9 +121,9 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>NSCalendarsFullAccessUsageDescription</key>
   <string>$APP_DISPLAY_NAME reads calendar events to help with meeting recordings.</string>
   <key>SUFeedURL</key>
-  <string>${MUESLI_SPARKLE_FEED_URL:-https://pHequals7.github.io/muesli/appcast.xml}</string>
+  <string>$SPARKLE_FEED_URL</string>
   <key>SUPublicEDKey</key>
-  <string>${MUESLI_SPARKLE_EDKEY:-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}</string>
+  <string>$SPARKLE_EDKEY</string>
   <key>SUEnableAutomaticChecks</key>
   <true/>
 </dict>
