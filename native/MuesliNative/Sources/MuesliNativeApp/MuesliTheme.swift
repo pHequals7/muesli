@@ -35,7 +35,9 @@ enum MuesliTheme {
 
     // MARK: - Accent
 
-    static let defaultAccent    = Color.adaptive(dark: 0x6BA3F7, light: 0x2563EB)
+    static let defaultAccentDarkHex = 0x6BA3F7
+    static let defaultAccentLightHex = 0x2563EB
+    static let defaultAccent    = Color.adaptive(dark: defaultAccentDarkHex, light: defaultAccentLightHex)
     static var accentOverrideHex: String?
     static var accent: Color {
         if let hex = accentOverrideHex, !hex.isEmpty,
