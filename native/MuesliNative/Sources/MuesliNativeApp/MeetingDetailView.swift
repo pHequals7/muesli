@@ -17,6 +17,7 @@ struct MeetingDetailView: View {
     @State private var editableTitle: String
     @State private var editableNotes: String
     @State private var editableManualNotes: String
+    @State private var manualEditorCommand: MarkdownEditorCommand?
     @State private var pendingTemplateID: String
     @State private var documentMode: MeetingDocumentMode
     @State private var titleSaveTask: DispatchWorkItem?
@@ -141,7 +142,10 @@ struct MeetingDetailView: View {
                     if showsManualNotesEditor(for: meeting) {
                         HStack(spacing: MuesliTheme.spacing8) {
                             statusChip(for: meeting)
-                            if meeting.status == .noteOnly || meeting.status == .failed {
+                            if meeting.status == .recording {
+                                stopRecordingButton
+                                discardRecordingButton
+                            } else if meeting.status == .noteOnly || meeting.status == .failed {
                                 deleteButton
                             }
                         }
@@ -173,7 +177,7 @@ struct MeetingDetailView: View {
                 }
             }
 
-            if isRawTranscript(meeting) && documentMode == .notes {
+            if !showsManualNotesEditor(for: meeting), isRawTranscript(meeting), documentMode == .notes {
                 transcriptCTA
             }
         }
@@ -191,6 +195,7 @@ struct MeetingDetailView: View {
 
                 MarkdownRichTextEditor(
                     text: $editableManualNotes,
+                    command: $manualEditorCommand,
                     shouldFocus: meeting.status == .recording
                 )
                 .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
@@ -441,21 +446,19 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private func manualNotesToolbar(for meeting: MeetingRecord) -> some View {
         HStack(spacing: MuesliTheme.spacing8) {
-            statusChip(for: meeting)
-
             Spacer()
 
-            markdownToolbarButton("H1", label: "Heading") {
-                appendManualMarkdown("# ")
+            markdownToolbarButton(systemImage: "textformat.size", label: "Heading") {
+                manualEditorCommand = MarkdownEditorCommand(kind: .heading)
             }
-            markdownToolbarButton("B", label: "Bold") {
-                appendManualMarkdown("**bold text**")
+            markdownToolbarButton(systemImage: "bold", label: "Bold") {
+                manualEditorCommand = MarkdownEditorCommand(kind: .bold)
             }
-            markdownToolbarButton("list.bullet", label: "Bullet") {
-                appendManualMarkdown("- ")
+            markdownToolbarButton(systemImage: "list.bullet", label: "Bullet") {
+                manualEditorCommand = MarkdownEditorCommand(kind: .bullet)
             }
-            markdownToolbarButton("checklist", label: "Checkbox") {
-                appendManualMarkdown("- [ ] ")
+            markdownToolbarButton(systemImage: "checklist", label: "Checkbox") {
+                manualEditorCommand = MarkdownEditorCommand(kind: .checkbox)
             }
         }
         .frame(maxWidth: 980, alignment: .leading)
@@ -482,19 +485,12 @@ struct MeetingDetailView: View {
     }
 
     @ViewBuilder
-    private func markdownToolbarButton(_ title: String, label: String, action: @escaping () -> Void) -> some View {
+    private func markdownToolbarButton(systemImage: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Group {
-                if title.contains(".") {
-                    Image(systemName: title)
-                        .font(.system(size: 12, weight: .semibold))
-                } else {
-                    Text(title)
-                        .font(.system(size: 12, weight: .bold))
-                }
-            }
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(MuesliTheme.textSecondary)
-            .frame(width: 30, height: 28)
+            .frame(width: 34, height: 30)
             .background(MuesliTheme.surfacePrimary)
             .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
             .overlay(
@@ -578,6 +574,32 @@ struct MeetingDetailView: View {
     private var deleteButton: some View {
         iconButton("trash", label: "Delete") {
             showDeleteConfirmation = true
+        }
+    }
+
+    private var stopRecordingButton: some View {
+        Button {
+            controller.stopMeetingRecording()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Stop Recording")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, MuesliTheme.spacing12)
+            .padding(.vertical, 8)
+            .background(MuesliTheme.recording)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        }
+        .buttonStyle(.plain)
+        .help("Stop recording")
+    }
+
+    private var discardRecordingButton: some View {
+        iconButton("xmark", label: "Discard") {
+            controller.discardMeetingRecording()
         }
     }
 
@@ -730,13 +752,6 @@ struct MeetingDetailView: View {
 
     private func saveManualNotes(meetingID: Int64) {
         controller.updateMeetingManualNotes(id: meetingID, notes: editableManualNotes)
-    }
-
-    private func appendManualMarkdown(_ markdown: String) {
-        if !editableManualNotes.isEmpty, !editableManualNotes.hasSuffix("\n") {
-            editableManualNotes += "\n"
-        }
-        editableManualNotes += markdown
     }
 
     private func statusLabel(for status: MeetingStatus) -> String {
