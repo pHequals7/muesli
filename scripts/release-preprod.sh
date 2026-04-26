@@ -1,35 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Alpha release pipeline — signed, notarized, GitHub prerelease.
+# Pre-production Sparkle release pipeline.
 #
-# What this does:
-#   - Builds and signs with the same Developer ID as stable releases
-#   - Notarizes + staples both the app bundle and the DMG
-#   - Creates a GitHub prerelease tagged v{VERSION}-alpha.N
-#   - Verifies the hosted asset matches the local artifact
+# This is the safe end-to-end updater channel for testing Sparkle before a
+# stable release. It intentionally does not touch the production appcast,
+# landing page, llms.txt, or Homebrew tap.
 #
-# What this does NOT do (intentional):
-#   - Does not update docs/appcast.xml (stable Sparkle feed is untouched)
-#   - Does not update docs/index.html or docs/llms.txt (site stays on stable)
-#   - Does not update the Homebrew tap
-#   - Does not commit or push to main
+# It builds:
+#   - App name: MuesliPreprod
+#   - Bundle ID: com.muesli.preprod
+#   - Support dir: ~/Library/Application Support/MuesliPreprod
+#   - Sparkle feed: https://pHequals7.github.io/muesli/appcast-preprod.xml
 #
-# Sparkle is disabled in alpha builds. Use scripts/release-preprod.sh when you
-# need a signed, notarized build that exercises the Sparkle update flow.
-#
-# Usage: ./scripts/release-alpha.sh [version]
-#   e.g.: ./scripts/release-alpha.sh 0.5.6-alpha.1
-#   If no version given, auto-increments from the current stable base.
+# Usage: ./scripts/release-preprod.sh [version]
+#   e.g. ./scripts/release-preprod.sh 0.6.3-preprod.1
+#   If no version is given, auto-increments from the next stable patch base.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
+
 PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
 SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
-APP_DIR="/Applications/MuesliCanary.app"
-OUTPUT_DIR="$ROOT/dist-release"
-HOSTED_MOUNT_POINT=""
+APP_NAME="MuesliPreprod"
+BUNDLE_ID="com.muesli.preprod"
+SUPPORT_DIR_NAME="MuesliPreprod"
+PREPROD_FEED_URL="https://pHequals7.github.io/muesli/appcast-preprod.xml"
+OUTPUT_DIR="$ROOT/dist-preprod"
+INSTALL_DIR="$OUTPUT_DIR/install-root"
+APP_DIR="$INSTALL_DIR/${APP_NAME}.app"
+APPCAST_PATH="$ROOT/docs/appcast-preprod.xml"
+GENERATE_APPCAST="$ROOT/native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 VERIFY_DIR=""
+HOSTED_MOUNT_POINT=""
 
 cleanup() {
   if [[ -n "$HOSTED_MOUNT_POINT" ]]; then
@@ -44,8 +47,7 @@ trap cleanup EXIT
 
 VERSION="${1:-}"
 if [[ -z "$VERSION" ]]; then
-  # Derive base from latest stable: bump patch by 1
-  LATEST_STABLE=$(gh release list --limit 20 --json tagName,isPrerelease \
+  LATEST_STABLE=$(gh release list --limit 30 --json tagName,isPrerelease \
     -q '[.[] | select(.isPrerelease == false)] | .[0].tagName' 2>/dev/null || echo "")
 
   if [[ -z "$LATEST_STABLE" ]]; then
@@ -59,18 +61,17 @@ if [[ -z "$VERSION" ]]; then
   NEXT_PATCH=$((PATCH + 1))
   BASE="${MAJOR}.${MINOR}.${NEXT_PATCH}"
 
-  # Find the highest existing alpha.N for this base
   LATEST_N=$(gh release list --limit 100 --json tagName,isPrerelease \
     -q "[.[] | select(.isPrerelease == true) | .tagName \
-        | select(startswith(\"v${BASE}-alpha.\")) \
-        | ltrimstr(\"v${BASE}-alpha.\") \
+        | select(startswith(\"v${BASE}-preprod.\")) \
+        | ltrimstr(\"v${BASE}-preprod.\") \
         | tonumber] | max // 0" 2>/dev/null || echo "0")
 
   NEXT_N=$((LATEST_N + 1))
-  VERSION="${BASE}-alpha.${NEXT_N}"
+  VERSION="${BASE}-preprod.${NEXT_N}"
 
-  echo "Latest stable:  ${LATEST_STABLE}"
-  echo "Proposed alpha: v${VERSION}"
+  echo "Latest stable:   ${LATEST_STABLE}"
+  echo "Proposed preprod: v${VERSION}"
   echo ""
   read -p "Release as v${VERSION}? [Y/n] " confirm
   if [[ "$confirm" == "n" || "$confirm" == "N" ]]; then
@@ -79,53 +80,60 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 if [[ -n "$(git status --porcelain)" ]]; then
-  echo "ERROR: Working tree must be clean before running the release pipeline." >&2
+  echo "ERROR: Working tree must be clean before running the preprod release pipeline." >&2
+  exit 1
+fi
+
+if [[ ! -x "$GENERATE_APPCAST" ]]; then
+  echo "ERROR: generate_appcast not found at $GENERATE_APPCAST" >&2
   exit 1
 fi
 
 TAG="v${VERSION}"
-RELEASE_TITLE="MuesliCanary ${VERSION}"
-DMG_PATH="$OUTPUT_DIR/MuesliCanary-${VERSION}.dmg"
+DMG_PATH="$OUTPUT_DIR/${APP_NAME}-${VERSION}.dmg"
+RELEASE_TITLE="${APP_NAME} ${VERSION}"
 
 RELEASE_NOTES="$(cat <<EOF
-## MuesliCanary ${VERSION}
+## ${APP_NAME} ${VERSION}
 
-Alpha build — signed and notarized, but not yet stable.
-Installs as **MuesliCanary** alongside your existing Muesli install.
+Pre-production build for validating the Sparkle update flow before a stable release.
 
 ### Install
-1. Download \`MuesliCanary-${VERSION}.dmg\`
-2. Open the DMG and drag MuesliCanary to Applications
-3. Launch MuesliCanary from Applications
+1. Download \`${APP_NAME}-${VERSION}.dmg\`
+2. Open the DMG and drag ${APP_NAME} to Applications
+3. Launch ${APP_NAME} from Applications
 
 ### Notes
-- Stores data separately in \`~/Library/Application Support/MuesliCanary/\`
-- Raw ASR + post-processed pairs logged to \`MuesliCanary/postproc-pairs.jsonl\`
-- Sparkle is disabled; use MuesliPreprod for updater-flow testing
-
-### Not linked from the main site
-Download from [GitHub Releases](https://github.com/pHequals7/muesli/releases).
+- Installs alongside production Muesli.
+- Stores data separately in \`~/Library/Application Support/${SUPPORT_DIR_NAME}/\`.
+- Uses the pre-production Sparkle feed: \`${PREPROD_FEED_URL}\`.
+- Does not update the production appcast, public download page, or Homebrew tap.
 EOF
 )"
 
-echo "=== MuesliCanary Alpha v${VERSION} ==="
+echo "=== ${APP_NAME} Preprod v${VERSION} ==="
 echo ""
 
 mkdir -p "$OUTPUT_DIR"
+rm -rf "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
 
 # --- Step 1: Run tests ---
-echo "[1/10] Running tests..."
+echo "[1/11] Running tests..."
 swift test --package-path "$ROOT/native/MuesliNative"
 echo "  Tests passed."
 
 # --- Step 2: Build and sign ---
-echo "[2/10] Building and signing (version: ${VERSION})..."
-echo "y" | MUESLI_BUILD_VERSION="$VERSION" \
-  MUESLI_APP_NAME=MuesliCanary \
-  MUESLI_BUNDLE_ID=com.muesli.canary \
-  MUESLI_DISPLAY_NAME=MuesliCanary \
-  MUESLI_SUPPORT_DIR_NAME=MuesliCanary \
-  MUESLI_SPARKLE_FEED_URL="" \
+echo "[2/11] Building and signing..."
+MUESLI_INSTALL_DIR="$INSTALL_DIR" \
+  MUESLI_BUILD_VERSION="$VERSION" \
+  MUESLI_APP_NAME="$APP_NAME" \
+  MUESLI_APP_BUNDLE_NAME="${APP_NAME}.app" \
+  MUESLI_BUNDLE_ID="$BUNDLE_ID" \
+  MUESLI_DISPLAY_NAME="$APP_NAME" \
+  MUESLI_SUPPORT_DIR_NAME="$SUPPORT_DIR_NAME" \
+  MUESLI_SPARKLE_FEED_URL="$PREPROD_FEED_URL" \
+  MUESLI_SIGN_IDENTITY="$SIGN_IDENTITY" \
   "$ROOT/scripts/build_native_app.sh" > /dev/null
 echo "  Installed to $APP_DIR"
 
@@ -133,8 +141,8 @@ FLAGS=$(codesign -dvvv "$APP_DIR" 2>&1 | grep -o 'flags=0x[0-9a-f]*([^)]*)')
 echo "  Signature: $FLAGS"
 
 # --- Step 3: Notarize app bundle ---
-echo "[3/10] Notarizing app bundle (this may take several minutes)..."
-APP_ZIP="$OUTPUT_DIR/MuesliCanary-app-${VERSION}.zip"
+echo "[3/11] Notarizing app bundle with Apple..."
+APP_ZIP="$OUTPUT_DIR/${APP_NAME}-app-${VERSION}.zip"
 ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP"
 NOTARY_OUTPUT=$(xcrun notarytool submit "$APP_ZIP" \
   --keychain-profile "$PROFILE_NAME" \
@@ -151,18 +159,21 @@ fi
 echo "  App notarization accepted."
 
 # --- Step 4: Staple app bundle ---
-echo "[4/10] Stapling app bundle..."
+echo "[4/11] Stapling app bundle..."
 xcrun stapler staple "$APP_DIR"
 echo "  App stapled."
 
-# --- Step 5: Create DMG from stapled app ---
-echo "[5/10] Creating DMG from stapled app..."
+# --- Step 5: Create DMG ---
+echo "[5/11] Creating DMG..."
 "$ROOT/scripts/create_dmg.sh" "$APP_DIR" "$OUTPUT_DIR"
-# create_dmg.sh reads CFBundleShortVersionString from the app, so the DMG is
-# already named MuesliCanary-{VERSION}.dmg — no rename needed.
+
+if [[ ! -f "$DMG_PATH" ]]; then
+  echo "ERROR: expected DMG not found at $DMG_PATH" >&2
+  exit 1
+fi
 
 # --- Step 6: Notarize DMG ---
-echo "[6/10] Notarizing DMG..."
+echo "[6/11] Notarizing DMG with Apple..."
 NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG_PATH" \
   --keychain-profile "$PROFILE_NAME" \
   --wait 2>&1)
@@ -176,8 +187,8 @@ if ! echo "$NOTARY_OUTPUT" | grep -q "status: Accepted"; then
 fi
 echo "  DMG notarization accepted."
 
-# --- Step 7: Staple + verify DMG ---
-echo "[7/10] Stapling and verifying DMG..."
+# --- Step 7: Staple and verify local DMG ---
+echo "[7/11] Stapling and verifying local DMG..."
 xcrun stapler staple "$DMG_PATH"
 
 MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse 2>&1 | grep "/Volumes" | awk -F'\t' '{print $NF}')
@@ -186,8 +197,8 @@ if [[ -z "$MOUNT_POINT" ]]; then
   exit 1
 fi
 
-SPCTL_RESULT=$(spctl -a -vv "$MOUNT_POINT/MuesliCanary.app" 2>&1)
-STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/MuesliCanary.app" 2>&1)
+SPCTL_RESULT=$(spctl -a -vv "$MOUNT_POINT/${APP_NAME}.app" 2>&1)
+STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/${APP_NAME}.app" 2>&1)
 hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
 
 if ! echo "$SPCTL_RESULT" | grep -q "accepted"; then
@@ -204,10 +215,10 @@ if ! echo "$DMG_FLAGS" | grep -q "runtime"; then
   echo "  RELEASE ABORTED: DMG missing hardened runtime flag."
   exit 1
 fi
-echo "  Gatekeeper, staple, and hardened runtime verified."
+echo "  Local DMG verified."
 
 # --- Step 8: Tag ---
-echo "[8/10] Tagging..."
+echo "[8/11] Tagging..."
 if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
   echo "ERROR: Local tag ${TAG} already exists." >&2
   exit 1
@@ -217,12 +228,12 @@ if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
   exit 1
 fi
 
-git tag -a "$TAG" -m "Alpha release ${VERSION}"
+git tag -a "$TAG" -m "Preprod release ${VERSION}"
 git push origin "$TAG"
-echo "  Pushed tag $TAG (pointing at current main HEAD — no commit to main)."
+echo "  Pushed tag $TAG."
 
-# --- Step 9: Create draft GitHub prerelease + upload DMG ---
-echo "[9/10] Creating draft GitHub prerelease..."
+# --- Step 9: Create draft GitHub prerelease ---
+echo "[9/11] Creating draft GitHub prerelease..."
 gh release create "$TAG" \
   --draft \
   --prerelease \
@@ -234,13 +245,13 @@ gh release create "$TAG" \
 DRAFT_URL=$(gh release view "$TAG" --json url -q .url)
 echo "  Draft prerelease: $DRAFT_URL"
 
-# --- Step 10: Verify hosted asset + publish ---
-echo "[10/10] Verifying hosted DMG and publishing..."
+# --- Step 10: Verify hosted asset and publish ---
+echo "[10/11] Verifying hosted DMG and publishing..."
 VERIFY_DIR=$(mktemp -d)
-HOSTED_DMG="$VERIFY_DIR/MuesliCanary-${VERSION}.dmg"
+HOSTED_DMG="$VERIFY_DIR/${APP_NAME}-${VERSION}.dmg"
 
 gh release download "$TAG" \
-  -p "MuesliCanary-${VERSION}.dmg" \
+  -p "${APP_NAME}-${VERSION}.dmg" \
   -D "$VERIFY_DIR" \
   --clobber >/dev/null
 
@@ -256,7 +267,6 @@ fi
 
 HOSTED_SPCTL=$(spctl -a -vv -t open --context context:primary-signature "$HOSTED_DMG" 2>&1)
 HOSTED_STAPLE=$(xcrun stapler validate "$HOSTED_DMG" 2>&1)
-
 if ! echo "$HOSTED_SPCTL" | grep -q "accepted"; then
   echo "  RELEASE ABORTED: Hosted DMG rejected by Gatekeeper."
   exit 1
@@ -267,7 +277,7 @@ if ! echo "$HOSTED_STAPLE" | grep -q "worked"; then
 fi
 
 HOSTED_MOUNT_POINT=$(hdiutil attach "$HOSTED_DMG" -nobrowse 2>&1 | grep "/Volumes" | awk -F'\t' '{print $NF}')
-HOSTED_APP_SPCTL=$(spctl -a -vv "$HOSTED_MOUNT_POINT/MuesliCanary.app" 2>&1)
+HOSTED_APP_SPCTL=$(spctl -a -vv "$HOSTED_MOUNT_POINT/${APP_NAME}.app" 2>&1)
 hdiutil detach "$HOSTED_MOUNT_POINT" -quiet 2>/dev/null
 HOSTED_MOUNT_POINT=""
 
@@ -275,7 +285,6 @@ if ! echo "$HOSTED_APP_SPCTL" | grep -q "accepted"; then
   echo "  RELEASE ABORTED: App inside hosted DMG rejected by Gatekeeper."
   exit 1
 fi
-echo "  Hosted asset verified."
 
 gh release edit "$TAG" \
   --draft=false \
@@ -283,12 +292,37 @@ gh release edit "$TAG" \
   --notes "$RELEASE_NOTES"
 
 RELEASE_URL=$(gh release view "$TAG" --json url -q .url)
+echo "  Hosted asset verified and prerelease published."
+
+# --- Step 11: Update preprod appcast ---
+echo "[11/11] Updating preprod appcast..."
+"$GENERATE_APPCAST" "$OUTPUT_DIR" -o "$APPCAST_PATH"
+
+perl -0pi -e 's{https://pHequals7\.github\.io/muesli/(MuesliPreprod-([0-9][0-9A-Za-z\.\-]*)\.dmg)}{"https://github.com/pHequals7/muesli/releases/download/v$2/$1"}ge' "$APPCAST_PATH"
+perl -0pi -e 's{^\h*<enclosure\b[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>\n}{}mg' "$APPCAST_PATH"
+
+"$ROOT/scripts/verify_update_flow.sh" \
+  --version "$VERSION" \
+  --appcast "$APPCAST_PATH" \
+  --dmg "$DMG_PATH" \
+  --app-name "$APP_NAME" \
+  --feed-url "$PREPROD_FEED_URL" \
+  --require-notarized
+
+git add "$APPCAST_PATH"
+if git diff --cached --quiet; then
+  echo "  No preprod appcast changes to commit."
+else
+  git commit -m "Update preprod appcast for v${VERSION}"
+  git push origin HEAD
+  echo "  Pushed preprod appcast update."
+fi
 
 echo ""
-echo "=== Alpha release complete ==="
+echo "=== Preprod release complete ==="
 echo "  Version:  ${VERSION}"
-echo "  Tag:      ${TAG} (no commit pushed to main)"
+echo "  Tag:      ${TAG}"
 echo "  DMG:      $DMG_PATH"
 echo "  Release:  $RELEASE_URL"
-echo "  Sparkle:  disabled (use release-preprod.sh for updater-flow testing)"
-echo "  Site:     unchanged (freedspeech.xyz stays on stable)"
+echo "  Appcast:  $PREPROD_FEED_URL"
+echo "  Stable:   production appcast/site/Homebrew unchanged"

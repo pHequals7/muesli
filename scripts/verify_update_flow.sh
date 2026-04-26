@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APPCAST="$ROOT/docs/appcast.xml"
 VERSION=""
 DMG_PATH=""
+APP_NAME="Muesli"
+EXPECTED_FEED_URL="https://pHequals7.github.io/muesli/appcast.xml"
 SKIP_DMG=0
 REQUIRE_NOTARIZED=0
 
@@ -19,6 +21,8 @@ Options:
   --version <version>       Require the latest appcast item to match this version.
   --appcast <path>          Appcast XML path. Defaults to docs/appcast.xml.
   --dmg <path>              DMG path. Defaults to dist-release/Muesli-<version>.dmg.
+  --app-name <name>         App bundle/update artifact name. Defaults to Muesli.
+  --feed-url <url>          Expected SUFeedURL. Defaults to the production appcast.
   --skip-dmg                Only validate appcast metadata. Suitable for CI.
   --require-notarized       Also require Gatekeeper/stapler checks for DMG and app.
   -h, --help                Show this help.
@@ -37,6 +41,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dmg)
       DMG_PATH="${2:?missing value for --dmg}"
+      shift 2
+      ;;
+    --app-name)
+      APP_NAME="${2:?missing value for --app-name}"
+      shift 2
+      ;;
+    --feed-url)
+      EXPECTED_FEED_URL="${2:?missing value for --feed-url}"
       shift 2
       ;;
     --skip-dmg)
@@ -64,7 +76,7 @@ if [[ ! -f "$APPCAST" ]]; then
   exit 1
 fi
 
-if ! APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" <<'PY'
+if ! APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" "$APP_NAME" <<'PY'
 import base64
 import re
 import shlex
@@ -73,6 +85,7 @@ import xml.etree.ElementTree as ET
 
 appcast_path = sys.argv[1]
 expected_version = sys.argv[2]
+app_name = sys.argv[3]
 sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 
 try:
@@ -113,7 +126,7 @@ signature = enclosure.attrib.get(f"{{{sparkle_ns}}}edSignature", "")
 if not signature:
     raise SystemExit("ERROR: latest appcast enclosure is missing sparkle:edSignature")
 
-expected_url = f"https://github.com/pHequals7/muesli/releases/download/v{version}/Muesli-{version}.dmg"
+expected_url = f"https://github.com/pHequals7/muesli/releases/download/v{version}/{app_name}-{version}.dmg"
 if url != expected_url:
     raise SystemExit(f"ERROR: latest appcast URL is {url!r}, expected {expected_url!r}")
 
@@ -169,7 +182,7 @@ if [[ "$SKIP_DMG" == "1" ]]; then
 fi
 
 if [[ -z "$DMG_PATH" ]]; then
-  DMG_PATH="$ROOT/dist-release/Muesli-${APPCAST_VERSION}.dmg"
+  DMG_PATH="$ROOT/dist-release/${APP_NAME}-${APPCAST_VERSION}.dmg"
 fi
 
 if [[ ! -f "$DMG_PATH" ]]; then
@@ -223,10 +236,10 @@ if [[ -z "$MOUNT_POINT" ]]; then
   exit 1
 fi
 
-APP_PATH="$MOUNT_POINT/Muesli.app"
+APP_PATH="$MOUNT_POINT/${APP_NAME}.app"
 INFO_PLIST="$APP_PATH/Contents/Info.plist"
 if [[ ! -d "$APP_PATH" ]]; then
-  echo "ERROR: mounted DMG does not contain Muesli.app" >&2
+  echo "ERROR: mounted DMG does not contain ${APP_NAME}.app" >&2
   exit 1
 fi
 
@@ -240,8 +253,9 @@ if [[ "$BUNDLE_SHORT_VERSION" != "$APPCAST_VERSION" || "$BUNDLE_VERSION" != "$AP
   exit 1
 fi
 
-if [[ "$FEED_URL" != "https://pHequals7.github.io/muesli/appcast.xml" ]]; then
+if [[ "$FEED_URL" != "$EXPECTED_FEED_URL" ]]; then
   echo "ERROR: app bundle SUFeedURL is $FEED_URL" >&2
+  echo "       expected $EXPECTED_FEED_URL" >&2
   exit 1
 fi
 

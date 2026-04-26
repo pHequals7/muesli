@@ -141,8 +141,7 @@ echo ""
 
 # --- Step 0: Update version in build script ---
 echo "[0/13] Setting version to ${VERSION}..."
-sed -i '' "/CFBundleVersion<\/key>/{n;s/<string>[^<]*<\/string>/<string>${VERSION}<\/string>/;}" "$ROOT/scripts/build_native_app.sh"
-sed -i '' "/CFBundleShortVersionString<\/key>/{n;s/<string>[^<]*<\/string>/<string>${VERSION}<\/string>/;}" "$ROOT/scripts/build_native_app.sh"
+sed -i '' "s/^DEFAULT_APP_VERSION=.*/DEFAULT_APP_VERSION=\"${VERSION}\"/" "$ROOT/scripts/build_native_app.sh"
 
 # --- Step 1: Run tests ---
 echo "[1/13] Running tests..."
