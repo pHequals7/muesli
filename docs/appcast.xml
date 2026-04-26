@@ -6,6 +6,17 @@
         <language>en</language>
         <!-- Items are added by generate_appcast or the release script -->
         <item>
+            <title>0.6.3</title>
+            <pubDate>Sun, 26 Apr 2026 19:30:37 +0530</pubDate>
+            <sparkle:version>0.6.3</sparkle:version>
+            <sparkle:shortVersionString>0.6.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.6.3/Muesli-0.6.3.dmg" length="62314727" type="application/octet-stream" sparkle:edSignature="6MGzdY4EKxXZ60q5x4Pd3ApDrnwvm1tQwmAJPJOg3C2C8CvcTWMcLL9gMucXJJXkvPatp3p4+2gcmO4kz+r8BQ=="/>
+            <sparkle:deltas>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>0.6.2</title>
             <pubDate>Sun, 26 Apr 2026 00:52:24 +0530</pubDate>
             <sparkle:version>0.6.2</sparkle:version>
@@ -13,8 +24,7 @@
             <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.6.2/Muesli-0.6.2.dmg" length="62278737" type="application/octet-stream" sparkle:edSignature="pkxcN9WLTaG6k14lO+8EWQrERfSQXnHWAKCF/wEqoUSGByfFl/NtHycdIBRgik+gesYC3IN+3lh8ahA+n0pXCw=="/>
-            <sparkle:deltas>
-            </sparkle:deltas>
+            <sparkle:deltas/>
         </item>
         <item>
             <title>0.6.1</title>
@@ -24,16 +34,6 @@
             <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.6.1/Muesli-0.6.1.dmg" length="60319727" type="application/octet-stream" sparkle:edSignature="nlTUTEfJkolUM0C8aaZ72TYQoPZtDIA0DZ0nVF4S9rRUK1jJ0N5E6/OBo2XwH5y7gOONY3XPMEXzSa3cCPAyBA=="/>
-            <sparkle:deltas/>
-        </item>
-        <item>
-            <title>0.6.0</title>
-            <pubDate>Sun, 19 Apr 2026 18:59:09 +0530</pubDate>
-            <sparkle:version>0.6.0</sparkle:version>
-            <sparkle:shortVersionString>0.6.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.6.0/Muesli-0.6.0.dmg" length="60313222" type="application/octet-stream" sparkle:edSignature="B/GtGJEA1vh/ya/piJIpXq+HcxKaGwV76vJKpLJdWxp4s4+BOgOSzmsFV4ohRfT19fof6uEaNTWE24h2bfT7Ag=="/>
             <sparkle:deltas/>
         </item>
     </channel>
