@@ -395,10 +395,17 @@ struct SettingsView: View {
                         .frame(height: 22)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Model") {
+                    settingsRow("Suggested model") {
                         settingsModelMenu(
                             currentModel: appState.config.openRouterModel,
                             presets: SummaryModelPreset.openRouterModels
+                        ) { val in controller.updateConfig { $0.openRouterModel = val } }
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Model ID") {
+                        settingsModelTextField(
+                            currentModel: appState.config.openRouterModel,
+                            placeholder: SummaryModelPreset.openRouterModels.first?.id ?? "provider/model"
                         ) { val in controller.updateConfig { $0.openRouterModel = val } }
                     }
                     keyStatusRow(key: appState.config.openRouterAPIKey)
@@ -1190,18 +1197,31 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func settingsModelMenu(currentModel: String, presets: [SummaryModelPreset], onChange: @escaping (String) -> Void) -> some View {
+        let menuPresets = SummaryModelPreset.menuPresets(presets, currentModel: currentModel)
         let effectiveModel = currentModel.isEmpty ? (presets.first?.id ?? "") : currentModel
-        let selectedLabel = presets.first(where: { $0.id == effectiveModel })?.label ?? presets.first?.label ?? ""
+        let selectedLabel = menuPresets.first(where: { $0.id == effectiveModel })?.label ?? menuPresets.first?.label ?? ""
         FixedWidthPopUp(
             selection: selectedLabel,
-            options: presets.map(\.label),
+            options: menuPresets.map(\.label),
             onSelectIndex: { index in
-                guard index >= 0 && index < presets.count else { return }
-                let selectedId = presets[index].id
+                guard index >= 0 && index < menuPresets.count else { return }
+                let selectedId = menuPresets[index].id
                 onChange(selectedId == presets.first?.id ? "" : selectedId)
             }
         )
         .frame(height: 24)
+    }
+
+    @ViewBuilder
+    private func settingsModelTextField(currentModel: String, placeholder: String, onChange: @escaping (String) -> Void) -> some View {
+        PastableTextField(
+            text: currentModel,
+            placeholder: placeholder,
+            onChange: { value in
+                onChange(value.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        )
+        .frame(height: 22)
     }
 
     @ViewBuilder
@@ -1362,6 +1382,48 @@ struct PastableSecureField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: EditableNSSecureTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        let onChange: (String) -> Void
+
+        init(onChange: @escaping (String) -> Void) {
+            self.onChange = onChange
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            onChange(field.stringValue)
+        }
+    }
+}
+
+/// Plain text field with the same accessory-app edit shortcuts as secure fields.
+struct PastableTextField: NSViewRepresentable {
+    let text: String
+    let placeholder: String
+    let onChange: (String) -> Void
+
+    func makeNSView(context: Context) -> EditableNSTextField {
+        let field = EditableNSTextField()
+        field.placeholderString = placeholder
+        field.font = .systemFont(ofSize: 13)
+        field.isBordered = true
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.delegate = context.coordinator
+        field.stringValue = text
+        return field
+    }
+
+    func updateNSView(_ nsView: EditableNSTextField, context: Context) {
         if nsView.stringValue != text {
             nsView.stringValue = text
         }

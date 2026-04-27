@@ -210,13 +210,36 @@ struct SummaryModelPresetTests {
         }
     }
 
-    @Test("OpenRouter presets are free models")
-    func openRouterModelsFree() {
+    @Test("OpenRouter presets have valid model IDs")
+    func openRouterModels() {
         #expect(!SummaryModelPreset.openRouterModels.isEmpty)
         for preset in SummaryModelPreset.openRouterModels {
             #expect(!preset.id.isEmpty)
-            #expect(preset.id.contains(":free"), "OpenRouter preset should be free: \(preset.id)")
+            #expect(!preset.label.isEmpty)
         }
+    }
+
+    @Test("model menu includes custom configured model")
+    func modelMenuIncludesCustomConfiguredModel() {
+        let customModel = "anthropic/claude-sonnet-4.5"
+        let menuPresets = SummaryModelPreset.menuPresets(
+            SummaryModelPreset.openRouterModels,
+            currentModel: customModel
+        )
+
+        #expect(menuPresets.last?.id == customModel)
+        #expect(menuPresets.last?.label == "Custom: \(customModel)")
+    }
+
+    @Test("model menu does not duplicate known models")
+    func modelMenuDoesNotDuplicateKnownModels() {
+        let knownModel = SummaryModelPreset.openRouterModels[0].id
+        let menuPresets = SummaryModelPreset.menuPresets(
+            SummaryModelPreset.openRouterModels,
+            currentModel: knownModel
+        )
+
+        #expect(menuPresets.count == SummaryModelPreset.openRouterModels.count)
     }
 }
 

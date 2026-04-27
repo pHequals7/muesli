@@ -1052,9 +1052,9 @@ struct OnboardingView: View {
                 }
             } else {
                 if summaryBackend == .openRouter {
-                    Text("OpenRouter offers free models — no payment required.")
+                    Text("OpenRouter supports many model providers through one API key.")
                         .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.success)
+                        .foregroundStyle(MuesliTheme.textTertiary)
                 }
 
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {

@@ -268,7 +268,8 @@ enum MeetingSummaryClient {
             return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
         }
 
-        let model = config.openRouterModel.isEmpty ? defaultOpenRouterModel : config.openRouterModel
+        let configuredModel = config.openRouterModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = configuredModel.isEmpty ? defaultOpenRouterModel : configuredModel
         let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes)
         let userPrompt = summaryUserPrompt(
             transcript: transcript,
@@ -510,7 +511,8 @@ enum MeetingSummaryClient {
         if backend == MeetingSummaryBackendOption.openRouter.backend {
             let apiKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] ?? config.openRouterAPIKey
             guard !apiKey.isEmpty else { return nil }
-            let model = config.openRouterModel.isEmpty ? defaultOpenRouterModel : config.openRouterModel
+            let configuredModel = config.openRouterModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let model = configuredModel.isEmpty ? defaultOpenRouterModel : configuredModel
             return await callChatCompletions(
                 url: openRouterURL,
                 apiKey: apiKey,
