@@ -1095,6 +1095,10 @@ final class MuesliController: NSObject {
 
     @objc func openHistoryWindow() {
         showActiveMeetingDocumentIfNeeded()
+        presentHistoryWindow()
+    }
+
+    private func presentHistoryWindow() {
         DispatchQueue.main.async { [weak self] in
             self?.historyWindowController?.show()
         }
@@ -1726,7 +1730,7 @@ final class MuesliController: NSObject {
 
     func startForegroundMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil) {
         startMeetingRecording(title: title, calendarEventID: calendarEventID, openDocument: true)
-        openHistoryWindow()
+        presentHistoryWindow()
     }
 
     func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false) {

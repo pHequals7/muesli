@@ -696,6 +696,9 @@ public final class DictationStore {
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
+        }
     }
 
     public func updateMeetingStatus(id: Int64, status: MeetingStatus) throws {
@@ -711,6 +714,9 @@ public final class DictationStore {
         sqlite3_bind_int64(statement, 2, id)
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
+        }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
         }
     }
 

@@ -139,6 +139,24 @@ struct DictationStoreTests {
         #expect(meeting.formattedNotes == "")
     }
 
+    @Test("manual notes update fails when the meeting row is missing")
+    func updateManualNotesFailsWhenMeetingMissing() throws {
+        let store = try makeStore()
+
+        #expect(throws: Error.self) {
+            try store.updateMeetingManualNotes(id: 9_999, manualNotes: "Lost note")
+        }
+    }
+
+    @Test("status update fails when the meeting row is missing")
+    func updateMeetingStatusFailsWhenMeetingMissing() throws {
+        let store = try makeStore()
+
+        #expect(throws: Error.self) {
+            try store.updateMeetingStatus(id: 9_999, status: .failed)
+        }
+    }
+
     @Test("live meeting completes the same row")
     func completeLiveMeetingUpdatesExistingRow() throws {
         let store = try makeStore()
