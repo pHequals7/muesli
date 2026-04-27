@@ -1099,6 +1099,7 @@ final class MuesliController: NSObject {
     }
 
     @objc func openHistoryWindow() {
+        showActiveMeetingDocumentIfNeeded()
         DispatchQueue.main.async { [weak self] in
             self?.historyWindowController?.show()
         }
@@ -1124,6 +1125,14 @@ final class MuesliController: NSObject {
         appState.selectedMeetingID = id
         appState.selectedMeetingRecord = meeting(id: id)
         appState.meetingsNavigationState = .document(id)
+    }
+
+    private func showActiveMeetingDocumentIfNeeded() {
+        guard let activeMeetingID,
+              isMeetingRecording() || isStartingMeetingRecording else {
+            return
+        }
+        showMeetingDocument(id: activeMeetingID)
     }
 
     func showMeetingTemplatesManager() {
@@ -1711,13 +1720,18 @@ final class MuesliController: NSObject {
         if isMeetingRecording() {
             stopMeetingRecording()
         } else {
-            startMeetingRecording()
+            startForegroundMeetingRecording()
         }
     }
 
     @objc func startMeetingFromCalendarMenuItem(_ sender: NSMenuItem) {
         guard let title = sender.representedObject as? String else { return }
-        startMeetingRecording(title: title)
+        startForegroundMeetingRecording(title: title)
+    }
+
+    func startForegroundMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil) {
+        startMeetingRecording(title: title, calendarEventID: calendarEventID, openDocument: true)
+        openHistoryWindow()
     }
 
     func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false) {
@@ -1789,8 +1803,7 @@ final class MuesliController: NSObject {
     }
 
     func startQuickNoteMeeting() {
-        startMeetingRecording(title: "Meeting", openDocument: true)
-        openHistoryWindow()
+        startForegroundMeetingRecording(title: "Meeting")
     }
 
     private func startMeetingRecordingWithSystemAudioRecovery(title: String, calendarEventID: String?, meetingID: Int64) async throws {
