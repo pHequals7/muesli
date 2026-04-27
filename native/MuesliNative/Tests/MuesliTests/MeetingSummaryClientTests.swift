@@ -21,12 +21,12 @@ struct MeetingSummaryClientTests {
     )
 
     @Test("summarize returns raw transcript fallback when no API key")
-    func fallbackWithoutKey() async {
+    func fallbackWithoutKey() async throws {
         var config = AppConfig()
         config.openAIAPIKey = ""
         config.meetingSummaryBackend = "openai"
 
-        let result = await MeetingSummaryClient.summarize(
+        let result = try await MeetingSummaryClient.summarize(
             transcript: "Hello world",
             meetingTitle: "Test",
             config: config
@@ -118,12 +118,12 @@ struct MeetingSummaryClientTests {
     }
 
     @Test("fallback summary retains manual notes")
-    func fallbackSummaryRetainsManualNotes() async {
+    func fallbackSummaryRetainsManualNotes() async throws {
         var config = AppConfig()
         config.openAIAPIKey = ""
         config.meetingSummaryBackend = "openai"
 
-        let result = await MeetingSummaryClient.summarize(
+        let result = try await MeetingSummaryClient.summarize(
             transcript: "Hello world",
             meetingTitle: "Test",
             config: config,
@@ -158,12 +158,12 @@ struct MeetingSummaryClientTests {
     }
 
     @Test("summarize routes to OpenRouter when configured")
-    func routesToOpenRouter() async {
+    func routesToOpenRouter() async throws {
         var config = AppConfig()
         config.openRouterAPIKey = ""
         config.meetingSummaryBackend = "openrouter"
 
-        let result = await MeetingSummaryClient.summarize(
+        let result = try await MeetingSummaryClient.summarize(
             transcript: "Test transcript",
             meetingTitle: "My Meeting",
             config: config
@@ -171,6 +171,39 @@ struct MeetingSummaryClientTests {
 
         // No key → falls back to raw transcript
         #expect(result.contains("## Raw Transcript"))
+    }
+
+    @Test("summary failure notes make backend failure visible")
+    func summaryFailureNotesAreExplicit() {
+        let error = MeetingSummaryError.backendFailed(
+            backend: "OpenRouter",
+            statusCode: 400,
+            message: "No endpoints found for model retired/example"
+        )
+
+        let result = MeetingSummaryClient.summaryFailureNotes(
+            transcript: "Raw words",
+            meetingTitle: "Customer Review",
+            error: error,
+            manualNotes: "- User typed this during the meeting"
+        )
+
+        #expect(result.contains("## Summary failed"))
+        #expect(result.contains("OpenRouter could not generate meeting notes."))
+        #expect(result.contains("Status 400"))
+        #expect(result.contains("selected model may be unavailable or retired"))
+        #expect(result.contains("### Written notes"))
+        #expect(result.contains("- User typed this during the meeting"))
+        #expect(result.contains("## Raw Transcript"))
+        #expect(result.contains("Raw words"))
+    }
+
+    @Test("summary backend errors describe retired or unavailable models")
+    func summaryBackendErrorDescriptionMentionsModelAvailability() {
+        let error = MeetingSummaryError.emptyResponse(backend: "OpenRouter")
+
+        #expect(error.localizedDescription.contains("OpenRouter returned an empty response"))
+        #expect(error.localizedDescription.contains("unavailable or incompatible"))
     }
 
     @Test("generateTitle returns nil without API key")
@@ -202,12 +235,12 @@ struct MeetingSummaryClientTests {
     }
 
     @Test("summarize defaults to openai backend when empty")
-    func defaultsToOpenAI() async {
+    func defaultsToOpenAI() async throws {
         var config = AppConfig()
         config.meetingSummaryBackend = ""
         config.openAIAPIKey = ""
 
-        let result = await MeetingSummaryClient.summarize(
+        let result = try await MeetingSummaryClient.summarize(
             transcript: "Test", meetingTitle: "Title", config: config
         )
 

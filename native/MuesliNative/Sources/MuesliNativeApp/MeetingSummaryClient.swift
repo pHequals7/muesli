@@ -2,6 +2,24 @@ import Foundation
 import MuesliCore
 import os
 
+enum MeetingSummaryError: LocalizedError {
+    case backendFailed(backend: String, statusCode: Int?, message: String)
+    case emptyResponse(backend: String)
+    case requestFailed(backend: String, underlying: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case let .backendFailed(backend, statusCode, message):
+            let statusText = statusCode.map { " Status \($0)." } ?? ""
+            return "\(backend) could not generate meeting notes.\(statusText) \(message) The selected model may be unavailable or retired."
+        case let .emptyResponse(backend):
+            return "\(backend) returned an empty response while generating meeting notes. The selected model may be unavailable or incompatible."
+        case let .requestFailed(backend, underlying):
+            return "\(backend) could not be reached while generating meeting notes. \(underlying.localizedDescription)"
+        }
+    }
+}
+
 enum MeetingSummaryClient {
     private static let logger = Logger(subsystem: "com.muesli.native", category: "MeetingSummary")
     private static let openAIURL = URL(string: "https://api.openai.com/v1/responses")!
@@ -33,11 +51,11 @@ enum MeetingSummaryClient {
         existingNotes: String? = nil,
         manualNotesToRetain: String? = nil,
         visualContext: String? = nil
-    ) async -> String {
+    ) async throws -> String {
         let backend = (config.meetingSummaryBackend.isEmpty ? MeetingSummaryBackendOption.openAI.backend : config.meetingSummaryBackend).lowercased()
         let generatedNotes: String
         if backend == MeetingSummaryBackendOption.chatGPT.backend {
-            generatedNotes = await summarizeWithChatGPT(
+            generatedNotes = try await summarizeWithChatGPT(
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
@@ -49,7 +67,7 @@ enum MeetingSummaryClient {
             return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
         }
         if backend == MeetingSummaryBackendOption.openRouter.backend {
-            generatedNotes = await summarizeWithOpenRouter(
+            generatedNotes = try await summarizeWithOpenRouter(
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
@@ -60,7 +78,7 @@ enum MeetingSummaryClient {
             )
             return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
         }
-        generatedNotes = await summarizeWithOpenAI(
+        generatedNotes = try await summarizeWithOpenAI(
             transcript: transcript,
             meetingTitle: meetingTitle,
             existingNotes: existingNotes,
@@ -70,6 +88,21 @@ enum MeetingSummaryClient {
             visualContext: visualContext
         )
         return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
+    }
+
+    static func summaryFailureNotes(transcript: String, meetingTitle: String, error: Error, manualNotes: String? = nil) -> String {
+        let trimmedTitle = meetingTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedManualNotes = manualNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        var sections = ["## Summary failed"]
+        if !trimmedTitle.isEmpty {
+            sections.append("Meeting: \(trimmedTitle)")
+        }
+        sections.append("Muesli could not generate structured meeting notes.\n\n\(error.localizedDescription)")
+        if !trimmedManualNotes.isEmpty {
+            sections.append("### Written notes\n\n\(trimmedManualNotes)")
+        }
+        sections.append("## Raw Transcript\n\n\(transcript)")
+        return sections.joined(separator: "\n\n")
     }
 
     static func summaryInstructions(for template: MeetingTemplateSnapshot, existingNotes: String? = nil, manualNotes: String? = nil) -> String {
@@ -171,7 +204,7 @@ enum MeetingSummaryClient {
         config: AppConfig,
         template: MeetingTemplateSnapshot,
         visualContext: String? = nil
-    ) async -> String {
+    ) async throws -> String {
         let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? config.openAIAPIKey
         guard !apiKey.isEmpty else {
             return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
@@ -203,17 +236,21 @@ enum MeetingSummaryClient {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validateHTTPResponse(response, data: data, backend: "OpenAI")
             guard
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let text = extractOpenAIText(from: json),
                 !text.isEmpty
             else {
-                return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+                if let message = extractErrorMessage(from: data) {
+                    throw MeetingSummaryError.backendFailed(backend: "OpenAI", statusCode: nil, message: message)
+                }
+                throw MeetingSummaryError.emptyResponse(backend: "OpenAI")
             }
             return text
         } catch {
-            return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+            throw summaryRequestError(backend: "OpenAI", error: error)
         }
     }
 
@@ -225,7 +262,7 @@ enum MeetingSummaryClient {
         config: AppConfig,
         template: MeetingTemplateSnapshot,
         visualContext: String? = nil
-    ) async -> String {
+    ) async throws -> String {
         let apiKey = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] ?? config.openRouterAPIKey
         guard !apiKey.isEmpty else {
             return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
@@ -257,17 +294,21 @@ enum MeetingSummaryClient {
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
         do {
-            let (data, _) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validateHTTPResponse(response, data: data, backend: "OpenRouter")
             guard
                 let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let text = extractOpenRouterText(from: json),
                 !text.isEmpty
             else {
-                return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+                if let message = extractErrorMessage(from: data) {
+                    throw MeetingSummaryError.backendFailed(backend: "OpenRouter", statusCode: nil, message: message)
+                }
+                throw MeetingSummaryError.emptyResponse(backend: "OpenRouter")
             }
             return text
         } catch {
-            return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+            throw summaryRequestError(backend: "OpenRouter", error: error)
         }
     }
 
@@ -279,7 +320,7 @@ enum MeetingSummaryClient {
         config: AppConfig,
         template: MeetingTemplateSnapshot,
         visualContext: String? = nil
-    ) async -> String {
+    ) async throws -> String {
         do {
             let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes)
             let text = try await callWHAM(
@@ -296,10 +337,10 @@ enum MeetingSummaryClient {
             if let text, !text.isEmpty {
                 return text
             }
-            return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+            throw MeetingSummaryError.emptyResponse(backend: "ChatGPT")
         } catch {
             fputs("[summary] ChatGPT summarization failed: \(error)\n", stderr)
-            return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
+            throw summaryRequestError(backend: "ChatGPT", error: error)
         }
     }
 
@@ -339,9 +380,9 @@ enum MeetingSummaryClient {
             // Collect error body
             var errorData = Data()
             for try await byte in bytes { errorData.append(byte) }
-            let errorBody = String(data: errorData, encoding: .utf8) ?? "(unknown)"
-            fputs("[summary] ChatGPT WHAM: HTTP \(httpStatus): \(String(errorBody.prefix(500)))\n", stderr)
-            return nil
+            let message = extractErrorMessage(from: errorData) ?? String(data: errorData, encoding: .utf8) ?? "(unknown)"
+            fputs("[summary] ChatGPT WHAM: HTTP \(httpStatus): \(String(message.prefix(500)))\n", stderr)
+            throw MeetingSummaryError.backendFailed(backend: "ChatGPT", statusCode: httpStatus, message: message)
         }
 
         // Parse SSE stream: collect text deltas from response.output_text.delta events
@@ -383,6 +424,55 @@ enum MeetingSummaryClient {
             }
         }
         return nil
+    }
+
+    private static func validateHTTPResponse(_ response: URLResponse, data: Data, backend: String) throws {
+        guard let httpResponse = response as? HTTPURLResponse else { return }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = extractErrorMessage(from: data)
+                ?? String(data: data, encoding: .utf8)
+                ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+            throw MeetingSummaryError.backendFailed(
+                backend: backend,
+                statusCode: httpResponse.statusCode,
+                message: String(message.prefix(800))
+            )
+        }
+    }
+
+    private static func extractErrorMessage(from data: Data) -> String? {
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+
+        if let error = json["error"] as? [String: Any] {
+            if let message = error["message"] as? String, !message.isEmpty {
+                return message
+            }
+            if let code = error["code"] as? String, !code.isEmpty {
+                return code
+            }
+            return String(describing: error)
+        }
+
+        if let message = json["message"] as? String, !message.isEmpty {
+            return message
+        }
+
+        if let detail = json["detail"] as? String, !detail.isEmpty {
+            return detail
+        }
+
+        return nil
+    }
+
+    private static func summaryRequestError(backend: String, error: Error) -> Error {
+        if error is MeetingSummaryError {
+            return error
+        }
+        return MeetingSummaryError.requestFailed(backend: backend, underlying: error)
     }
 
     private static func extractOpenRouterText(from payload: [String: Any]) -> String? {

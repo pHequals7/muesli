@@ -1298,16 +1298,15 @@ final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             let plan = MeetingResummarizationPolicy.plan(for: meeting)
-            let notes = await MeetingSummaryClient.summarize(
-                transcript: meeting.rawTranscript,
-                meetingTitle: plan.promptTitle,
-                config: self.config,
-                template: templateSnapshot,
-                existingNotes: self.notesContextForResummary(meeting),
-                manualNotesToRetain: meeting.manualNotes
-            )
-
             do {
+                let notes = try await MeetingSummaryClient.summarize(
+                    transcript: meeting.rawTranscript,
+                    meetingTitle: plan.promptTitle,
+                    config: self.config,
+                    template: templateSnapshot,
+                    existingNotes: self.notesContextForResummary(meeting),
+                    manualNotesToRetain: meeting.manualNotes
+                )
                 try self.dictationStore.updateMeetingSummary(
                     id: meeting.id,
                     title: plan.persistedTitle,
@@ -1323,9 +1322,13 @@ final class MuesliController: NSObject {
                     completion(.success(()))
                 }
             } catch {
-                fputs("[muesli-native] failed to persist meeting summary: \(error)\n", stderr)
+                fputs("[muesli-native] failed to generate or persist meeting summary: \(error)\n", stderr)
                 await MainActor.run {
-                    completion(.failure(MeetingSummaryPersistenceError.failedToSaveSummary(underlying: error)))
+                    if error is MeetingSummaryError {
+                        completion(.failure(error))
+                    } else {
+                        completion(.failure(MeetingSummaryPersistenceError.failedToSaveSummary(underlying: error)))
+                    }
                 }
             }
         }

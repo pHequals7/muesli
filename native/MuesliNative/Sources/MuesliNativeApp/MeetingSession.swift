@@ -473,15 +473,26 @@ final class MeetingSession {
         fputs("[meeting] visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(config.useCoreAudioTap)\n", stderr)
         onProgress?(.summarizingNotes)
         let manualNotes = await manualNotesProvider?()
-        let formattedNotes = await MeetingSummaryClient.summarize(
-            transcript: rawTranscript,
-            meetingTitle: generatedTitle,
-            config: config,
-            template: templateSnapshot,
-            existingNotes: manualNotes,
-            manualNotesToRetain: manualNotes,
-            visualContext: visualContext.isEmpty ? nil : visualContext
-        )
+        let formattedNotes: String
+        do {
+            formattedNotes = try await MeetingSummaryClient.summarize(
+                transcript: rawTranscript,
+                meetingTitle: generatedTitle,
+                config: config,
+                template: templateSnapshot,
+                existingNotes: manualNotes,
+                manualNotesToRetain: manualNotes,
+                visualContext: visualContext.isEmpty ? nil : visualContext
+            )
+        } catch {
+            fputs("[meeting] summary generation failed: \(error.localizedDescription)\n", stderr)
+            formattedNotes = MeetingSummaryClient.summaryFailureNotes(
+                transcript: rawTranscript,
+                meetingTitle: generatedTitle,
+                error: error,
+                manualNotes: manualNotes
+            )
+        }
 
         return MeetingSessionResult(
             title: generatedTitle,
