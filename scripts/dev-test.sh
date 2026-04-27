@@ -5,13 +5,12 @@ set -euo pipefail
 #
 # - Separate bundle ID (com.muesli.dev) — won't interfere with production Muesli
 # - Separate data directory (~/Library/Application Support/MuesliDev/)
-# - Fresh config and database each time (use --clean to wipe)
+# - Preserves existing dev config and database by default
 # - Signed with Developer ID (Accessibility permission persists across rebuilds)
 # - Installs to /Applications/MuesliDev.app
 #
 # Usage:
 #   ./scripts/dev-test.sh              # Build and launch
-#   ./scripts/dev-test.sh --clean      # Wipe dev data and rebuild fresh (tests onboarding)
 #   ./scripts/dev-test.sh --reset      # Reset onboarding only (keeps data)
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,24 +19,25 @@ DEV_APP="/Applications/MuesliDev.app"
 ONBOARDING_PROGRESS_FILE="$DEV_SUPPORT_DIR/onboarding-progress.json"
 
 # Parse args
-CLEAN=0
 RESET=0
 for arg in "$@"; do
   case "$arg" in
-    --clean) CLEAN=1 ;;
+    --clean)
+      echo "Error: --clean has been removed because it deletes MuesliDev data." >&2
+      echo "To test a fresh profile, create a named backup first and use a separate support directory." >&2
+      exit 2
+      ;;
     --reset) RESET=1 ;;
+    *)
+      echo "Unknown argument: $arg" >&2
+      exit 2
+      ;;
   esac
 done
 
 # Kill any running dev instance
 pkill -f "MuesliDev.app" 2>/dev/null || true
 sleep 0.5
-
-# Clean dev data if requested
-if [[ "$CLEAN" -eq 1 ]]; then
-  echo "Wiping dev data at: $DEV_SUPPORT_DIR"
-  rm -rf "$DEV_SUPPORT_DIR"
-fi
 
 # Reset onboarding only if requested
 if [[ "$RESET" -eq 1 ]] && [[ -f "$DEV_SUPPORT_DIR/config.json" ]]; then
@@ -78,6 +78,5 @@ echo "  Data: $DEV_SUPPORT_DIR"
 echo "  DB: $DEV_SUPPORT_DIR/muesli.db"
 echo ""
 echo "Tips:"
-echo "  ./scripts/dev-test.sh --clean    # Fresh install (test onboarding)"
 echo "  ./scripts/dev-test.sh --reset    # Re-run onboarding (keep data)"
 echo "  pkill -f MuesliDev               # Kill dev app"
