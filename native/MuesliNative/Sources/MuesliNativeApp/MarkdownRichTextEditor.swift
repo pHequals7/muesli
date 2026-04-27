@@ -19,9 +19,10 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
     var shouldFocus: Bool = false
     var isEditable: Bool = true
     var placeholder: String = "Write notes here..."
+    var onTextChange: ((String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, command: $command)
+        Coordinator(text: $text, command: $command, onTextChange: onTextChange)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -65,7 +66,8 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         textView.placeholder = placeholder
         textView.isEditable = isEditable
         textView.isSelectable = true
-        if context.coordinator.serializedMarkdown(from: textView) != text {
+        context.coordinator.onTextChange = onTextChange
+        if context.coordinator.shouldApplyExternalMarkdown(text) {
             context.coordinator.apply(markdown: text, to: textView)
         }
         if let command {
@@ -88,10 +90,16 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         @Binding private var text: String
         @Binding private var command: MarkdownEditorCommand?
+        var onTextChange: ((String) -> Void)?
         weak var textView: NSTextView?
         var didFocus = false
+        private(set) var currentMarkdown = ""
         private var isApplying = false
         private var isHandlingNewline = false
+        private var usesMarkdownStyling = false
+        private var lastBindingMarkdown = ""
+        private var pendingLocalMarkdown: String?
+        private var bindingPublishWorkItem: DispatchWorkItem?
 
         private let bodyFont = NSFont.systemFont(ofSize: 16)
         private let boldFont = NSFont.boldSystemFont(ofSize: 16)
@@ -99,15 +107,34 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         private let bodyColor = NSColor.labelColor
         private let secondaryColor = NSColor.secondaryLabelColor
 
-        init(text: Binding<String>, command: Binding<MarkdownEditorCommand?>) {
+        init(text: Binding<String>, command: Binding<MarkdownEditorCommand?>, onTextChange: ((String) -> Void)?) {
             _text = text
             _command = command
+            self.onTextChange = onTextChange
         }
 
         func textDidChange(_ notification: Notification) {
             guard !isApplying, let textView = notification.object as? NSTextView else { return }
-            text = serializedMarkdown(from: textView)
+            let markdown = markdownForLiveEdit(from: textView)
+            currentMarkdown = markdown
+            pendingLocalMarkdown = markdown
+            onTextChange?(markdown)
+            scheduleBindingPublish(markdown)
             textView.needsDisplay = true
+        }
+
+        func shouldApplyExternalMarkdown(_ markdown: String) -> Bool {
+            if markdown == currentMarkdown {
+                lastBindingMarkdown = markdown
+                if pendingLocalMarkdown == markdown {
+                    pendingLocalMarkdown = nil
+                }
+                return false
+            }
+            if pendingLocalMarkdown != nil, markdown == lastBindingMarkdown {
+                return false
+            }
+            return true
         }
 
         func textView(
@@ -124,9 +151,13 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         func apply(markdown: String, to textView: NSTextView) {
             let selectedRanges = textView.selectedRanges
             isApplying = true
+            usesMarkdownStyling = Self.markdownNeedsRichRendering(markdown)
             textView.textStorage?.setAttributedString(attributedString(from: markdown))
             textView.typingAttributes = bodyAttributes()
             textView.selectedRanges = selectedRanges.clamped(to: textView.string.count)
+            currentMarkdown = markdown
+            lastBindingMarkdown = markdown
+            pendingLocalMarkdown = nil
             isApplying = false
             textView.needsDisplay = true
         }
@@ -142,9 +173,40 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
             case .checkbox:
                 insertLinePrefix("☐ ", in: textView)
             }
-            text = serializedMarkdown(from: textView)
+            usesMarkdownStyling = true
+            let markdown = serializedMarkdown(from: textView)
+            currentMarkdown = markdown
+            pendingLocalMarkdown = markdown
+            onTextChange?(markdown)
+            publishBinding(markdown)
             textView.needsDisplay = true
             self.command = nil
+        }
+
+        private func scheduleBindingPublish(_ markdown: String) {
+            bindingPublishWorkItem?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                self?.publishBinding(markdown)
+            }
+            bindingPublishWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: item)
+        }
+
+        private func publishBinding(_ markdown: String) {
+            bindingPublishWorkItem?.cancel()
+            bindingPublishWorkItem = nil
+            guard text != markdown else {
+                lastBindingMarkdown = markdown
+                if pendingLocalMarkdown == markdown {
+                    pendingLocalMarkdown = nil
+                }
+                return
+            }
+            text = markdown
+            lastBindingMarkdown = markdown
+            if pendingLocalMarkdown == markdown {
+                pendingLocalMarkdown = nil
+            }
         }
 
         func bodyAttributes() -> [NSAttributedString.Key: Any] {
@@ -166,6 +228,30 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
                 }
             }
             return result
+        }
+
+        private func markdownForLiveEdit(from textView: NSTextView) -> String {
+            // Plain note taking should stay on the NSTextView fast path. Full
+            // markdown serialization walks every attribute run, which is only
+            // needed after the user has used rich editor commands or opened
+            // notes that already contain markdown structure.
+            guard usesMarkdownStyling else {
+                return textView.string
+            }
+            return serializedMarkdown(from: textView)
+        }
+
+        private static func markdownNeedsRichRendering(_ markdown: String) -> Bool {
+            markdown
+                .components(separatedBy: .newlines)
+                .contains { line in
+                    line.hasPrefix("# ")
+                        || line.hasPrefix("- ")
+                        || line.hasPrefix("- [ ] ")
+                        || line.hasPrefix("- [x] ")
+                        || line.hasPrefix("- [X] ")
+                        || line.contains("**")
+                }
         }
 
         private func parseLine(_ line: String) -> (displayText: String, attributes: [NSAttributedString.Key: Any]) {

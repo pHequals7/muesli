@@ -203,7 +203,11 @@ struct MeetingDetailView: View {
                     text: $editableManualNotes,
                     command: $manualEditorCommand,
                     shouldFocus: isManualNotesEditable && meeting.status == .recording,
-                    isEditable: isManualNotesEditable
+                    isEditable: isManualNotesEditable,
+                    onTextChange: { notes in
+                        guard isManualNotesEditable else { return }
+                        saveManualNotes(meetingID: meeting.id, notes: notes)
+                    }
                 )
                 .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
                 .background(MuesliTheme.backgroundBase)
@@ -212,10 +216,6 @@ struct MeetingDetailView: View {
                     RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
                         .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
                 )
-                .onChange(of: editableManualNotes) { _, _ in
-                    guard isManualNotesEditable else { return }
-                    saveManualNotes(meetingID: meeting.id)
-                }
             }
             .padding(.horizontal, 40)
             .padding(.top, 12)
@@ -591,6 +591,9 @@ struct MeetingDetailView: View {
 
     private var stopRecordingButton: some View {
         Button {
+            if let meeting {
+                flushTitleSave(meetingID: meeting.id)
+            }
             controller.stopMeetingRecording()
         } label: {
             HStack(spacing: 6) {
@@ -753,6 +756,12 @@ struct MeetingDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
     }
 
+    private func flushTitleSave(meetingID: Int64) {
+        titleSaveTask?.cancel()
+        titleSaveTask = nil
+        controller.updateMeetingTitle(id: meetingID, title: editableTitle)
+    }
+
     private func debounceSaveNotes(meetingID: Int64) {
         notesSaveTask?.cancel()
         let notes = editableNotes
@@ -762,8 +771,8 @@ struct MeetingDetailView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
     }
 
-    private func saveManualNotes(meetingID: Int64) {
-        controller.cacheMeetingManualNotes(id: meetingID, notes: editableManualNotes)
+    private func saveManualNotes(meetingID: Int64, notes: String) {
+        controller.cacheMeetingManualNotes(id: meetingID, notes: notes)
     }
 
     private var summaryErrorBinding: Binding<Bool> {

@@ -121,6 +121,7 @@ struct MeetingHookIntegrationTests {
         let end = start.addingTimeInterval(300)
         return MeetingSessionResult(
             title: "Tim V1 Meeting",
+            originalTitle: "Meeting",
             calendarEventID: calendarEventID,
             startTime: start,
             endTime: end,

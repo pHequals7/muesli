@@ -1825,6 +1825,12 @@ final class MuesliController: NSObject {
                         return self.manualNotesForLiveMeeting(id: meetingID)
                     }
                 }
+                meetingSession.liveTitleProvider = { [weak self] in
+                    await MainActor.run {
+                        guard let self else { return nil }
+                        return self.liveMeetingTitle(id: meetingID)
+                    }
+                }
                 try await meetingSession.start()
                 activeMeetingSession = meetingSession
                 activeMeetingID = meetingID
@@ -2131,9 +2137,10 @@ final class MuesliController: NSObject {
         }
 
         if let existingMeetingID {
+            let persistedTitle = completedLiveMeetingTitle(for: result, existingMeetingID: existingMeetingID)
             try dictationStore.completeLiveMeeting(
                 id: existingMeetingID,
-                title: result.title,
+                title: persistedTitle,
                 calendarEventID: result.calendarEventID,
                 startTime: result.startTime,
                 endTime: result.endTime,
@@ -2167,6 +2174,19 @@ final class MuesliController: NSObject {
             )
         }
         return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: recordingSaveError)
+    }
+
+    private func liveMeetingTitle(id: Int64) -> String? {
+        try? dictationStore.meeting(id: id)?.title
+    }
+
+    private func completedLiveMeetingTitle(for result: MeetingSessionResult, existingMeetingID: Int64) -> String {
+        guard let liveTitle = liveMeetingTitle(id: existingMeetingID)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !liveTitle.isEmpty,
+              liveTitle != result.originalTitle.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return result.title
+        }
+        return liveTitle
     }
 
     func persistCompletedMeetingResultAndDispatchHook(_ result: MeetingSessionResult, existingMeetingID: Int64? = nil) throws -> CompletedMeetingPersistenceResult {

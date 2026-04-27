@@ -246,6 +246,7 @@ struct MeetingsNavigationTests {
             .appendingPathExtension("wav")
         let result = MeetingSessionResult(
             title: "Customer Review",
+            originalTitle: "Meeting",
             calendarEventID: nil,
             startTime: Date(),
             endTime: Date().addingTimeInterval(90),
@@ -265,6 +266,44 @@ struct MeetingsNavigationTests {
         #expect(storedMeeting?.title == "Customer Review")
         #expect(storedMeeting?.rawTranscript == "Discussed roadmap and blockers.")
         #expect(storedMeeting?.savedRecordingPath == nil)
+    }
+
+    @Test("persistCompletedMeetingResult preserves user-edited live meeting title")
+    func persistCompletedMeetingResultPreservesEditedLiveTitle() async throws {
+        let store = try makeStore()
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+        let start = Date()
+        let liveID = try store.createLiveMeeting(title: "Meeting", calendarEventID: nil, startTime: start)
+        try store.updateMeetingTitle(id: liveID, title: "Investor Follow-up")
+
+        let result = MeetingSessionResult(
+            title: "Generated Summary Title",
+            originalTitle: "Meeting",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(120),
+            durationSeconds: 120,
+            rawTranscript: "Discussed fundraising updates.",
+            formattedNotes: "## Summary\nFundraising updates discussed.",
+            retainedRecordingURL: nil,
+            retainedRecordingError: nil,
+            systemRecordingURL: nil,
+            templateSnapshot: MeetingTemplates.auto.snapshot
+        )
+
+        _ = try controller.persistCompletedMeetingResult(result, existingMeetingID: liveID)
+
+        let storedMeeting = try #require(try store.meeting(id: liveID))
+        #expect(storedMeeting.title == "Investor Follow-up")
+        #expect(storedMeeting.formattedNotes == "## Summary\nFundraising updates discussed.")
     }
 
     @Test("resummary context strips appended written notes section")

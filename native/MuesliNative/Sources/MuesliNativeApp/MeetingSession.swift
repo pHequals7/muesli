@@ -54,6 +54,7 @@ final class MeetingChunkCollector {
 
 struct MeetingSessionResult {
     let title: String
+    let originalTitle: String
     let calendarEventID: String?
     let startTime: Date
     let endTime: Date
@@ -110,6 +111,7 @@ final class MeetingSession {
     private var systemChunkRecorder: PCMChunkRecorder?
     var onProgress: ((MeetingProcessingStage) -> Void)?
     var manualNotesProvider: (() async -> String?)?
+    var liveTitleProvider: (() async -> String?)?
     private let screenContextCollector = MeetingScreenContextCollector()
 
     /// Current mic power level for waveform visualization.
@@ -456,7 +458,9 @@ final class MeetingSession {
 
         let generatedTitle: String
         onProgress?(.generatingTitle)
-        if let autoTitle = await MeetingSummaryClient.generateTitle(transcript: rawTranscript, config: config),
+        if let liveTitle = await userEditedLiveTitle() {
+            generatedTitle = liveTitle
+        } else if let autoTitle = await MeetingSummaryClient.generateTitle(transcript: rawTranscript, config: config),
            !autoTitle.isEmpty {
             generatedTitle = autoTitle
             fputs("[meeting] auto-generated title: \(generatedTitle)\n", stderr)
@@ -496,6 +500,7 @@ final class MeetingSession {
 
         return MeetingSessionResult(
             title: generatedTitle,
+            originalTitle: title,
             calendarEventID: calendarEventID,
             startTime: meetingStart,
             endTime: endTime,
@@ -507,6 +512,15 @@ final class MeetingSession {
             systemRecordingURL: systemAudioURL,
             templateSnapshot: templateSnapshot
         )
+    }
+
+    private func userEditedLiveTitle() async -> String? {
+        guard let candidate = await liveTitleProvider?() else { return nil }
+        let trimmedCandidate = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedOriginal = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCandidate.isEmpty else { return nil }
+        guard trimmedCandidate != trimmedOriginal else { return nil }
+        return trimmedCandidate
     }
 
     /// Called by VAD on speech boundaries or max-duration fallback.
