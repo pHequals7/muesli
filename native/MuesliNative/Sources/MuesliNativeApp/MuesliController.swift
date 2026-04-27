@@ -1346,6 +1346,9 @@ final class MuesliController: NSObject {
 
     static func stripManualNotesSection(from notes: String) -> String {
         let markers = [
+            "\n\n### Written notes\n\n",
+            "\n### Written notes\n\n",
+            "### Written notes\n\n",
             "\n\n## Manual Notes\n\n",
             "\n## Manual Notes\n\n",
             "## Manual Notes\n\n"

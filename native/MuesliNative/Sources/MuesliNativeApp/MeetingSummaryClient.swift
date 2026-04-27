@@ -41,6 +41,7 @@ enum MeetingSummaryClient {
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
+                manualNotes: manualNotesToRetain,
                 config: config,
                 template: template,
                 visualContext: visualContext
@@ -52,6 +53,7 @@ enum MeetingSummaryClient {
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
+                manualNotes: manualNotesToRetain,
                 config: config,
                 template: template,
                 visualContext: visualContext
@@ -62,6 +64,7 @@ enum MeetingSummaryClient {
             transcript: transcript,
             meetingTitle: meetingTitle,
             existingNotes: existingNotes,
+            manualNotes: manualNotesToRetain,
             config: config,
             template: template,
             visualContext: visualContext
@@ -69,22 +72,33 @@ enum MeetingSummaryClient {
         return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
     }
 
-    static func summaryInstructions(for template: MeetingTemplateSnapshot, existingNotes: String? = nil) -> String {
+    static func summaryInstructions(for template: MeetingTemplateSnapshot, existingNotes: String? = nil, manualNotes: String? = nil) -> String {
         let notePreservationInstructions: String
+        let hasManualNotes = !(manualNotes?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         if let existingNotes,
            !existingNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            notePreservationInstructions = "\n\nCurrent notes may also be provided. Preserve every concrete user-added detail, clarification, decision, and edit from those notes when they do not conflict with the transcript. These manual notes must not be skipped. Reformat that information into the requested template instead of discarding it."
+            notePreservationInstructions = "\n\nCurrent generated notes may also be provided. Preserve useful concrete details from those notes when they do not conflict with the transcript."
         } else {
             notePreservationInstructions = ""
         }
+        let manualNoteInstructions = hasManualNotes
+            ? "\n\nProtected written notes may also be provided. These are notes the user typed by hand during the meeting. Use them as high-priority context. Place each written note near the most relevant section of the summary, preserving the user's wording verbatim when possible. Do not rewrite, polish, summarize away, or omit concrete user-written notes. Avoid creating a large standalone Manual Notes appendix unless there is no relevant section for a note."
+            : ""
 
         return baseSummaryInstructions
             + notePreservationInstructions
+            + manualNoteInstructions
             + "\n\nFollow this note template exactly:\n\n"
             + template.prompt
     }
 
-    static func summaryUserPrompt(transcript: String, meetingTitle: String, existingNotes: String? = nil, visualContext: String? = nil) -> String {
+    static func summaryUserPrompt(
+        transcript: String,
+        meetingTitle: String,
+        existingNotes: String? = nil,
+        manualNotes: String? = nil,
+        visualContext: String? = nil
+    ) -> String {
         var prompt = "Meeting title: \(meetingTitle)\n\n"
         let visualContextCharCount = visualContext?.trimmingCharacters(in: .whitespacesAndNewlines).count ?? 0
         logger.info("summary prompt visualContextIncluded=\(visualContextCharCount > 0) visualContextChars=\(visualContextCharCount)")
@@ -96,7 +110,12 @@ enum MeetingSummaryClient {
 
         let trimmedNotes = existingNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedNotes.isEmpty {
-            prompt += "Current notes to preserve and reformat:\n\(trimmedNotes)\n\n"
+            prompt += "Current generated notes to preserve and reformat:\n\(trimmedNotes)\n\n"
+        }
+
+        let trimmedManualNotes = manualNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedManualNotes.isEmpty {
+            prompt += "Protected written notes typed by the user during the meeting. Preserve these verbatim and place them where they belong in the summary:\n\(trimmedManualNotes)\n\n"
         }
 
         prompt += "Raw transcript:\n\(transcript)"
@@ -108,20 +127,47 @@ enum MeetingSummaryClient {
         guard !trimmedManualNotes.isEmpty else { return generatedNotes }
 
         let trimmedGeneratedNotes = generatedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-        let manualSection = "## Manual Notes\n\n\(trimmedManualNotes)"
-        if trimmedGeneratedNotes.contains(manualSection) {
+        let missingNotes = manualNoteBlocks(from: trimmedManualNotes).filter { note in
+            !trimmedGeneratedNotes.localizedCaseInsensitiveContains(note)
+        }
+        guard !missingNotes.isEmpty else {
             return trimmedGeneratedNotes
         }
+        let manualSection = "### Written notes\n\n\(missingNotes.joined(separator: "\n"))"
         if trimmedGeneratedNotes.isEmpty {
             return manualSection
         }
         return "\(trimmedGeneratedNotes)\n\n\(manualSection)"
     }
 
+    static func manualNoteBlocks(from notes: String) -> [String] {
+        let normalized = notes
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return [] }
+
+        let lines = normalized.components(separatedBy: .newlines)
+        let nonEmptyLines = lines.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let listLines = nonEmptyLines.filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.hasPrefix("- ")
+                || trimmed.hasPrefix("* ")
+                || trimmed.hasPrefix("• ")
+                || trimmed.hasPrefix("- [ ] ")
+                || trimmed.hasPrefix("- [x] ")
+                || trimmed.hasPrefix("- [X] ")
+        }
+        if !listLines.isEmpty, listLines.count == nonEmptyLines.count {
+            return listLines.map { $0.trimmingCharacters(in: .whitespaces) }
+        }
+        return [normalized]
+    }
+
     private static func summarizeWithOpenAI(
         transcript: String,
         meetingTitle: String,
         existingNotes: String?,
+        manualNotes: String?,
         config: AppConfig,
         template: MeetingTemplateSnapshot,
         visualContext: String? = nil
@@ -131,11 +177,12 @@ enum MeetingSummaryClient {
             return rawTranscriptFallback(transcript: transcript, meetingTitle: meetingTitle)
         }
 
-        let instructions = summaryInstructions(for: template, existingNotes: existingNotes)
+        let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes)
         let userPrompt = summaryUserPrompt(
             transcript: transcript,
             meetingTitle: meetingTitle,
             existingNotes: existingNotes,
+            manualNotes: manualNotes,
             visualContext: visualContext
         )
         let body: [String: Any] = [
@@ -174,6 +221,7 @@ enum MeetingSummaryClient {
         transcript: String,
         meetingTitle: String,
         existingNotes: String?,
+        manualNotes: String?,
         config: AppConfig,
         template: MeetingTemplateSnapshot,
         visualContext: String? = nil
@@ -184,11 +232,12 @@ enum MeetingSummaryClient {
         }
 
         let model = config.openRouterModel.isEmpty ? defaultOpenRouterModel : config.openRouterModel
-        let instructions = summaryInstructions(for: template, existingNotes: existingNotes)
+        let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes)
         let userPrompt = summaryUserPrompt(
             transcript: transcript,
             meetingTitle: meetingTitle,
             existingNotes: existingNotes,
+            manualNotes: manualNotes,
             visualContext: visualContext
         )
         let body: [String: Any] = [
@@ -226,18 +275,20 @@ enum MeetingSummaryClient {
         transcript: String,
         meetingTitle: String,
         existingNotes: String?,
+        manualNotes: String?,
         config: AppConfig,
         template: MeetingTemplateSnapshot,
         visualContext: String? = nil
     ) async -> String {
         do {
-            let instructions = summaryInstructions(for: template, existingNotes: existingNotes)
+            let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes)
             let text = try await callWHAM(
                 systemPrompt: instructions,
                 userPrompt: summaryUserPrompt(
                     transcript: transcript,
                     meetingTitle: meetingTitle,
                     existingNotes: existingNotes,
+                    manualNotes: manualNotes,
                     visualContext: visualContext
                 ),
                 model: config.chatGPTModel.isEmpty ? defaultChatGPTModel : config.chatGPTModel

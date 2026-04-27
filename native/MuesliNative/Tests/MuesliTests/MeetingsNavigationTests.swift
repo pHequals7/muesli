@@ -187,12 +187,12 @@ struct MeetingsNavigationTests {
         #expect(storedMeeting?.savedRecordingPath == nil)
     }
 
-    @Test("resummary context strips appended manual notes section")
-    func resummaryContextStripsManualNotesSection() {
+    @Test("resummary context strips appended written notes section")
+    func resummaryContextStripsWrittenNotesSection() {
         let meeting = makeMeeting(
             id: 909,
             title: "Resummarize",
-            formattedNotes: "## Summary\n- Decision captured\n\n## Manual Notes\n\n- User typed this",
+            formattedNotes: "## Summary\n- Decision captured\n\n### Written notes\n\n- User typed this",
             status: .completed,
             manualNotes: "- User typed this"
         )

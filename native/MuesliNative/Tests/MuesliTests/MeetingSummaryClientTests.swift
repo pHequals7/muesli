@@ -58,12 +58,13 @@ struct MeetingSummaryClientTests {
     func promptMentionsPreservingCurrentNotes() {
         let instructions = MeetingSummaryClient.summaryInstructions(
             for: customTemplate,
-            existingNotes: "## Notes\n- User added follow-up detail"
+            existingNotes: "## Notes\n- Generated follow-up detail",
+            manualNotes: "- User added follow-up detail"
         )
 
-        #expect(instructions.contains("Preserve every concrete user-added detail"))
-        #expect(instructions.contains("must not be skipped"))
-        #expect(instructions.contains("requested template instead of discarding it"))
+        #expect(instructions.contains("Protected written notes"))
+        #expect(instructions.contains("Place each written note near the most relevant section"))
+        #expect(instructions.contains("Do not rewrite, polish, summarize away, or omit"))
     }
 
     @Test("summary user prompt includes existing notes context when provided")
@@ -74,9 +75,23 @@ struct MeetingSummaryClientTests {
             existingNotes: "## Notes\n- User added detail"
         )
 
-        #expect(prompt.contains("Current notes to preserve and reformat:"))
+        #expect(prompt.contains("Current generated notes to preserve and reformat:"))
         #expect(prompt.contains("User added detail"))
         #expect(prompt.contains("Raw transcript:\nTranscript body"))
+    }
+
+    @Test("summary user prompt includes protected written notes separately")
+    func userPromptIncludesProtectedWrittenNotes() {
+        let prompt = MeetingSummaryClient.summaryUserPrompt(
+            transcript: "Transcript body",
+            meetingTitle: "Customer Call",
+            existingNotes: "## Notes\n- Generated detail",
+            manualNotes: "- User typed decision"
+        )
+
+        #expect(prompt.contains("Current generated notes to preserve and reformat:"))
+        #expect(prompt.contains("Protected written notes typed by the user during the meeting"))
+        #expect(prompt.contains("- User typed decision"))
     }
 
     @Test("final notes retain manual notes verbatim")
@@ -87,9 +102,19 @@ struct MeetingSummaryClientTests {
         )
 
         #expect(result.contains("## Summary"))
-        #expect(result.contains("## Manual Notes"))
+        #expect(result.contains("### Written notes"))
         #expect(result.contains("- Decision: ship today"))
         #expect(result.contains("- [ ] Follow up with Priy"))
+    }
+
+    @Test("final notes do not append written notes already placed in summary")
+    func finalNotesSkipAlreadyPlacedManualNotes() {
+        let result = MeetingSummaryClient.notesByRetainingManualNotes(
+            generatedNotes: "## Decisions\n- Decision: ship today",
+            manualNotes: "- Decision: ship today"
+        )
+
+        #expect(result == "## Decisions\n- Decision: ship today")
     }
 
     @Test("fallback summary retains manual notes")
@@ -107,7 +132,7 @@ struct MeetingSummaryClientTests {
         )
 
         #expect(result.contains("## Raw Transcript"))
-        #expect(result.contains("## Manual Notes"))
+        #expect(result.contains("### Written notes"))
         #expect(result.contains("- Manual decision"))
     }
 
