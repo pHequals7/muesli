@@ -281,7 +281,13 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
             }
             isHandlingNewline = true
             defer { isHandlingNewline = false }
-            textView.insertText(prefix ?? "\n", replacementRange: affectedCharRange)
+            if prefix == nil {
+                // Exiting empty list item — delete the marker line, leave a plain newline
+                let exitText = paragraphRange.upperBound < full.length ? "\n" : ""
+                textView.insertText(exitText, replacementRange: paragraphRange)
+            } else {
+                textView.insertText(prefix!, replacementRange: affectedCharRange)
+            }
         }
 
         private func paragraphRanges(for textView: NSTextView) -> [NSRange] {
