@@ -160,9 +160,7 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
             let lines = markdown.components(separatedBy: .newlines)
             for (index, rawLine) in lines.enumerated() {
                 let parsed = parseLine(rawLine)
-                let line = NSMutableAttributedString(string: parsed.displayText, attributes: parsed.attributes)
-                applyInlineBold(in: line, baseAttributes: parsed.attributes)
-                result.append(line)
+                result.append(attributedLine(from: parsed.displayText, attributes: parsed.attributes))
                 if index < lines.count - 1 {
                     result.append(NSAttributedString(string: "\n", attributes: bodyAttributes()))
                 }
@@ -193,33 +191,37 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
             return (line, bodyAttributes())
         }
 
-        private func applyInlineBold(
-            in line: NSMutableAttributedString,
-            baseAttributes: [NSAttributedString.Key: Any]
-        ) {
-            let raw = line.string as NSString
-            var searchRange = NSRange(location: 0, length: raw.length)
-            while true {
-                let opening = raw.range(of: "**", options: [], range: searchRange)
-                guard opening.location != NSNotFound else { break }
-                let afterOpening = NSRange(
-                    location: opening.location + opening.length,
-                    length: raw.length - opening.location - opening.length
-                )
-                let closing = raw.range(of: "**", options: [], range: afterOpening)
-                guard closing.location != NSNotFound else { break }
-
-                line.deleteCharacters(in: closing)
-                line.deleteCharacters(in: opening)
-                let boldRange = NSRange(location: opening.location, length: closing.location - opening.location - 2)
-                if boldRange.length > 0 {
-                    let baseFont = baseAttributes[.font] as? NSFont ?? bodyFont
-                    line.addAttribute(.font, value: boldVersion(of: baseFont), range: boldRange)
+        private func attributedLine(
+            from line: String,
+            attributes: [NSAttributedString.Key: Any]
+        ) -> NSAttributedString {
+            let result = NSMutableAttributedString()
+            var cursor = line.startIndex
+            while cursor < line.endIndex {
+                guard let opening = line.range(of: "**", range: cursor..<line.endIndex),
+                      let closing = line.range(of: "**", range: opening.upperBound..<line.endIndex)
+                else {
+                    append(String(line[cursor..<line.endIndex]), to: result, attributes: attributes)
+                    break
                 }
-                let nextLocation = opening.location + max(boldRange.length, 0)
-                searchRange = NSRange(location: nextLocation, length: max(line.length - nextLocation, 0))
-                if searchRange.length == 0 { break }
+
+                append(String(line[cursor..<opening.lowerBound]), to: result, attributes: attributes)
+                var boldAttributes = attributes
+                let baseFont = attributes[.font] as? NSFont ?? bodyFont
+                boldAttributes[.font] = boldVersion(of: baseFont)
+                append(String(line[opening.upperBound..<closing.lowerBound]), to: result, attributes: boldAttributes)
+                cursor = closing.upperBound
             }
+            return result
+        }
+
+        private func append(
+            _ string: String,
+            to result: NSMutableAttributedString,
+            attributes: [NSAttributedString.Key: Any]
+        ) {
+            guard !string.isEmpty else { return }
+            result.append(NSAttributedString(string: string, attributes: attributes))
         }
 
         private func applyHeading(in textView: NSTextView) {
@@ -385,7 +387,7 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         private func lineIsHeading(storage: NSTextStorage, range: NSRange) -> Bool {
             guard range.length > 0 else { return false }
             let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-            return (font?.pointSize ?? 0) >= 22
+            return abs((font?.pointSize ?? 0) - headingFont.pointSize) < 0.1
         }
 
         private func selectionIsBold(in storage: NSTextStorage, range: NSRange) -> Bool {
