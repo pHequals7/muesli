@@ -255,6 +255,13 @@ struct SummaryModelPresetTests {
               "architecture": { "output_modalities": ["text"] }
             },
             {
+              "id": "free/small-context",
+              "name": "Free Small Context",
+              "context_length": 99999,
+              "pricing": { "prompt": "0", "completion": "0", "request": "0" },
+              "architecture": { "output_modalities": ["text"] }
+            },
+            {
               "id": "paid/model",
               "name": "Paid Model",
               "context_length": 128000,

@@ -407,13 +407,6 @@ struct SettingsView: View {
                         .frame(height: 22)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Suggested model", controlWidth: meetingControlWidth) {
-                        settingsModelMenu(
-                            currentModel: appState.config.openRouterModel,
-                            presets: SummaryModelPreset.openRouterModels
-                        ) { val in controller.updateConfig { $0.openRouterModel = val } }
-                    }
-                    Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Free model", controlWidth: meetingControlWidth) {
                         openRouterFreeModelMenu
                     }

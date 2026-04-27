@@ -258,9 +258,15 @@ extension OpenRouterModel {
 }
 
 enum OpenRouterModelCatalogFilter {
+    private static let minimumSummaryContextLength = 100_000
+
     static func freeTextSummaryPresets(from models: [OpenRouterModel]) -> [SummaryModelPreset] {
         models
-            .filter { $0.producesText && $0.pricing.isFreeForTextGeneration }
+            .filter { model in
+                model.producesText
+                    && model.pricing.isFreeForTextGeneration
+                    && (model.contextLength ?? 0) >= minimumSummaryContextLength
+            }
             .sorted {
                 if $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedSame {
                     return $0.id < $1.id
