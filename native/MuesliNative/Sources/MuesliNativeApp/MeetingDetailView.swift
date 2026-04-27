@@ -22,6 +22,7 @@ struct MeetingDetailView: View {
     @State private var documentMode: MeetingDocumentMode
     @State private var titleSaveTask: DispatchWorkItem?
     @State private var notesSaveTask: DispatchWorkItem?
+    @State private var manualNotesSaveTask: DispatchWorkItem?
     @State private var summaryErrorMessage: String?
     @State private var showDeleteConfirmation = false
 
@@ -751,7 +752,14 @@ struct MeetingDetailView: View {
     }
 
     private func saveManualNotes(meetingID: Int64) {
-        controller.updateMeetingManualNotes(id: meetingID, notes: editableManualNotes)
+        controller.cacheMeetingManualNotes(id: meetingID, notes: editableManualNotes)
+        manualNotesSaveTask?.cancel()
+        let c = controller
+        let item = DispatchWorkItem {
+            c.flushCachedMeetingManualNotes(id: meetingID)
+        }
+        manualNotesSaveTask = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
     }
 
     private func statusLabel(for status: MeetingStatus) -> String {

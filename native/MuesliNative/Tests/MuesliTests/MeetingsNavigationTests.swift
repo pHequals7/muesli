@@ -187,6 +187,21 @@ struct MeetingsNavigationTests {
         #expect(storedMeeting?.savedRecordingPath == nil)
     }
 
+    @Test("resummary context strips appended manual notes section")
+    func resummaryContextStripsManualNotesSection() {
+        let meeting = makeMeeting(
+            id: 909,
+            title: "Resummarize",
+            formattedNotes: "## Summary\n- Decision captured\n\n## Manual Notes\n\n- User typed this",
+            status: .completed,
+            manualNotes: "- User typed this"
+        )
+
+        let context = MuesliController.notesContextForResummary(meeting)
+
+        #expect(context == "## Summary\n- Decision captured")
+    }
+
     @Test("showMeetingTemplatesManager preserves current meetings context and presents manager")
     func showMeetingTemplatesManagerPresentsManager() {
         let controller = makeController()
@@ -237,19 +252,27 @@ struct MeetingsNavigationTests {
         #expect(controller.appState.config.meetingTranscriptionModel == BackendOption.whisperLargeTurbo.model)
     }
 
-    private func makeMeeting(id: Int64, title: String) -> MeetingRecord {
+    private func makeMeeting(
+        id: Int64,
+        title: String,
+        formattedNotes: String = "## Summary",
+        status: MeetingStatus = .completed,
+        manualNotes: String = ""
+    ) -> MeetingRecord {
         MeetingRecord(
             id: id,
             title: title,
             startTime: "2026-03-24 10:00",
             durationSeconds: 1800,
             rawTranscript: "Transcript",
-            formattedNotes: "## Summary",
+            formattedNotes: formattedNotes,
             wordCount: 42,
             folderID: nil,
             calendarEventID: nil,
             micAudioPath: nil,
             systemAudioPath: nil,
+            status: status,
+            manualNotes: manualNotes,
             selectedTemplateID: MeetingTemplates.autoID,
             selectedTemplateName: "Auto",
             selectedTemplateKind: .auto,
