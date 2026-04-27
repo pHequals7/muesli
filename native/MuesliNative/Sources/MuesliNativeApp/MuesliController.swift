@@ -1765,7 +1765,7 @@ final class MuesliController: NSObject {
         statusBarController?.setStatus("Starting meeting: \(title)")
         statusBarController?.refresh()
 
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 try await self.startMeetingRecordingWithSystemAudioRecovery(title: title, calendarEventID: calendarEventID, meetingID: meetingID)
