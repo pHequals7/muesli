@@ -197,6 +197,36 @@ struct MeetingsNavigationTests {
         #expect(persisted.manualNotes == "Decision before crash")
     }
 
+    @Test("manual note cache coalesces repeated writes until flush")
+    func cachedManualNotesCoalesceRepeatedWrites() throws {
+        let store = try makeStore()
+        let meetingID = try store.createLiveMeeting(
+            title: "Live Quick Note",
+            calendarEventID: nil,
+            startTime: Date()
+        )
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+
+        controller.cacheMeetingManualNotes(id: meetingID, notes: "First durable note")
+        controller.cacheMeetingManualNotes(id: meetingID, notes: "Second cached note")
+
+        let beforeFlush = try #require(try store.meeting(id: meetingID))
+        #expect(beforeFlush.manualNotes == "First durable note")
+
+        controller.flushCachedMeetingManualNotes(id: meetingID, sync: false)
+
+        let afterFlush = try #require(try store.meeting(id: meetingID))
+        #expect(afterFlush.manualNotes == "Second cached note")
+    }
+
     @Test("persistCompletedMeetingResult keeps transcript when recording save fails")
     func persistCompletedMeetingResultPreservesMeetingOnRecordingFailure() async throws {
         let store = try makeStore()
