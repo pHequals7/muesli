@@ -17,6 +17,7 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var command: MarkdownEditorCommand?
     var shouldFocus: Bool = false
+    var isEditable: Bool = true
     var placeholder: String = "Write notes here..."
 
     func makeCoordinator() -> Coordinator {
@@ -38,6 +39,8 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         textView.usesRuler = false
         textView.isAutomaticQuoteSubstitutionEnabled = true
         textView.isAutomaticDashSubstitutionEnabled = true
+        textView.isEditable = isEditable
+        textView.isSelectable = true
         textView.allowsUndo = true
         textView.drawsBackground = false
         textView.insertionPointColor = NSColor.controlAccentColor
@@ -60,6 +63,8 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? PlaceholderTextView else { return }
         textView.placeholder = placeholder
+        textView.isEditable = isEditable
+        textView.isSelectable = true
         if context.coordinator.serializedMarkdown(from: textView) != text {
             context.coordinator.apply(markdown: text, to: textView)
         }

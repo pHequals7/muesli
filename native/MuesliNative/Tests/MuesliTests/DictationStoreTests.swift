@@ -199,6 +199,33 @@ struct DictationStoreTests {
         }
     }
 
+    @Test("staleLiveMeetings returns only recording and processing rows")
+    func staleLiveMeetingsFiltersLiveStatuses() throws {
+        let store = try makeStore()
+        let start = Date()
+
+        let recordingID = try store.createLiveMeeting(title: "Recording", calendarEventID: nil, startTime: start)
+        let processingID = try store.createLiveMeeting(title: "Processing", calendarEventID: nil, startTime: start.addingTimeInterval(1))
+        let noteOnlyID = try store.createLiveMeeting(title: "Note Only", calendarEventID: nil, startTime: start.addingTimeInterval(2))
+        try store.updateMeetingStatus(id: processingID, status: .processing)
+        try store.updateMeetingStatus(id: noteOnlyID, status: .noteOnly)
+        try store.insertMeeting(
+            title: "Completed",
+            calendarEventID: nil,
+            startTime: start.addingTimeInterval(3),
+            endTime: start.addingTimeInterval(60),
+            rawTranscript: "done",
+            formattedNotes: "## Summary\nDone",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        let stale = try store.staleLiveMeetings()
+
+        #expect(stale.map(\.id) == [processingID, recordingID])
+        #expect(stale.allSatisfy { $0.status == .recording || $0.status == .processing })
+    }
+
     @Test("insert and retrieve dictation")
     func insertAndRetrieve() throws {
         let store = try makeStore()

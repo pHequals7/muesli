@@ -298,6 +298,31 @@ public final class DictationStore {
         return rows
     }
 
+    public func staleLiveMeetings() throws -> [MeetingRecord] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+
+        let sql = """
+        SELECT \(Self.meetingColumns)
+        FROM meetings
+        WHERE meeting_status IN (?, ?)
+        ORDER BY id DESC
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (MeetingStatus.recording.rawValue as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (MeetingStatus.processing.rawValue as NSString).utf8String, -1, nil)
+
+        var rows: [MeetingRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            rows.append(makeMeetingRecord(statement))
+        }
+        return rows
+    }
+
     public func meeting(id: Int64) throws -> MeetingRecord? {
         let db = try openDatabase()
         defer { sqlite3_close(db) }

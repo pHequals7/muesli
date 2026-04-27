@@ -473,8 +473,8 @@ final class MuesliController: NSObject {
 
     func recoverStaleLiveMeetings() {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
-        let meetings = (try? dictationStore.recentMeetings(limit: 500)) ?? []
-        for meeting in meetings where meeting.status == .recording || meeting.status == .processing {
+        let meetings = (try? dictationStore.staleLiveMeetings()) ?? []
+        for meeting in meetings {
             let manualNotes = meeting.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines)
             if manualNotes.isEmpty {
                 try? dictationStore.deleteMeeting(id: meeting.id)
@@ -2039,11 +2039,6 @@ final class MuesliController: NSObject {
             var completedMeetingID: Int64?
             var meetingResult: MeetingSessionResult?
             var failedLiveMeetingID: Int64?
-            defer {
-                if let meetingResult {
-                    self.cleanupTemporaryMeetingAudioFiles(for: meetingResult)
-                }
-            }
             do {
                 let result = try await activeMeetingSession.stop()
                 meetingResult = result
@@ -2087,6 +2082,9 @@ final class MuesliController: NSObject {
                 self.statusBarController?.refresh()
                 self.historyWindowController?.reload()
                 self.syncAppState()
+                if let meetingResult {
+                    self.cleanupTemporaryMeetingAudioFiles(for: meetingResult)
+                }
                 TelemetryDeck.signal("meeting.completed")
 
                 self.presentedMeetingCandidate = nil

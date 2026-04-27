@@ -22,7 +22,6 @@ struct MeetingDetailView: View {
     @State private var documentMode: MeetingDocumentMode
     @State private var titleSaveTask: DispatchWorkItem?
     @State private var notesSaveTask: DispatchWorkItem?
-    @State private var manualNotesSaveTask: DispatchWorkItem?
     @State private var summaryErrorMessage: String?
     @State private var showDeleteConfirmation = false
 
@@ -195,13 +194,16 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private func content(for meeting: MeetingRecord) -> some View {
         if showsManualNotesEditor(for: meeting) {
+            let isManualNotesEditable = canEditManualNotes(for: meeting)
             VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
                 manualNotesToolbar(for: meeting)
+                    .disabled(!isManualNotesEditable)
 
                 MarkdownRichTextEditor(
                     text: $editableManualNotes,
                     command: $manualEditorCommand,
-                    shouldFocus: meeting.status == .recording
+                    shouldFocus: isManualNotesEditable && meeting.status == .recording,
+                    isEditable: isManualNotesEditable
                 )
                 .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
                 .background(MuesliTheme.backgroundBase)
@@ -211,6 +213,7 @@ struct MeetingDetailView: View {
                         .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
                 )
                 .onChange(of: editableManualNotes) { _, _ in
+                    guard isManualNotesEditable else { return }
                     saveManualNotes(meetingID: meeting.id)
                 }
             }
@@ -278,6 +281,10 @@ struct MeetingDetailView: View {
         case .completed:
             return false
         }
+    }
+
+    private func canEditManualNotes(for meeting: MeetingRecord) -> Bool {
+        meeting.status != .processing
     }
 
     @ViewBuilder
@@ -757,13 +764,6 @@ struct MeetingDetailView: View {
 
     private func saveManualNotes(meetingID: Int64) {
         controller.cacheMeetingManualNotes(id: meetingID, notes: editableManualNotes)
-        manualNotesSaveTask?.cancel()
-        let c = controller
-        let item = DispatchWorkItem {
-            c.flushCachedMeetingManualNotes(id: meetingID)
-        }
-        manualNotesSaveTask = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
     }
 
     private func statusLabel(for status: MeetingStatus) -> String {
