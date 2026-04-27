@@ -480,7 +480,7 @@ final class MeetingSession {
                 meetingTitle: generatedTitle,
                 config: config,
                 template: templateSnapshot,
-                existingNotes: manualNotes,
+                existingNotes: nil,
                 manualNotesToRetain: manualNotes,
                 visualContext: visualContext.isEmpty ? nil : visualContext
             )

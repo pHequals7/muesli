@@ -174,6 +174,31 @@ struct DictationStoreTests {
         #expect(completed.manualNotes == "- Keep this")
     }
 
+    @Test("live meeting completion fails when the row disappeared")
+    func completeLiveMeetingFailsWhenRowMissing() throws {
+        let store = try makeStore()
+        let start = Date()
+
+        #expect(throws: Error.self) {
+            try store.completeLiveMeeting(
+                id: 9_999,
+                title: "Generated Title",
+                calendarEventID: nil,
+                startTime: start,
+                endTime: start.addingTimeInterval(120),
+                rawTranscript: "hello world",
+                formattedNotes: "## Summary\nHello",
+                micAudioPath: nil,
+                systemAudioPath: nil,
+                savedRecordingPath: nil,
+                selectedTemplateID: "auto",
+                selectedTemplateName: "Auto",
+                selectedTemplateKind: .auto,
+                selectedTemplatePrompt: "## Summary"
+            )
+        }
+    }
+
     @Test("insert and retrieve dictation")
     func insertAndRetrieve() throws {
         let store = try makeStore()

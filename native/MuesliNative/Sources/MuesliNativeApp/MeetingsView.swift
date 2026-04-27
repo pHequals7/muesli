@@ -225,9 +225,9 @@ struct MeetingsView: View {
                                 onCreateFolderAndMove: { name in
                                     controller.createFolderAndMoveMeeting(name: name, meetingID: meeting.id)
                                 },
-                                onDelete: {
+                                onDelete: controller.canDeleteMeeting(meeting) ? {
                                     controller.deleteMeeting(id: meeting.id)
-                                }
+                                } : nil
                             )
                         }
                     }

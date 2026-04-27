@@ -1382,6 +1382,7 @@ final class MuesliController: NSObject {
 
     func cacheMeetingManualNotes(id: Int64, notes: String) {
         liveManualNotesCache[id] = notes
+        try? dictationStore.updateMeetingManualNotes(id: id, manualNotes: notes)
     }
 
     func flushCachedMeetingManualNotes(id: Int64, sync: Bool = true) {
@@ -1509,6 +1510,7 @@ final class MuesliController: NSObject {
 
     func deleteMeeting(id: Int64) {
         guard let meeting = meeting(id: id) else { return }
+        guard canDeleteMeeting(meeting) else { return }
 
         do {
             // Delete the retained file first so a failed file removal does not orphan
@@ -1547,6 +1549,16 @@ final class MuesliController: NSObject {
         statusBarController?.refresh()
         historyWindowController?.reload()
         syncAppState()
+    }
+
+    func canDeleteMeeting(_ meeting: MeetingRecord) -> Bool {
+        guard meeting.id != activeMeetingID else { return false }
+        switch meeting.status {
+        case .recording, .processing:
+            return false
+        case .completed, .noteOnly, .failed:
+            return true
+        }
     }
 
     func clearMeetingHistory() {

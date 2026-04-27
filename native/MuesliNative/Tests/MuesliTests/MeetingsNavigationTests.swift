@@ -147,6 +147,56 @@ struct MeetingsNavigationTests {
         #expect(FileManager.default.fileExists(atPath: savedRecordingURL.path) == false)
     }
 
+    @Test("deleteMeeting refuses live meeting rows")
+    func deleteMeetingRefusesLiveRows() throws {
+        let store = try makeStore()
+        let meetingID = try store.createLiveMeeting(
+            title: "Live Quick Note",
+            calendarEventID: nil,
+            startTime: Date()
+        )
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+
+        let liveMeeting = try #require(try store.meeting(id: meetingID))
+        #expect(controller.canDeleteMeeting(liveMeeting) == false)
+
+        controller.deleteMeeting(id: meetingID)
+
+        #expect(try store.meeting(id: meetingID) != nil)
+    }
+
+    @Test("cached manual notes are persisted before debounce")
+    func cachedManualNotesPersistImmediately() throws {
+        let store = try makeStore()
+        let meetingID = try store.createLiveMeeting(
+            title: "Live Quick Note",
+            calendarEventID: nil,
+            startTime: Date()
+        )
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+
+        controller.cacheMeetingManualNotes(id: meetingID, notes: "Decision before crash")
+
+        let persisted = try #require(try store.meeting(id: meetingID))
+        #expect(persisted.manualNotes == "Decision before crash")
+    }
+
     @Test("persistCompletedMeetingResult keeps transcript when recording save fails")
     func persistCompletedMeetingResultPreservesMeetingOnRecordingFailure() async throws {
         let store = try makeStore()

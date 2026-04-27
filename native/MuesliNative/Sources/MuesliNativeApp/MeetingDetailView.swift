@@ -146,7 +146,7 @@ struct MeetingDetailView: View {
                             if meeting.status == .recording {
                                 stopRecordingButton
                                 discardRecordingButton
-                            } else if meeting.status == .noteOnly || meeting.status == .failed {
+                            } else if controller.canDeleteMeeting(meeting), meeting.status == .noteOnly || meeting.status == .failed {
                                 deleteButton
                             }
                         }
@@ -159,7 +159,9 @@ struct MeetingDetailView: View {
                                 recordingAction(for: meeting)
                                 summaryAction(for: meeting)
                                 editButton(for: meeting)
-                                deleteButton
+                                if controller.canDeleteMeeting(meeting) {
+                                    deleteButton
+                                }
                             }
 
                             VStack(alignment: .trailing, spacing: MuesliTheme.spacing8) {
@@ -170,7 +172,9 @@ struct MeetingDetailView: View {
                                 }
                                 HStack(spacing: MuesliTheme.spacing8) {
                                     editButton(for: meeting)
-                                    deleteButton
+                                    if controller.canDeleteMeeting(meeting) {
+                                        deleteButton
+                                    }
                                 }
                             }
                         }

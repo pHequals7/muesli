@@ -1,6 +1,17 @@
 import Foundation
 import SQLite3
 
+public enum DictationStoreError: Error, LocalizedError {
+    case meetingNotFound(id: Int64)
+
+    public var errorDescription: String? {
+        switch self {
+        case .meetingNotFound(let id):
+            return "Meeting \(id) no longer exists."
+        }
+    }
+}
+
 public final class DictationStore {
     private let databaseURL: URL
     private static let meetingColumns = """
@@ -596,6 +607,9 @@ public final class DictationStore {
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
+        }
     }
 
     public func clearDictations() throws {
@@ -729,6 +743,9 @@ public final class DictationStore {
         sqlite3_bind_int64(statement, 17, id)
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
+        }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
         }
     }
 
