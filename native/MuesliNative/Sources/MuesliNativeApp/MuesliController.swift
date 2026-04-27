@@ -2051,7 +2051,9 @@ final class MuesliController: NSObject {
                 await MainActor.run {
                     self.setMeetingProcessingStatus("Finalizing")
                 }
-                let persistenceResult = try self.persistCompletedMeetingResultAndDispatchHook(result, existingMeetingID: liveMeetingID)
+                let persistenceResult = try await MainActor.run {
+                    try self.persistCompletedMeetingResultAndDispatchHook(result, existingMeetingID: liveMeetingID)
+                }
                 completedMeetingID = persistenceResult.meetingID
                 if let recordingSaveError = persistenceResult.recordingSaveError {
                     await MainActor.run {
