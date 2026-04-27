@@ -255,6 +255,19 @@ struct SummaryModelPresetTests {
               "architecture": { "output_modalities": ["text"] }
             },
             {
+              "id": "google/lyria-3-pro-preview",
+              "name": "Google: Lyria 3 Pro Preview",
+              "context_length": 1048576,
+              "pricing": { "prompt": "0", "completion": "0" },
+              "architecture": { "output_modalities": ["text", "audio"] }
+            },
+            {
+              "id": "missing/architecture",
+              "name": "Missing Architecture",
+              "context_length": 200000,
+              "pricing": { "prompt": "0", "completion": "0", "request": "0" }
+            },
+            {
               "id": "free/small-context",
               "name": "Free Small Context",
               "context_length": 99999,

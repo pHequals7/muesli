@@ -238,8 +238,11 @@ struct OpenRouterModel: Decodable {
 }
 
 extension OpenRouterModel {
-    var producesText: Bool {
-        architecture?.outputModalities?.contains("text") ?? true
+    var producesOnlyText: Bool {
+        guard let outputModalities = architecture?.outputModalities else {
+            return false
+        }
+        return outputModalities == ["text"]
     }
 
     var summaryPresetLabel: String {
@@ -263,7 +266,7 @@ enum OpenRouterModelCatalogFilter {
     static func freeTextSummaryPresets(from models: [OpenRouterModel]) -> [SummaryModelPreset] {
         models
             .filter { model in
-                model.producesText
+                model.producesOnlyText
                     && model.pricing.isFreeForTextGeneration
                     && (model.contextLength ?? 0) >= minimumSummaryContextLength
             }
