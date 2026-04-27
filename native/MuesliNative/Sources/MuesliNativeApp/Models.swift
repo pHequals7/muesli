@@ -187,6 +187,90 @@ struct SummaryModelPreset {
     }
 }
 
+struct OpenRouterModelCatalog: Decodable {
+    let data: [OpenRouterModel]
+}
+
+struct OpenRouterModel: Decodable {
+    let id: String
+    let name: String
+    let contextLength: Int?
+    let pricing: Pricing
+    let architecture: Architecture?
+
+    struct Pricing: Decodable {
+        let prompt: String?
+        let completion: String?
+        let request: String?
+
+        var isFreeForTextGeneration: Bool {
+            isExplicitZero(prompt)
+                && isExplicitZero(completion)
+                && isZeroOrMissing(request)
+        }
+
+        private func isExplicitZero(_ value: String?) -> Bool {
+            guard let value else { return false }
+            return Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")) == 0
+        }
+
+        private func isZeroOrMissing(_ value: String?) -> Bool {
+            guard let value else { return true }
+            return Decimal(string: value, locale: Locale(identifier: "en_US_POSIX")) == 0
+        }
+    }
+
+    struct Architecture: Decodable {
+        let outputModalities: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case outputModalities = "output_modalities"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case contextLength = "context_length"
+        case pricing
+        case architecture
+    }
+}
+
+extension OpenRouterModel {
+    var producesText: Bool {
+        architecture?.outputModalities?.contains("text") ?? true
+    }
+
+    var summaryPresetLabel: String {
+        if let contextLength, contextLength > 0 {
+            return "\(name) (\(Self.formatContextLength(contextLength)) ctx)"
+        }
+        return name
+    }
+
+    private static func formatContextLength(_ value: Int) -> String {
+        if value >= 1000 {
+            return "\(value / 1000)k"
+        }
+        return "\(value)"
+    }
+}
+
+enum OpenRouterModelCatalogFilter {
+    static func freeTextSummaryPresets(from models: [OpenRouterModel]) -> [SummaryModelPreset] {
+        models
+            .filter { $0.producesText && $0.pricing.isFreeForTextGeneration }
+            .sorted {
+                if $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedSame {
+                    return $0.id < $1.id
+                }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+            .map { SummaryModelPreset(id: $0.id, label: $0.summaryPresetLabel) }
+    }
+}
+
 struct MeetingSummaryBackendOption: Equatable {
     let backend: String
     let label: String

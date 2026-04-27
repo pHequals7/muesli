@@ -72,9 +72,13 @@ struct SettingsView: View {
     @State private var screenRecordingGranted = false
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
+    @State private var openRouterFreeModels: [SummaryModelPreset] = []
+    @State private var isLoadingOpenRouterFreeModels = false
+    @State private var openRouterFreeModelsError: String?
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
+    private let meetingControlWidth: CGFloat = 275
 
     private var dictationBackendOptions: [BackendOption] {
         backendOptions(including: appState.selectedBackend)
@@ -104,6 +108,9 @@ struct SettingsView: View {
         .onAppear {
             refreshDownloadedModelOptions()
             startPermissionPolling()
+            if appState.selectedMeetingSummaryBackend == .openRouter {
+                loadOpenRouterFreeModelsIfNeeded()
+            }
         }
         .onDisappear {
             SoundController.stopMaraudersMapClip()
@@ -121,6 +128,11 @@ struct SettingsView: View {
         }
         .onChange(of: appState.selectedMeetingTranscriptionBackend) { _, _ in
             refreshDownloadedModelOptions()
+        }
+        .onChange(of: appState.selectedMeetingSummaryBackend) { _, backend in
+            if backend == .openRouter {
+                loadOpenRouterFreeModelsIfNeeded()
+            }
         }
         .alert(
             pendingDataDestruction?.title ?? "Confirm Destructive Action",
@@ -345,7 +357,7 @@ struct SettingsView: View {
             }
 
             settingsSection("Meeting Summaries") {
-                settingsRow("Summary backend") {
+                settingsRow("Summary backend", controlWidth: meetingControlWidth) {
                     settingsMenu(
                         selection: appState.selectedMeetingSummaryBackend.label,
                         options: MeetingSummaryBackendOption.all.map(\.label)
@@ -358,18 +370,18 @@ struct SettingsView: View {
                 Divider().background(MuesliTheme.surfaceBorder)
 
                 if appState.selectedMeetingSummaryBackend == .chatGPT {
-                    settingsRow("Account") {
+                    settingsRow("Account", controlWidth: meetingControlWidth) {
                         chatGPTAccountControl
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Model") {
+                    settingsRow("Model", controlWidth: meetingControlWidth) {
                         settingsModelMenu(
                             currentModel: appState.config.chatGPTModel,
                             presets: SummaryModelPreset.chatGPTModels
                         ) { val in controller.updateConfig { $0.chatGPTModel = val } }
                     }
                 } else if appState.selectedMeetingSummaryBackend == .openAI {
-                    settingsRow("API Key") {
+                    settingsRow("API Key", controlWidth: meetingControlWidth) {
                         PastableSecureField(
                             text: appState.config.openAIAPIKey,
                             placeholder: "sk-...",
@@ -378,7 +390,7 @@ struct SettingsView: View {
                         .frame(height: 22)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Model") {
+                    settingsRow("Model", controlWidth: meetingControlWidth) {
                         settingsModelMenu(
                             currentModel: appState.config.openAIModel,
                             presets: SummaryModelPreset.openAIModels
@@ -386,7 +398,7 @@ struct SettingsView: View {
                     }
                     keyStatusRow(key: appState.config.openAIAPIKey)
                 } else {
-                    settingsRow("API Key") {
+                    settingsRow("API Key", controlWidth: meetingControlWidth) {
                         PastableSecureField(
                             text: appState.config.openRouterAPIKey,
                             placeholder: "sk-or-...",
@@ -395,30 +407,34 @@ struct SettingsView: View {
                         .frame(height: 22)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Suggested model") {
+                    settingsRow("Suggested model", controlWidth: meetingControlWidth) {
                         settingsModelMenu(
                             currentModel: appState.config.openRouterModel,
                             presets: SummaryModelPreset.openRouterModels
                         ) { val in controller.updateConfig { $0.openRouterModel = val } }
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Model ID") {
+                    settingsRow("Free model", controlWidth: meetingControlWidth) {
+                        openRouterFreeModelMenu
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Custom model ID", controlWidth: meetingControlWidth) {
                         settingsModelTextField(
                             currentModel: appState.config.openRouterModel,
-                            placeholder: SummaryModelPreset.openRouterModels.first?.id ?? "provider/model"
+                            placeholder: "provider/model or openrouter/free"
                         ) { val in controller.updateConfig { $0.openRouterModel = val } }
                     }
                     keyStatusRow(key: appState.config.openRouterAPIKey)
                 }
 
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Default template") {
+                settingsRow("Default template", controlWidth: meetingControlWidth) {
                     meetingTemplateMenu(selectionID: appState.config.defaultMeetingTemplateID) { id in
                         controller.updateDefaultMeetingTemplate(id: id)
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Templates") {
+                settingsRow("Templates", controlWidth: meetingControlWidth) {
                     actionButton("Manage Templates…") {
                         controller.showMeetingTemplatesManager()
                     }
@@ -1068,7 +1084,8 @@ struct SettingsView: View {
     /// Standardized row: label on left, control on right.
     /// Controls share a fixed-width column so they all right-align consistently.
     @ViewBuilder
-    private func settingsRow(_ label: String, @ViewBuilder control: () -> some View) -> some View {
+    private func settingsRow(_ label: String, controlWidth rowControlWidth: CGFloat? = nil, @ViewBuilder control: () -> some View) -> some View {
+        let width = rowControlWidth ?? controlWidth
         HStack(alignment: .center) {
             Text(label)
                 .font(MuesliTheme.body())
@@ -1077,9 +1094,9 @@ struct SettingsView: View {
             Spacer(minLength: 20)
             ZStack(alignment: .trailing) {
                 // Invisible spacer forces the ZStack to exactly controlWidth
-                Color.clear.frame(width: controlWidth, height: 1)
+                Color.clear.frame(width: width, height: 1)
                 control()
-                    .frame(maxWidth: controlWidth)
+                    .frame(maxWidth: width)
             }
         }
         .frame(minHeight: 32)
@@ -1222,6 +1239,75 @@ struct SettingsView: View {
             }
         )
         .frame(height: 22)
+    }
+
+    @ViewBuilder
+    private var openRouterFreeModelMenu: some View {
+        if isLoadingOpenRouterFreeModels {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading models")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else if !openRouterFreeModels.isEmpty {
+            settingsModelMenu(
+                currentModel: appState.config.openRouterModel,
+                presets: openRouterFreeModels
+            ) { val in controller.updateConfig { $0.openRouterModel = val } }
+        } else {
+            HStack(spacing: 8) {
+                if let openRouterFreeModelsError {
+                    Text(openRouterFreeModelsError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Button("Load") {
+                    loadOpenRouterFreeModels(force: true)
+                }
+                .font(.system(size: 12, weight: .medium))
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    private func loadOpenRouterFreeModelsIfNeeded() {
+        guard openRouterFreeModels.isEmpty, !isLoadingOpenRouterFreeModels else { return }
+        loadOpenRouterFreeModels(force: false)
+    }
+
+    private func loadOpenRouterFreeModels(force: Bool) {
+        guard force || openRouterFreeModels.isEmpty else { return }
+        isLoadingOpenRouterFreeModels = true
+        openRouterFreeModelsError = nil
+
+        Task {
+            do {
+                let url = URL(string: "https://openrouter.ai/api/v1/models?output_modalities=text")!
+                let (data, response) = try await URLSession.shared.data(from: url)
+                if let httpResponse = response as? HTTPURLResponse,
+                   !(200..<300).contains(httpResponse.statusCode) {
+                    throw URLError(.badServerResponse)
+                }
+                let catalog = try JSONDecoder().decode(OpenRouterModelCatalog.self, from: data)
+                let presets = OpenRouterModelCatalogFilter.freeTextSummaryPresets(from: catalog.data)
+
+                await MainActor.run {
+                    openRouterFreeModels = presets
+                    openRouterFreeModelsError = presets.isEmpty ? "No free text models found" : nil
+                    isLoadingOpenRouterFreeModels = false
+                }
+            } catch {
+                await MainActor.run {
+                    openRouterFreeModels = []
+                    openRouterFreeModelsError = "Could not load"
+                    isLoadingOpenRouterFreeModels = false
+                }
+            }
+        }
     }
 
     @ViewBuilder

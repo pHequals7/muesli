@@ -241,6 +241,50 @@ struct SummaryModelPresetTests {
 
         #expect(menuPresets.count == SummaryModelPreset.openRouterModels.count)
     }
+
+    @Test("OpenRouter catalog filters free text generation models")
+    func openRouterCatalogFiltersFreeTextModels() throws {
+        let payload = """
+        {
+          "data": [
+            {
+              "id": "openrouter/free",
+              "name": "Free Models Router",
+              "context_length": 200000,
+              "pricing": { "prompt": "0", "completion": "0", "request": "0" },
+              "architecture": { "output_modalities": ["text"] }
+            },
+            {
+              "id": "paid/model",
+              "name": "Paid Model",
+              "context_length": 128000,
+              "pricing": { "prompt": "0.000001", "completion": "0", "request": "0" },
+              "architecture": { "output_modalities": ["text"] }
+            },
+            {
+              "id": "unknown/pricing",
+              "name": "Unknown Pricing",
+              "context_length": 4096,
+              "pricing": { "request": "0" },
+              "architecture": { "output_modalities": ["text"] }
+            },
+            {
+              "id": "free/image",
+              "name": "Free Image",
+              "context_length": 4096,
+              "pricing": { "prompt": "0", "completion": "0", "request": "0" },
+              "architecture": { "output_modalities": ["image"] }
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let catalog = try JSONDecoder().decode(OpenRouterModelCatalog.self, from: payload)
+        let presets = OpenRouterModelCatalogFilter.freeTextSummaryPresets(from: catalog.data)
+
+        #expect(presets.map(\.id) == ["openrouter/free"])
+        #expect(presets[0].label == "Free Models Router (200k ctx)")
+    }
 }
 
 @Suite("MeetingSummaryBackendOption")
