@@ -86,6 +86,7 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         weak var textView: NSTextView?
         var didFocus = false
         private var isApplying = false
+        private var isHandlingNewline = false
 
         private let bodyFont = NSFont.systemFont(ofSize: 16)
         private let boldFont = NSFont.boldSystemFont(ofSize: 16)
@@ -109,6 +110,7 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
             shouldChangeTextIn affectedCharRange: NSRange,
             replacementString: String?
         ) -> Bool {
+            guard !isHandlingNewline else { return true }
             guard replacementString == "\n" else { return true }
             continueListIfNeeded(in: textView, affectedCharRange: affectedCharRange)
             return false
@@ -277,6 +279,8 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
             } else {
                 prefix = "\n"
             }
+            isHandlingNewline = true
+            defer { isHandlingNewline = false }
             textView.insertText(prefix ?? "\n", replacementRange: affectedCharRange)
         }
 

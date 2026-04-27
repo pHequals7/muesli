@@ -202,6 +202,47 @@ struct MeetingsNavigationTests {
         #expect(context == "## Summary\n- Decision captured")
     }
 
+    @Test("startup recovery preserves stale live meetings with notes")
+    func startupRecoveryPreservesStaleLiveMeetingWithNotes() throws {
+        let store = try makeStore()
+        let id = try store.createLiveMeeting(title: "Crashed Draft", calendarEventID: nil, startTime: Date())
+        try store.updateMeetingManualNotes(id: id, manualNotes: "Important draft")
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+
+        controller.recoverStaleLiveMeetings()
+
+        let meeting = try #require(try store.meeting(id: id))
+        #expect(meeting.status == .failed)
+        #expect(meeting.manualNotes == "Important draft")
+    }
+
+    @Test("startup recovery removes empty stale live drafts")
+    func startupRecoveryDeletesEmptyStaleLiveDrafts() throws {
+        let store = try makeStore()
+        let id = try store.createLiveMeeting(title: "Empty Draft", calendarEventID: nil, startTime: Date())
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+
+        controller.recoverStaleLiveMeetings()
+
+        #expect(try store.meeting(id: id) == nil)
+    }
+
     @Test("showMeetingTemplatesManager preserves current meetings context and presents manager")
     func showMeetingTemplatesManagerPresentsManager() {
         let controller = makeController()

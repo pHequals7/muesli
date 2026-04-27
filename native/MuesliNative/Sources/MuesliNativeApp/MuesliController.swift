@@ -162,6 +162,7 @@ final class MuesliController: NSObject {
         } catch {
             fputs("[muesli-native] startup error: \(error)\n", stderr)
         }
+        recoverStaleLiveMeetings()
 
         // Clean up phantom aggregate devices left by a previous crash
         CoreAudioSystemRecorder.cleanupStaleDevices()
@@ -463,6 +464,19 @@ final class MuesliController: NSObject {
         let persisted = Set(config.hiddenCalendarEventIDs)
         if appState.hiddenCalendarEventIDs != persisted {
             appState.hiddenCalendarEventIDs = persisted
+        }
+    }
+
+    func recoverStaleLiveMeetings() {
+        guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
+        let meetings = (try? dictationStore.recentMeetings(limit: 500)) ?? []
+        for meeting in meetings where meeting.status == .recording || meeting.status == .processing {
+            let manualNotes = meeting.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+            if manualNotes.isEmpty {
+                try? dictationStore.deleteMeeting(id: meeting.id)
+            } else {
+                try? dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
+            }
         }
     }
 
