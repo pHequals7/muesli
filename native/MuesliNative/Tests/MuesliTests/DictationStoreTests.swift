@@ -188,8 +188,21 @@ struct DictationStoreTests {
         #expect(completed.status == .completed)
         #expect(completed.title == "Generated Title")
         #expect(completed.rawTranscript == "hello world")
-        #expect(completed.wordCount == 2)
+        #expect(completed.wordCount == 5)
         #expect(completed.manualNotes == "- Keep this")
+    }
+
+    @Test("note-only status updates word count from manual notes")
+    func noteOnlyStatusCountsManualNotes() throws {
+        let store = try makeStore()
+        let id = try store.createLiveMeeting(title: "Manual Draft", calendarEventID: nil, startTime: Date())
+        try store.updateMeetingManualNotes(id: id, manualNotes: "Decision ship today")
+
+        try store.updateMeetingStatus(id: id, status: .noteOnly)
+
+        let meeting = try #require(try store.meeting(id: id))
+        #expect(meeting.status == .noteOnly)
+        #expect(meeting.wordCount == 3)
     }
 
     @Test("live meeting completion fails when the row disappeared")

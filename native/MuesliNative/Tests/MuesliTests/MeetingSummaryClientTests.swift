@@ -127,6 +127,16 @@ struct MeetingSummaryClientTests {
         #expect(result == "## Decisions\n1. First decision\n\n### Written notes\n\n2. Second decision")
     }
 
+    @Test("short written notes are not dropped by section title substring matches")
+    func shortManualNotesDoNotFalseMatchSectionTitles() {
+        let result = MeetingSummaryClient.notesByRetainingManualNotes(
+            generatedNotes: "## Next steps\n- Follow up with Priy",
+            manualNotes: "Next steps"
+        )
+
+        #expect(result == "## Next steps\n- Follow up with Priy\n\n### Written notes\n\nNext steps")
+    }
+
     @Test("fallback summary retains manual notes")
     func fallbackSummaryRetainsManualNotes() async throws {
         var config = AppConfig()

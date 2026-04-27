@@ -284,7 +284,7 @@ struct MeetingDetailView: View {
     }
 
     private func canEditManualNotes(for meeting: MeetingRecord) -> Bool {
-        meeting.status != .processing
+        meeting.status == .recording || meeting.status == .noteOnly || meeting.status == .failed
     }
 
     @ViewBuilder

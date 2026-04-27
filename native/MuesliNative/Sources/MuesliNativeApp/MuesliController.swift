@@ -1896,11 +1896,11 @@ final class MuesliController: NSObject {
         guard let activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             guard !isStartingMeetingRecording else { return }
+            indicator.setMeetingRecording(false, config: config)
             if let activeMeetingID {
                 resolveLiveMeetingAfterDiscard(id: activeMeetingID)
                 self.activeMeetingID = nil
             }
-            indicator.setMeetingRecording(false, config: config)
             isStoppingMeetingRecording = false
             endMeetingActivity()
             setState(.idle)
@@ -1908,13 +1908,13 @@ final class MuesliController: NSObject {
         }
         activeMeetingSession.discard()
         self.activeMeetingSession = nil
+        indicator.setMeetingRecording(false, config: config)
         if let activeMeetingID {
             resolveLiveMeetingAfterDiscard(id: activeMeetingID)
             self.activeMeetingID = nil
         }
         isStoppingMeetingRecording = false
         endMeetingActivity()
-        indicator.setMeetingRecording(false, config: config)
         meetingMonitor.resumeAfterCooldown()
         meetingMonitor.refreshState()
         setState(.idle)

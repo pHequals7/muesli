@@ -161,7 +161,7 @@ enum MeetingSummaryClient {
 
         let trimmedGeneratedNotes = generatedNotes.trimmingCharacters(in: .whitespacesAndNewlines)
         let missingNotes = manualNoteBlocks(from: trimmedManualNotes).filter { note in
-            !trimmedGeneratedNotes.localizedCaseInsensitiveContains(note)
+            !generatedNotesContainManualNote(trimmedGeneratedNotes, note: note)
         }
         guard !missingNotes.isEmpty else {
             return trimmedGeneratedNotes
@@ -195,6 +195,27 @@ enum MeetingSummaryClient {
             return listLines.map { $0.trimmingCharacters(in: .whitespaces) }
         }
         return [normalized]
+    }
+
+    private static func generatedNotesContainManualNote(_ generatedNotes: String, note: String) -> Bool {
+        let normalizedNote = normalizedManualNoteMatchText(note)
+        guard !normalizedNote.isEmpty else { return true }
+        let generatedLines = generatedNotes
+            .components(separatedBy: .newlines)
+            .map(normalizedManualNoteMatchText)
+        if generatedLines.contains(normalizedNote) {
+            return true
+        }
+        return normalizedNote.count >= 40
+            && normalizedManualNoteMatchText(generatedNotes).contains(normalizedNote)
+    }
+
+    private static func normalizedManualNoteMatchText(_ text: String) -> String {
+        text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
     }
 
     private static func isNumberedListLine(_ line: String) -> Bool {

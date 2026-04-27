@@ -704,14 +704,22 @@ public final class DictationStore {
     public func updateMeetingStatus(id: Int64, status: MeetingStatus) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        let sql = "UPDATE meetings SET meeting_status = ? WHERE id = ?"
+        let wordCount = try manualNoteWordCountIfNeeded(for: status, id: id, db: db)
+        let sql = wordCount == nil
+            ? "UPDATE meetings SET meeting_status = ? WHERE id = ?"
+            : "UPDATE meetings SET meeting_status = ?, word_count = ? WHERE id = ?"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
         }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_text(statement, 1, (status.rawValue as NSString).utf8String, -1, nil)
-        sqlite3_bind_int64(statement, 2, id)
+        if let wordCount {
+            sqlite3_bind_int(statement, 2, Int32(wordCount))
+            sqlite3_bind_int64(statement, 3, id)
+        } else {
+            sqlite3_bind_int64(statement, 2, id)
+        }
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
@@ -753,7 +761,8 @@ public final class DictationStore {
         let startString = formatter.string(from: startTime)
         let endString = formatter.string(from: endTime)
         let durationSeconds = max(endTime.timeIntervalSince(startTime), 0)
-        let wordCount = Self.countWords(in: rawTranscript)
+        let manualNotes = try manualNotesForMeeting(id: id, db: db)
+        let wordCount = Self.countWords(in: rawTranscript) + Self.countWords(in: manualNotes)
 
         sqlite3_bind_text(statement, 1, (title as NSString).utf8String, -1, nil)
         bindOptionalText(calendarEventID, at: 2, statement: statement)
@@ -778,6 +787,29 @@ public final class DictationStore {
         guard sqlite3_changes(db) > 0 else {
             throw DictationStoreError.meetingNotFound(id: id)
         }
+    }
+
+    private func manualNoteWordCountIfNeeded(for status: MeetingStatus, id: Int64, db: OpaquePointer?) throws -> Int? {
+        switch status {
+        case .noteOnly, .failed:
+            return Self.countWords(in: try manualNotesForMeeting(id: id, db: db))
+        case .recording, .processing, .completed:
+            return nil
+        }
+    }
+
+    private func manualNotesForMeeting(id: Int64, db: OpaquePointer?) throws -> String {
+        let sql = "SELECT manual_notes FROM meetings WHERE id = ? LIMIT 1"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw DictationStoreError.meetingNotFound(id: id)
+        }
+        return stringColumn(statement, index: 0)
     }
 
     public func updateMeetingSummary(
