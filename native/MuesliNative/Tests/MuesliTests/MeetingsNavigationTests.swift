@@ -304,8 +304,8 @@ struct MeetingsNavigationTests {
         #expect(meeting.manualNotes == "Important draft")
     }
 
-    @Test("startup recovery removes empty stale live drafts")
-    func startupRecoveryDeletesEmptyStaleLiveDrafts() throws {
+    @Test("startup recovery marks empty stale live drafts as failed")
+    func startupRecoveryMarksEmptyStaleLiveDraftsFailed() throws {
         let store = try makeStore()
         let id = try store.createLiveMeeting(title: "Empty Draft", calendarEventID: nil, startTime: Date())
         let controller = MuesliController(
@@ -320,7 +320,8 @@ struct MeetingsNavigationTests {
 
         controller.recoverStaleLiveMeetings()
 
-        #expect(try store.meeting(id: id) == nil)
+        let meeting = try #require(try store.meeting(id: id))
+        #expect(meeting.status == .failed)
     }
 
     @Test("showMeetingTemplatesManager preserves current meetings context and presents manager")

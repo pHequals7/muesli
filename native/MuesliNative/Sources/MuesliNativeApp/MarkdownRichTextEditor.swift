@@ -225,13 +225,20 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         private func applyHeading(in textView: NSTextView) {
             let ranges = paragraphRanges(for: textView)
             guard let storage = textView.textStorage else { return }
+            let removeHeading = ranges.allSatisfy { range in
+                range.length > 0 && lineIsHeading(storage: storage, range: range)
+            }
             isApplying = true
             for range in ranges {
-                storage.addAttributes([
-                    .font: headingFont,
-                    .foregroundColor: bodyColor,
-                    .paragraphStyle: paragraphStyle(spacing: 14, lineHeightMultiple: 1.02)
-                ], range: range)
+                if removeHeading {
+                    storage.addAttributes(bodyAttributes(), range: range)
+                } else {
+                    storage.addAttributes([
+                        .font: headingFont,
+                        .foregroundColor: bodyColor,
+                        .paragraphStyle: paragraphStyle(spacing: 14, lineHeightMultiple: 1.02)
+                    ], range: range)
+                }
             }
             isApplying = false
         }
@@ -257,17 +264,35 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
         }
 
         private func insertLinePrefix(_ prefix: String, in textView: NSTextView) {
-            let selectedRange = textView.selectedRange()
+            let ranges = paragraphRanges(for: textView)
             let full = textView.string as NSString
-            let paragraphRange = full.paragraphRange(for: selectedRange)
-            let existingLine = full.substring(with: paragraphRange).trimmingCharacters(in: .newlines)
-            let cleaned = existingLine
-                .replacingOccurrences(of: "• ", with: "")
-                .replacingOccurrences(of: "☐ ", with: "")
-                .replacingOccurrences(of: "☑ ", with: "")
-            let replacement = prefix + cleaned
-            textView.replaceCharacters(in: paragraphRange, with: replacement + (paragraphRange.upperBound < full.length ? "\n" : ""))
-            textView.setSelectedRange(NSRange(location: paragraphRange.location + replacement.count, length: 0))
+            let replacements = ranges.map { range in
+                let existingLine = full.substring(with: range).trimmingCharacters(in: .newlines)
+                return prefix + removingListPrefix(from: existingLine)
+            }
+
+            isApplying = true
+            var totalDelta = 0
+            for (range, replacement) in zip(ranges, replacements).reversed() {
+                textView.replaceCharacters(in: range, with: replacement)
+                totalDelta += replacement.count - range.length
+            }
+            isApplying = false
+
+            guard let firstRange = ranges.first, let lastRange = ranges.last else { return }
+            if ranges.count == 1 {
+                textView.setSelectedRange(NSRange(location: firstRange.location + replacements[0].count, length: 0))
+            } else {
+                let originalEnd = lastRange.location + lastRange.length
+                textView.setSelectedRange(NSRange(location: firstRange.location, length: originalEnd + totalDelta - firstRange.location))
+            }
+        }
+
+        private func removingListPrefix(from line: String) -> String {
+            for existingPrefix in ["• ", "☐ ", "☑ "] where line.hasPrefix(existingPrefix) {
+                return String(line.dropFirst(existingPrefix.count))
+            }
+            return line
         }
 
         private func continueListIfNeeded(in textView: NSTextView, affectedCharRange: NSRange) {

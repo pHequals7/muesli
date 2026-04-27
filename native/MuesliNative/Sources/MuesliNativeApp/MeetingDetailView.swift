@@ -480,9 +480,9 @@ struct MeetingDetailView: View {
     private func statusChip(for meeting: MeetingRecord) -> some View {
         HStack(spacing: 6) {
             Circle()
-                .fill(statusColor(for: meeting.status))
+                .fill(meeting.status.displayColor)
                 .frame(width: 7, height: 7)
-            Text(statusLabel(for: meeting.status))
+            Text(meeting.status.displayLabel)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuesliTheme.textSecondary)
         }
@@ -764,36 +764,6 @@ struct MeetingDetailView: View {
 
     private func saveManualNotes(meetingID: Int64) {
         controller.cacheMeetingManualNotes(id: meetingID, notes: editableManualNotes)
-    }
-
-    private func statusLabel(for status: MeetingStatus) -> String {
-        switch status {
-        case .recording:
-            return "Recording"
-        case .processing:
-            return "Processing"
-        case .completed:
-            return "Completed"
-        case .noteOnly:
-            return "Note only"
-        case .failed:
-            return "Needs attention"
-        }
-    }
-
-    private func statusColor(for status: MeetingStatus) -> Color {
-        switch status {
-        case .recording:
-            return MuesliTheme.recording
-        case .processing:
-            return MuesliTheme.accent
-        case .completed:
-            return MuesliTheme.success
-        case .noteOnly:
-            return MuesliTheme.textTertiary
-        case .failed:
-            return MuesliTheme.transcribing
-        }
     }
 
     private var summaryErrorBinding: Binding<Bool> {

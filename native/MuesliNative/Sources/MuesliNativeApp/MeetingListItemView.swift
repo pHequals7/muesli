@@ -196,12 +196,12 @@ struct MeetingListItemView: View {
     // MARK: - Formatting
 
     private var statusBadge: some View {
-        Text(statusLabel(record.status))
+        Text(record.status.displayLabel)
             .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(statusColor(record.status))
+            .foregroundStyle(record.status.displayColor)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(statusColor(record.status).opacity(0.12))
+            .background(record.status.displayColor.opacity(0.12))
             .clipShape(Capsule())
     }
 
@@ -247,33 +247,4 @@ struct MeetingListItemView: View {
         return compact.isEmpty ? "No notes yet" : compact
     }
 
-    private func statusLabel(_ status: MeetingStatus) -> String {
-        switch status {
-        case .recording:
-            return "Recording"
-        case .processing:
-            return "Processing"
-        case .completed:
-            return "Completed"
-        case .noteOnly:
-            return "Note only"
-        case .failed:
-            return "Needs attention"
-        }
-    }
-
-    private func statusColor(_ status: MeetingStatus) -> Color {
-        switch status {
-        case .recording:
-            return MuesliTheme.recording
-        case .processing:
-            return MuesliTheme.accent
-        case .completed:
-            return MuesliTheme.success
-        case .noteOnly:
-            return MuesliTheme.textSecondary
-        case .failed:
-            return MuesliTheme.transcribing
-        }
-    }
 }

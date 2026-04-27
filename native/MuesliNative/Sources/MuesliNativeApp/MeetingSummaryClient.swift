@@ -189,11 +189,24 @@ enum MeetingSummaryClient {
                 || trimmed.hasPrefix("- [ ] ")
                 || trimmed.hasPrefix("- [x] ")
                 || trimmed.hasPrefix("- [X] ")
+                || isNumberedListLine(trimmed)
         }
         if !listLines.isEmpty, listLines.count == nonEmptyLines.count {
             return listLines.map { $0.trimmingCharacters(in: .whitespaces) }
         }
         return [normalized]
+    }
+
+    private static func isNumberedListLine(_ line: String) -> Bool {
+        var sawDigit = false
+        var index = line.startIndex
+        while index < line.endIndex, line[index].isNumber {
+            sawDigit = true
+            index = line.index(after: index)
+        }
+        guard sawDigit, index < line.endIndex, line[index] == "." else { return false }
+        let next = line.index(after: index)
+        return next < line.endIndex && line[next].isWhitespace
     }
 
     private static func summarizeWithOpenAI(

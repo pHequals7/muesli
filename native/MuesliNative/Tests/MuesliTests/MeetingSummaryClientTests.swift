@@ -117,6 +117,16 @@ struct MeetingSummaryClientTests {
         #expect(result == "## Decisions\n- Decision: ship today")
     }
 
+    @Test("final notes retain missing numbered written notes without duplicating placed ones")
+    func finalNotesRetainMissingNumberedManualNotes() {
+        let result = MeetingSummaryClient.notesByRetainingManualNotes(
+            generatedNotes: "## Decisions\n1. First decision",
+            manualNotes: "1. First decision\n2. Second decision"
+        )
+
+        #expect(result == "## Decisions\n1. First decision\n\n### Written notes\n\n2. Second decision")
+    }
+
     @Test("fallback summary retains manual notes")
     func fallbackSummaryRetainsManualNotes() async throws {
         var config = AppConfig()

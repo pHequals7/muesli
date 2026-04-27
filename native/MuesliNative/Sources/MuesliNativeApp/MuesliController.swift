@@ -475,12 +475,7 @@ final class MuesliController: NSObject {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         let meetings = (try? dictationStore.staleLiveMeetings()) ?? []
         for meeting in meetings {
-            let manualNotes = meeting.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines)
-            if manualNotes.isEmpty {
-                try? dictationStore.deleteMeeting(id: meeting.id)
-            } else {
-                try? dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
-            }
+            try? dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
         }
     }
 
