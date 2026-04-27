@@ -417,8 +417,7 @@ final class FloatingIndicatorController {
         glassView?.isHidden = false
         tintLayer?.isHidden = false
         tintLayer?.backgroundColor = NSColor.colorWith(hexString: "1e1e2e", alpha: 0.72).cgColor
-        tintLayer?.frame = CGRect(origin: .zero, size: loadingSize)
-        tintLayer?.cornerRadius = loadingSize.height / 2
+        applyTintLayerGeometry(size: loadingSize, radius: loadingSize.height / 2)
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.18
@@ -617,8 +616,7 @@ final class FloatingIndicatorController {
         }
         tintLayer?.isHidden = false
         tintLayer?.backgroundColor = NSColor.colorWith(hexString: tintHex, alpha: tintAlpha).cgColor
-        tintLayer?.frame = CGRect(origin: .zero, size: frameSize)
-        tintLayer?.cornerRadius = radius
+        applyTintLayerGeometry(size: frameSize, radius: radius)
 
         let iconSize = NSSize(width: 18, height: 18)
 
@@ -740,6 +738,8 @@ final class FloatingIndicatorController {
         // dark glass presence rather than showing everything underneath.
         let tint = CALayer()
         tint.backgroundColor = NSColor.colorWith(hex: 0x1e1e2e, alpha: 0.44).cgColor
+        tint.contentsScale = NSScreen.main?.backingScaleFactor ?? 2
+        tint.masksToBounds = true
         tint.isHidden = true
         contentView.layer?.addSublayer(tint)
         tintLayer = tint
@@ -769,6 +769,19 @@ final class FloatingIndicatorController {
         contentView.addSubview(wandView)
         wandIconView = wandView
 
+    }
+
+    private func applyTintLayerGeometry(size: NSSize, radius: CGFloat) {
+        // Slightly overdraw inside contentView's clipped pill so subpixel
+        // antialiasing cannot expose the darker visual-effect view underneath.
+        let overdraw: CGFloat = 1
+        tintLayer?.frame = CGRect(
+            x: -overdraw,
+            y: -overdraw,
+            width: size.width + overdraw * 2,
+            height: size.height + overdraw * 2
+        )
+        tintLayer?.cornerRadius = radius + overdraw
     }
 
     static func defaultIndicatorCenter(in visibleFrame: NSRect, idleSize: NSSize = NSSize(width: 44, height: 28)) -> CGPoint {
