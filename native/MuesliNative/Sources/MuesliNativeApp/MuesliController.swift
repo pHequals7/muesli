@@ -115,6 +115,7 @@ final class MuesliController: NSObject {
     private var liveManualNotesLastPersistedValue: [Int64: String] = [:]
     private var liveManualNotesPersistWorkItems: [Int64: DispatchWorkItem] = [:]
     private let liveManualNotesPersistInterval: TimeInterval = 0.75
+    private var staleLiveMeetingRecoveryFailures = Set<Int64>()
     private var dictationStartedAt: Date?
     private var _streamingDictationController: Any?  // StreamingDictationController (macOS 15+)
     private var isNemotronStreaming = false
@@ -473,9 +474,26 @@ final class MuesliController: NSObject {
 
     func recoverStaleLiveMeetings() {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
-        let meetings = (try? dictationStore.staleLiveMeetings()) ?? []
+        let meetings: [MeetingRecord]
+        do {
+            meetings = try dictationStore.staleLiveMeetings()
+        } catch {
+            fputs("[muesli-native] failed to load stale live meetings: \(error)\n", stderr)
+            return
+        }
+
         for meeting in meetings {
-            try? dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
+            do {
+                try dictationStore.updateMeetingStatus(id: meeting.id, status: .failed)
+                staleLiveMeetingRecoveryFailures.remove(meeting.id)
+            } catch {
+                staleLiveMeetingRecoveryFailures.insert(meeting.id)
+                fputs("[muesli-native] failed to recover stale meeting \(meeting.id): \(error)\n", stderr)
+            }
+        }
+
+        if !meetings.isEmpty {
+            syncAppState()
         }
     }
 
@@ -1608,6 +1626,7 @@ final class MuesliController: NSObject {
             }
         }
         clearCachedMeetingManualNotes(id: id)
+        staleLiveMeetingRecoveryFailures.remove(id)
 
         historyWindowController?.reload()
         statusBarController?.refresh()
@@ -1623,6 +1642,9 @@ final class MuesliController: NSObject {
 
     func canDeleteMeeting(_ meeting: MeetingRecord) -> Bool {
         guard meeting.id != activeMeetingID else { return false }
+        if staleLiveMeetingRecoveryFailures.contains(meeting.id) {
+            return true
+        }
         switch meeting.status {
         case .recording, .processing:
             return false
@@ -1899,7 +1921,7 @@ final class MuesliController: NSObject {
     }
 
     func discardMeetingRecording() {
-        guard let activeMeetingSession else {
+        guard let sessionToDiscard = activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             guard !isStartingMeetingRecording else { return }
             indicator.setMeetingRecording(false, config: config)
@@ -1912,7 +1934,7 @@ final class MuesliController: NSObject {
             setState(.idle)
             return
         }
-        activeMeetingSession.discard()
+        sessionToDiscard.discard()
         self.activeMeetingSession = nil
         indicator.setMeetingRecording(false, config: config)
         if let activeMeetingID {
@@ -2007,7 +2029,7 @@ final class MuesliController: NSObject {
 
     func stopMeetingRecording() {
         guard !isStoppingMeetingRecording else { return }
-        guard let activeMeetingSession else {
+        guard let sessionToStop = activeMeetingSession else {
             // Fallback recovery: reset indicator if session is nil
             guard !isStartingMeetingRecording else { return }
             if let activeMeetingID {
@@ -2033,7 +2055,7 @@ final class MuesliController: NSObject {
         indicator.setMeetingRecording(false, config: config)
         indicator.setTranscribingTitle("Transcribing", config: config)
         setState(.transcribing)
-        activeMeetingSession.onProgress = { [weak self] stage in
+        sessionToStop.onProgress = { [weak self] stage in
             Task { @MainActor [weak self] in
                 self?.setMeetingProcessingStage(stage)
             }
@@ -2045,7 +2067,7 @@ final class MuesliController: NSObject {
             var meetingResult: MeetingSessionResult?
             var failedLiveMeetingID: Int64?
             do {
-                let result = try await activeMeetingSession.stop()
+                let result = try await sessionToStop.stop()
                 meetingResult = result
                 meetingTitle = result.title
                 await MainActor.run {
