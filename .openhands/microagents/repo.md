@@ -11,6 +11,7 @@ You are working on Muesli, a Swift/SwiftUI macOS app.
 
 ## Hard Rules
 
+- Do not use or install compromised LiteLLM versions `1.82.7` or `1.82.8`.
 - Never run `./scripts/dev-test.sh --clean`.
 - Never delete, reset, replace, or migrate away local MuesliDev data.
 - Never run release scripts.
