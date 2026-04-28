@@ -1654,7 +1654,7 @@ final class MuesliController: NSObject {
     }
 
     func clearMeetingHistory() {
-        guard !isMeetingRecording() else {
+        guard !isMeetingRecording(), !isStartingMeetingRecording else {
             presentErrorAlert(
                 title: "Couldn't Clear Meeting History",
                 message: "Stop the current meeting recording before clearing saved meetings."
