@@ -1419,9 +1419,12 @@ final class MuesliController: NSObject {
         liveManualNotesPersistWorkItems[id]?.cancel()
         liveManualNotesPersistWorkItems[id] = nil
         liveManualNotesCache[id] = notes
-        try? dictationStore.updateMeetingManualNotes(id: id, manualNotes: notes)
-        liveManualNotesLastPersistedAt[id] = Date()
-        liveManualNotesLastPersistedValue[id] = notes
+        do {
+            try dictationStore.updateMeetingManualNotes(id: id, manualNotes: notes)
+            markMeetingManualNotesPersisted(id: id, notes: notes)
+        } catch {
+            fputs("[muesli-native] failed to update manual notes for \(id): \(error)\n", stderr)
+        }
         syncAppState()
     }
 
@@ -1468,12 +1471,20 @@ final class MuesliController: NSObject {
             }
             return
         }
-        try? dictationStore.updateMeetingManualNotes(id: id, manualNotes: notes)
-        liveManualNotesLastPersistedAt[id] = Date()
-        liveManualNotesLastPersistedValue[id] = notes
+        do {
+            try dictationStore.updateMeetingManualNotes(id: id, manualNotes: notes)
+            markMeetingManualNotesPersisted(id: id, notes: notes)
+        } catch {
+            fputs("[muesli-native] failed to persist manual notes for \(id): \(error)\n", stderr)
+        }
         if sync {
             syncAppState()
         }
+    }
+
+    private func markMeetingManualNotesPersisted(id: Int64, notes: String) {
+        liveManualNotesLastPersistedAt[id] = Date()
+        liveManualNotesLastPersistedValue[id] = notes
     }
 
     private func clearCachedMeetingManualNotes(id: Int64) {
@@ -1681,6 +1692,14 @@ final class MuesliController: NSObject {
         case .completed, .noteOnly, .failed:
             return true
         }
+    }
+
+    func activeLiveMeetingRecord() -> MeetingRecord? {
+        guard let activeMeetingID,
+              isMeetingRecording() || isStartingMeetingRecording else {
+            return nil
+        }
+        return meeting(id: activeMeetingID)
     }
 
     func clearMeetingHistory() {

@@ -197,6 +197,33 @@ struct MeetingsNavigationTests {
         #expect(persisted.manualNotes == "Decision before crash")
     }
 
+    @Test("failed manual note persistence retries on later flush")
+    func failedManualNotePersistenceRetriesOnFlush() throws {
+        let store = try makeStore()
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+
+        controller.cacheMeetingManualNotes(id: 1, notes: "Draft survives retry")
+        let meetingID = try store.createLiveMeeting(
+            title: "Live Quick Note",
+            calendarEventID: nil,
+            startTime: Date()
+        )
+        #expect(meetingID == 1)
+
+        controller.flushCachedMeetingManualNotes(id: meetingID, sync: false)
+
+        let stored = try #require(try store.meeting(id: meetingID))
+        #expect(stored.manualNotes == "Draft survives retry")
+    }
+
     @Test("manual note cache coalesces repeated writes until flush")
     func cachedManualNotesCoalesceRepeatedWrites() throws {
         let store = try makeStore()

@@ -162,7 +162,7 @@ struct MeetingsView: View {
     }
 
     private var activeLiveMeeting: MeetingRecord? {
-        appState.meetingRows.first { $0.status == .recording || $0.status == .processing }
+        controller.activeLiveMeetingRecord()
     }
 
     var body: some View {
