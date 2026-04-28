@@ -127,6 +127,26 @@ struct MeetingSummaryClientTests {
         #expect(result == "## Decisions\n1. First decision\n\n### Written notes\n\n2. Second decision")
     }
 
+    @Test("final notes match manual notes across list marker changes")
+    func finalNotesMatchManualNotesAcrossListMarkers() {
+        let result = MeetingSummaryClient.notesByRetainingManualNotes(
+            generatedNotes: """
+            ## Decisions
+            - Decision: ship today
+            - Follow up with Priy
+            1. First decision
+            """,
+            manualNotes: """
+            • Decision: ship today
+            - [ ] Follow up with Priy
+            1) First decision
+            2) Second decision
+            """
+        )
+
+        #expect(result == "## Decisions\n- Decision: ship today\n- Follow up with Priy\n1. First decision\n\n### Written notes\n\n2) Second decision")
+    }
+
     @Test("short written notes are not dropped by section title substring matches")
     func shortManualNotesDoNotFalseMatchSectionTitles() {
         let result = MeetingSummaryClient.notesByRetainingManualNotes(

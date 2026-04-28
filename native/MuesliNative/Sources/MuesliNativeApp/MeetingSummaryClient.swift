@@ -211,11 +211,30 @@ enum MeetingSummaryClient {
     }
 
     private static func normalizedManualNoteMatchText(_ text: String) -> String {
-        text
+        normalizedManualNoteContent(text)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .split(whereSeparator: \.isWhitespace)
             .joined(separator: " ")
             .lowercased()
+    }
+
+    private static func normalizedManualNoteContent(_ text: String) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixes = [
+            "- [ ] ", "- [x] ", "- [X] ",
+            "* [ ] ", "* [x] ", "* [X] ",
+            "• [ ] ", "• [x] ", "• [X] ",
+            "- ", "* ", "• "
+        ]
+        if let prefix = prefixes.first(where: { trimmed.hasPrefix($0) }) {
+            trimmed.removeFirst(prefix.count)
+            return trimmed
+        }
+
+        if let match = trimmed.range(of: #"^\d+[.)]\s+"#, options: .regularExpression) {
+            trimmed.removeSubrange(match)
+        }
+        return trimmed
     }
 
     private static func isNumberedListLine(_ line: String) -> Bool {
@@ -225,7 +244,7 @@ enum MeetingSummaryClient {
             sawDigit = true
             index = line.index(after: index)
         }
-        guard sawDigit, index < line.endIndex, line[index] == "." else { return false }
+        guard sawDigit, index < line.endIndex, line[index] == "." || line[index] == ")" else { return false }
         let next = line.index(after: index)
         return next < line.endIndex && line[next].isWhitespace
     }

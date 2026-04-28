@@ -306,6 +306,44 @@ struct MeetingsNavigationTests {
         #expect(storedMeeting.formattedNotes == "## Summary\nFundraising updates discussed.")
     }
 
+    @Test("persistCompletedMeetingResult preserves cached live title before debounce")
+    func persistCompletedMeetingResultPreservesCachedLiveTitle() async throws {
+        let store = try makeStore()
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+        let start = Date()
+        let liveID = try store.createLiveMeeting(title: "Meeting", calendarEventID: nil, startTime: start)
+        controller.cacheMeetingTitle(id: liveID, title: "Status Bar Stop Title")
+
+        let result = MeetingSessionResult(
+            title: "Generated Summary Title",
+            originalTitle: "Meeting",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(120),
+            durationSeconds: 120,
+            rawTranscript: "Discussed follow-up items.",
+            formattedNotes: "## Summary\nFollow-up items discussed.",
+            retainedRecordingURL: nil,
+            retainedRecordingError: nil,
+            systemRecordingURL: nil,
+            templateSnapshot: MeetingTemplates.auto.snapshot
+        )
+
+        _ = try controller.persistCompletedMeetingResult(result, existingMeetingID: liveID)
+
+        let storedMeeting = try #require(try store.meeting(id: liveID))
+        #expect(storedMeeting.title == "Status Bar Stop Title")
+        #expect(storedMeeting.formattedNotes == "## Summary\nFollow-up items discussed.")
+    }
+
     @Test("resummary context strips appended written notes section")
     func resummaryContextStripsWrittenNotesSection() {
         let meeting = makeMeeting(

@@ -110,6 +110,7 @@ final class MuesliController: NSObject {
     private(set) var selectedMeetingSummaryBackend: MeetingSummaryBackendOption
     private var activeMeetingSession: MeetingSession?
     private var activeMeetingID: Int64?
+    private var liveMeetingTitleCache: [Int64: String] = [:]
     private var liveManualNotesCache: [Int64: String] = [:]
     private var liveManualNotesLastPersistedAt: [Int64: Date] = [:]
     private var liveManualNotesLastPersistedValue: [Int64: String] = [:]
@@ -1395,8 +1396,18 @@ final class MuesliController: NSObject {
     }
 
     func updateMeetingTitle(id: Int64, title: String) {
-        try? dictationStore.updateMeetingTitle(id: id, title: title)
+        liveMeetingTitleCache[id] = title
+        do {
+            try dictationStore.updateMeetingTitle(id: id, title: title)
+            liveMeetingTitleCache[id] = nil
+        } catch {
+            fputs("[muesli-native] failed to update meeting title \(id): \(error)\n", stderr)
+        }
         syncAppState()
+    }
+
+    func cacheMeetingTitle(id: Int64, title: String) {
+        liveMeetingTitleCache[id] = title
     }
 
     func updateMeetingNotes(id: Int64, notes: String) {
@@ -1473,12 +1484,30 @@ final class MuesliController: NSObject {
         liveManualNotesLastPersistedValue[id] = nil
     }
 
+    private func clearCachedMeetingTitle(id: Int64) {
+        liveMeetingTitleCache[id] = nil
+    }
+
+    private func flushCachedMeetingTitle(id: Int64) {
+        guard let title = liveMeetingTitleCache[id] else { return }
+        do {
+            try dictationStore.updateMeetingTitle(id: id, title: title)
+            liveMeetingTitleCache[id] = nil
+        } catch {
+            fputs("[muesli-native] failed to flush cached meeting title \(id): \(error)\n", stderr)
+        }
+    }
+
     private func clearAllCachedMeetingManualNotes() {
         liveManualNotesPersistWorkItems.values.forEach { $0.cancel() }
         liveManualNotesPersistWorkItems.removeAll()
         liveManualNotesCache.removeAll()
         liveManualNotesLastPersistedAt.removeAll()
         liveManualNotesLastPersistedValue.removeAll()
+    }
+
+    private func clearAllCachedMeetingTitles() {
+        liveMeetingTitleCache.removeAll()
     }
 
     private func manualNotesForLiveMeeting(id: Int64) -> String {
@@ -1626,6 +1655,7 @@ final class MuesliController: NSObject {
             }
         }
         clearCachedMeetingManualNotes(id: id)
+        clearCachedMeetingTitle(id: id)
         staleLiveMeetingRecoveryFailures.remove(id)
 
         historyWindowController?.reload()
@@ -1674,6 +1704,7 @@ final class MuesliController: NSObject {
 
         try? dictationStore.clearMeetings()
         clearAllCachedMeetingManualNotes()
+        clearAllCachedMeetingTitles()
         appState.selectedMeetingID = nil
         appState.selectedMeetingRecord = nil
         appState.meetingsNavigationState = .browser
@@ -1956,6 +1987,7 @@ final class MuesliController: NSObject {
         if manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             try? dictationStore.deleteMeeting(id: id)
             clearCachedMeetingManualNotes(id: id)
+            clearCachedMeetingTitle(id: id)
             if appState.selectedMeetingID == id {
                 appState.selectedMeetingID = nil
                 appState.selectedMeetingRecord = nil
@@ -1973,12 +2005,15 @@ final class MuesliController: NSObject {
         alert.addButton(withTitle: "Delete Draft")
         alert.buttons.dropFirst().first?.hasDestructiveAction = true
         if alert.runModal() == .alertFirstButtonReturn {
+            flushCachedMeetingTitle(id: id)
             flushCachedMeetingManualNotes(id: id, sync: false)
             try? dictationStore.updateMeetingStatus(id: id, status: .noteOnly)
             clearCachedMeetingManualNotes(id: id)
+            clearCachedMeetingTitle(id: id)
         } else {
             try? dictationStore.deleteMeeting(id: id)
             clearCachedMeetingManualNotes(id: id)
+            clearCachedMeetingTitle(id: id)
             if appState.selectedMeetingID == id {
                 appState.selectedMeetingID = nil
                 appState.selectedMeetingRecord = nil
@@ -1993,15 +2028,18 @@ final class MuesliController: NSObject {
         if manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             try? dictationStore.deleteMeeting(id: id)
             clearCachedMeetingManualNotes(id: id)
+            clearCachedMeetingTitle(id: id)
             if appState.selectedMeetingID == id {
                 appState.selectedMeetingID = nil
                 appState.selectedMeetingRecord = nil
                 appState.meetingsNavigationState = .browser
             }
         } else {
+            flushCachedMeetingTitle(id: id)
             flushCachedMeetingManualNotes(id: id, sync: false)
             try? dictationStore.updateMeetingStatus(id: id, status: .failed)
             clearCachedMeetingManualNotes(id: id)
+            clearCachedMeetingTitle(id: id)
         }
         if activeMeetingID == id {
             activeMeetingID = nil
@@ -2014,15 +2052,18 @@ final class MuesliController: NSObject {
         if manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             try? dictationStore.deleteMeeting(id: id)
             clearCachedMeetingManualNotes(id: id)
+            clearCachedMeetingTitle(id: id)
             if appState.selectedMeetingID == id {
                 appState.selectedMeetingID = nil
                 appState.selectedMeetingRecord = nil
                 appState.meetingsNavigationState = .browser
             }
         } else {
+            flushCachedMeetingTitle(id: id)
             flushCachedMeetingManualNotes(id: id, sync: false)
             try? dictationStore.updateMeetingStatus(id: id, status: .failed)
             clearCachedMeetingManualNotes(id: id)
+            clearCachedMeetingTitle(id: id)
         }
         syncAppState()
     }
@@ -2178,6 +2219,7 @@ final class MuesliController: NSObject {
             )
             meetingID = existingMeetingID
             clearCachedMeetingManualNotes(id: existingMeetingID)
+            clearCachedMeetingTitle(id: existingMeetingID)
         } else {
             meetingID = try dictationStore.insertMeeting(
                 title: result.title,
@@ -2199,7 +2241,10 @@ final class MuesliController: NSObject {
     }
 
     private func liveMeetingTitle(id: Int64) -> String? {
-        try? dictationStore.meeting(id: id)?.title
+        if let cached = liveMeetingTitleCache[id] {
+            return cached
+        }
+        return try? dictationStore.meeting(id: id)?.title
     }
 
     private func completedLiveMeetingTitle(for result: MeetingSessionResult, existingMeetingID: Int64) -> String {

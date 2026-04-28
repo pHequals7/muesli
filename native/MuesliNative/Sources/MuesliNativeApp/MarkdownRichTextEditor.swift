@@ -181,6 +181,10 @@ struct MarkdownRichTextEditor: NSViewRepresentable {
             publishBinding(markdown)
             textView.needsDisplay = true
             self.command = nil
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                textView.window?.makeFirstResponder(textView)
+            }
         }
 
         private func scheduleBindingPublish(_ markdown: String) {

@@ -546,10 +546,23 @@ struct DictationStoreTests {
             rawTranscript: "This is a test transcript with several words",
             formattedNotes: "", micAudioPath: nil, systemAudioPath: nil
         )
+        let liveID = try store.createLiveMeeting(
+            title: "Live Draft",
+            calendarEventID: nil,
+            startTime: start.addingTimeInterval(60)
+        )
+        let noteOnlyID = try store.createLiveMeeting(
+            title: "Written Notes",
+            calendarEventID: nil,
+            startTime: start.addingTimeInterval(120)
+        )
+        try store.updateMeetingManualNotes(id: noteOnlyID, manualNotes: "manual note words")
+        try store.updateMeetingStatus(id: noteOnlyID, status: .noteOnly)
+        try store.updateMeetingStatus(id: liveID, status: .failed)
 
         let stats = try store.meetingStats()
-        #expect(stats.totalMeetings == 1)
-        #expect(stats.totalWords == 8)
+        #expect(stats.totalMeetings == 2)
+        #expect(stats.totalWords == 11)
     }
 
     @Test("clear dictations removes all records")

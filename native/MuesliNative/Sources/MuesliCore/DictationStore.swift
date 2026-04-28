@@ -586,12 +586,15 @@ public final class DictationStore {
             COALESCE(SUM(word_count), 0) AS total_words,
             COALESCE(SUM(duration_seconds), 0) AS total_duration_seconds
         FROM meetings
+        WHERE meeting_status IN (?, ?)
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
         }
         defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (MeetingStatus.completed.rawValue as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 2, (MeetingStatus.noteOnly.rawValue as NSString).utf8String, -1, nil)
         guard sqlite3_step(statement) == SQLITE_ROW else {
             return MeetingStats(totalWords: 0, totalMeetings: 0, averageWPM: 0)
         }

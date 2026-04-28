@@ -751,6 +751,7 @@ struct MeetingDetailView: View {
         titleSaveTask?.cancel()
         let title = editableTitle
         let c = controller
+        c.cacheMeetingTitle(id: meetingID, title: title)
         let item = DispatchWorkItem { c.updateMeetingTitle(id: meetingID, title: title) }
         titleSaveTask = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: item)
