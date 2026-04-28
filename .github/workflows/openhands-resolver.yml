@@ -10,13 +10,13 @@ on:
   pull_request_review_comment:
     types: [created]
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-
 jobs:
   call-openhands-resolver:
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
     # The resolver receives write-capable credentials. Only allow maintainer
     # invocations, only run on explicit OpenHands requests, and keep fork PRs
     # out of the write-token path.
@@ -34,7 +34,7 @@ jobs:
         ) ||
         (
           github.event_name == 'issue_comment' &&
-          github.event.issue.pull_request == null &&
+          github.event.issue.pull_request == '' &&
           startsWith(github.event.comment.body, vars.OPENHANDS_MACRO || '@openhands-agent')
         ) ||
         (
