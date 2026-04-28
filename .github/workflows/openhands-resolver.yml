@@ -11,7 +11,20 @@ on:
     types: [created]
 
 jobs:
+  openhands-config:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      llm_model: ${{ steps.config.outputs.llm_model }}
+    steps:
+      - name: Read OpenHands configuration
+        id: config
+        env:
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+        run: echo "llm_model=${LLM_MODEL}" >> "$GITHUB_OUTPUT"
+
   call-openhands-resolver:
+    needs: openhands-config
     permissions:
       contents: write
       pull-requests: write
@@ -50,6 +63,8 @@ jobs:
     secrets:
       PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
       PAT_USERNAME: ${{ secrets.PAT_USERNAME }}
-      LLM_MODEL: ${{ vars.LLM_MODEL }}
+      # Upstream declares LLM_MODEL as a workflow-call secret, but Muesli stores
+      # it as a repo variable and forwards it through this read-only job output.
+      LLM_MODEL: ${{ needs.openhands-config.outputs.llm_model }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
