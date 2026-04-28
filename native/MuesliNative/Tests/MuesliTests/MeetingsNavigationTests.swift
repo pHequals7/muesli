@@ -243,12 +243,15 @@ struct MeetingsNavigationTests {
         )
 
         controller.cacheMeetingManualNotes(id: meetingID, notes: "First durable note")
+        #expect(controller.hasPersistedMeetingManualNotes(id: meetingID, notes: "First durable note"))
         controller.cacheMeetingManualNotes(id: meetingID, notes: "Second cached note")
+        #expect(!controller.hasPersistedMeetingManualNotes(id: meetingID, notes: "Second cached note"))
 
         let beforeFlush = try #require(try store.meeting(id: meetingID))
         #expect(beforeFlush.manualNotes == "First durable note")
 
         controller.flushCachedMeetingManualNotes(id: meetingID, sync: false)
+        #expect(controller.hasPersistedMeetingManualNotes(id: meetingID, notes: "Second cached note"))
 
         let afterFlush = try #require(try store.meeting(id: meetingID))
         #expect(afterFlush.manualNotes == "Second cached note")

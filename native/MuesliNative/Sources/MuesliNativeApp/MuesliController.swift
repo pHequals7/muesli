@@ -1440,6 +1440,13 @@ final class MuesliController: NSObject {
         persistCachedMeetingManualNotes(id: id, notes: notes, sync: sync)
     }
 
+    func hasPersistedMeetingManualNotes(id: Int64, notes: String) -> Bool {
+        if liveManualNotesLastPersistedValue[id] == notes {
+            return true
+        }
+        return (try? dictationStore.meeting(id: id)?.manualNotes) == notes
+    }
+
     private func scheduleCachedMeetingManualNotesPersistence(id: Int64) {
         guard let notes = liveManualNotesCache[id] else { return }
         if shouldPersistCachedMeetingManualNotesImmediately(id: id, notes: notes) {

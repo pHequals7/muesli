@@ -6,6 +6,18 @@ private enum MeetingDocumentMode: Hashable {
     case transcript
 }
 
+private enum ManualNotesSaveStatus {
+    case saved
+    case saving
+
+    var label: String {
+        switch self {
+        case .saved: return "Saved"
+        case .saving: return "Saving..."
+        }
+    }
+}
+
 struct MeetingDetailView: View {
     let meeting: MeetingRecord?
     let controller: MuesliController
@@ -17,11 +29,14 @@ struct MeetingDetailView: View {
     @State private var editableTitle: String
     @State private var editableNotes: String
     @State private var editableManualNotes: String
+    @State private var loadedMeetingID: Int64?
+    @State private var manualNotesSaveStatus: ManualNotesSaveStatus = .saved
     @State private var manualEditorCommand: MarkdownEditorCommand?
     @State private var pendingTemplateID: String
     @State private var documentMode: MeetingDocumentMode
     @State private var titleSaveTask: DispatchWorkItem?
     @State private var notesSaveTask: DispatchWorkItem?
+    @State private var manualNotesSaveStatusTask: DispatchWorkItem?
     @State private var summaryErrorMessage: String?
     @State private var showDeleteConfirmation = false
 
@@ -41,6 +56,7 @@ struct MeetingDetailView: View {
         _editableTitle = State(initialValue: meeting?.title ?? "")
         _editableNotes = State(initialValue: meeting.map { Self.notesContent(for: $0) } ?? "")
         _editableManualNotes = State(initialValue: meeting?.manualNotes ?? "")
+        _loadedMeetingID = State(initialValue: meeting?.id)
         _pendingTemplateID = State(initialValue: initialTemplateID)
         _documentMode = State(initialValue: meeting.map(Self.defaultDocumentMode(for:)) ?? .notes)
     }
@@ -62,6 +78,9 @@ struct MeetingDetailView: View {
                 }
                 .onChange(of: meeting.status) { _, _ in
                     syncLocalState(with: meeting)
+                }
+                .onChange(of: meeting.manualNotes) { _, _ in
+                    syncManualNotesState(with: meeting)
                 }
                 .onChange(of: appState.config.customMeetingTemplates) { _, _ in
                     syncPendingTemplateSelectionIfNeeded(for: meeting)
@@ -458,6 +477,12 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private func manualNotesToolbar(for meeting: MeetingRecord) -> some View {
         HStack(spacing: MuesliTheme.spacing8) {
+            if canEditManualNotes(for: meeting) {
+                Text(manualNotesSaveStatus.label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            }
+
             Spacer()
 
             markdownToolbarButton(systemImage: "textformat.size", label: "Heading") {
@@ -773,7 +798,22 @@ struct MeetingDetailView: View {
     }
 
     private func saveManualNotes(meetingID: Int64, notes: String) {
+        manualNotesSaveStatus = .saving
         controller.cacheMeetingManualNotes(id: meetingID, notes: notes)
+        scheduleManualNotesSaveStatusCheck(meetingID: meetingID, notes: notes)
+    }
+
+    private func scheduleManualNotesSaveStatusCheck(meetingID: Int64, notes: String) {
+        manualNotesSaveStatusTask?.cancel()
+        let item = DispatchWorkItem {
+            guard loadedMeetingID == meetingID else { return }
+            guard editableManualNotes == notes else { return }
+            if controller.hasPersistedMeetingManualNotes(id: meetingID, notes: notes) {
+                manualNotesSaveStatus = .saved
+            }
+        }
+        manualNotesSaveStatusTask = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: item)
     }
 
     private var summaryErrorBinding: Binding<Bool> {
@@ -812,11 +852,27 @@ struct MeetingDetailView: View {
     }
 
     private func syncLocalState(with meeting: MeetingRecord?) {
+        let previousMeetingID = loadedMeetingID
+        loadedMeetingID = meeting?.id
         editableTitle = meeting?.title ?? ""
         editableNotes = meeting.map { Self.notesContent(for: $0) } ?? ""
-        editableManualNotes = meeting?.manualNotes ?? ""
+        if previousMeetingID != meeting?.id {
+            editableManualNotes = meeting?.manualNotes ?? ""
+            manualNotesSaveStatus = .saved
+        } else {
+            syncManualNotesState(with: meeting)
+        }
         pendingTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
         documentMode = meeting.map(Self.defaultDocumentMode(for:)) ?? .notes
+    }
+
+    private func syncManualNotesState(with meeting: MeetingRecord?) {
+        let persistedManualNotes = meeting?.manualNotes ?? ""
+        if manualNotesSaveStatus == .saving, editableManualNotes != persistedManualNotes {
+            return
+        }
+        editableManualNotes = persistedManualNotes
+        manualNotesSaveStatus = .saved
     }
 
     private func formatMeta(_ meeting: MeetingRecord) -> String {
