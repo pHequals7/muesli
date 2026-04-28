@@ -954,7 +954,7 @@ final class MuesliController: NSObject {
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.startMeetingRecording(title: title, calendarEventID: calendarEventID)
+                self.startForegroundMeetingRecording(title: title, calendarEventID: calendarEventID)
                 self.scheduleMeetingEndNotification(endDate: endDate, title: title)
             },
             onJoinAndRecord: meetingURL != nil ? { [weak self] in
@@ -1947,7 +1947,7 @@ final class MuesliController: NSObject {
     /// Single entry point for "Join & Record" from both notification panel and Coming Up section.
     func joinAndRecord(title: String, meetingURL: URL, endDate: Date?, calendarEventID: String? = nil) {
         NSWorkspace.shared.open(meetingURL)
-        startMeetingRecording(title: title, calendarEventID: calendarEventID)
+        startForegroundMeetingRecording(title: title, calendarEventID: calendarEventID)
         scheduleMeetingEndNotification(endDate: endDate, title: title)
     }
 
@@ -2488,7 +2488,7 @@ final class MuesliController: NSObject {
                 guard let self else { return }
                 self.meetingMonitor.markRecordingStarted(candidate)
                 self.presentedMeetingCandidate = nil
-                self.startMeetingRecording(title: title)
+                self.startForegroundMeetingRecording(title: title)
             },
             onDismiss: { [weak self] in
                 guard let self else { return }
@@ -2886,7 +2886,7 @@ final class MuesliController: NSObject {
         let meetingURL = event.meetingURL ?? calendarEvent?.meetingURL
 
         if config.autoRecordMeetings, !isMeetingRecording() {
-            startMeetingRecording(title: event.title, calendarEventID: event.id)
+            startMeetingRecording(title: event.title, calendarEventID: event.id, openDocument: true)
             scheduleMeetingEndNotification(endDate: calendarEndDate, title: event.title)
             return
         }
@@ -2917,7 +2917,7 @@ final class MuesliController: NSObject {
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 self.isShowingCalendarNotification = false
-                self.startMeetingRecording(title: title, calendarEventID: event.id)
+                self.startForegroundMeetingRecording(title: title, calendarEventID: event.id)
                 self.scheduleMeetingEndNotification(endDate: calendarEndDate, title: title)
             },
             onJoinAndRecord: meetingURL != nil ? { [weak self] in
