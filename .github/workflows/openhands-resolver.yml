@@ -12,6 +12,7 @@ on:
 
 jobs:
   openhands-config:
+    if: github.actor == 'pHequals7'
     runs-on: ubuntu-latest
     permissions: {}
     outputs:
