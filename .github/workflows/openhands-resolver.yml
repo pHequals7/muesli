@@ -205,7 +205,6 @@ jobs:
         continue-on-error: true
         env:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
-          ISSUE_TYPE: ${{ steps.context.outputs.issue_type }}
           RESULT_SUCCESS: ${{ steps.result.outputs.success }}
         run: |
           args=(
