@@ -179,6 +179,15 @@ struct SummaryModelPreset {
         SummaryModelPreset(id: "arcee-ai/trinity-large-preview:free", label: "Trinity Large (131k ctx)"),
     ]
 
+    static let ollamaModels: [SummaryModelPreset] = [
+        SummaryModelPreset(id: "llama3.2", label: "Llama 3.2 (default)"),
+        SummaryModelPreset(id: "llama3.1", label: "Llama 3.1"),
+        SummaryModelPreset(id: "mistral", label: "Mistral"),
+        SummaryModelPreset(id: "gemma3", label: "Gemma 3"),
+        SummaryModelPreset(id: "phi4", label: "Phi-4"),
+        SummaryModelPreset(id: "qwen2.5", label: "Qwen 2.5"),
+    ]
+
     static func menuPresets(_ presets: [SummaryModelPreset], currentModel: String) -> [SummaryModelPreset] {
         let trimmedModel = currentModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedModel.isEmpty else { return presets }
@@ -299,7 +308,12 @@ struct MeetingSummaryBackendOption: Equatable {
         label: "ChatGPT"
     )
 
-    static let all: [MeetingSummaryBackendOption] = [.openAI, .openRouter, .chatGPT]
+    static let ollama = MeetingSummaryBackendOption(
+        backend: "ollama",
+        label: "Ollama"
+    )
+
+    static let all: [MeetingSummaryBackendOption] = [.openAI, .openRouter, .chatGPT, .ollama]
 }
 
 struct PostProcessorOption: Identifiable, Equatable {
