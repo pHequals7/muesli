@@ -205,14 +205,12 @@ jobs:
         continue-on-error: true
         env:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
-          ISSUE_TYPE: ${{ steps.context.outputs.issue_type }}
           RESULT_SUCCESS: ${{ steps.result.outputs.success }}
         run: |
           args=(
             python -m openhands.resolver.send_pull_request
             --selected-repo "${GITHUB_REPOSITORY}"
             --issue-number "${ISSUE_NUMBER}"
-            --issue-type "${ISSUE_TYPE}"
             --output-dir output
             --token "${PAT_TOKEN}"
             --username "${PAT_USERNAME}"
