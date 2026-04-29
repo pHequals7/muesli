@@ -19,7 +19,8 @@ struct MeetingCandidateResolverTests {
         runningApps: [RunningAppInfo] = [],
         browserMeetings: [BrowserMeetingContext] = [],
         audioInputProcesses: [AudioProcessActivity] = [],
-        foregroundBundleID: String? = nil
+        foregroundBundleID: String? = nil,
+        now: Date? = nil
     ) -> MeetingSignalSnapshot {
         MeetingSignalSnapshot(
             micActive: micActive,
@@ -29,7 +30,7 @@ struct MeetingCandidateResolverTests {
             browserMeetings: browserMeetings,
             audioInputProcesses: audioInputProcesses,
             foregroundBundleID: foregroundBundleID,
-            now: now
+            now: now ?? self.now
         )
     }
 
@@ -137,7 +138,8 @@ struct MeetingCandidateResolverTests {
             ]
         ))
 
-        #expect(candidate?.id == "app:com.microsoft.teams2")
+        #expect(candidate?.id == "app:com.microsoft.teams2:session:1800000000")
+        #expect(candidate?.suppressionID == candidate?.id)
         #expect(candidate?.platform == .teams)
         #expect(candidate?.appName == "Microsoft Teams")
         #expect(candidate?.sourcePID == 4321)
@@ -194,10 +196,90 @@ struct MeetingCandidateResolverTests {
             foregroundBundleID: "com.tinyspeck.slackmacgap"
         ))
 
-        #expect(candidate?.id == "app:com.tinyspeck.slackmacgap")
+        #expect(candidate?.id == "app:com.tinyspeck.slackmacgap:session:1800000000")
+        #expect(candidate?.suppressionID == candidate?.id)
         #expect(candidate?.platform == .slack)
         #expect(candidate?.appName == "Slack")
         #expect(candidate?.sourcePID == 6789)
+    }
+
+    @Test("Slack audio session identity is stable while audio remains active")
+    func slackAudioSessionIdentityIsStableWhileActive() {
+        let resolver = resolver()
+        let first = resolver.resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 6789,
+                    bundleID: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    isRunningInput: true,
+                    isRunningOutput: true
+                ),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap",
+            now: now
+        ))
+
+        let second = resolver.resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 6789,
+                    bundleID: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    isRunningInput: true,
+                    isRunningOutput: true
+                ),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap",
+            now: now.addingTimeInterval(5)
+        ))
+
+        #expect(first?.id == second?.id)
+        #expect(second?.id == "app:com.tinyspeck.slackmacgap:session:1800000000")
+    }
+
+    @Test("Slack audio session identity resets after idle gap")
+    func slackAudioSessionIdentityResetsAfterIdleGap() {
+        let resolver = resolver()
+        let first = resolver.resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 6789,
+                    bundleID: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    isRunningInput: true,
+                    isRunningOutput: true
+                ),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap",
+            now: now
+        ))
+
+        let second = resolver.resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 6789,
+                    bundleID: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    isRunningInput: true,
+                    isRunningOutput: true
+                ),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap",
+            now: now.addingTimeInterval(11)
+        ))
+
+        #expect(first?.id == "app:com.tinyspeck.slackmacgap:session:1800000000")
+        #expect(second?.id == "app:com.tinyspeck.slackmacgap:session:1800000011")
+        #expect(first?.id != second?.id)
     }
 
     @Test("WhatsApp input-only process remains eligible")
@@ -217,7 +299,8 @@ struct MeetingCandidateResolverTests {
             foregroundBundleID: "net.whatsapp.WhatsApp"
         ))
 
-        #expect(candidate?.id == "app:net.whatsapp.WhatsApp")
+        #expect(candidate?.id == "app:net.whatsapp.WhatsApp:session:1800000000")
+        #expect(candidate?.suppressionID == candidate?.id)
         #expect(candidate?.platform == .whatsApp)
         #expect(candidate?.appName == "WhatsApp")
         #expect(candidate?.sourcePID == 2468)
@@ -240,6 +323,29 @@ struct MeetingCandidateResolverTests {
         #expect(candidate?.appName == "Meeting")
         #expect(candidate?.meetingTitle == "Team sync")
         #expect(candidate?.sourceBundleID == nil)
+    }
+
+    @Test("calendar audio candidate suppresses by app audio session")
+    func calendarAudioCandidateSuppressesByAppAudioSession() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            calendarEvent: CalendarEventContext(id: "evt-slack", title: "Team sync"),
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 6789,
+                    bundleID: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    isRunningInput: true,
+                    isRunningOutput: true
+                ),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap"
+        ))
+
+        #expect(candidate?.id == "cal:evt-slack")
+        #expect(candidate?.suppressionID == "app:com.tinyspeck.slackmacgap:session:1800000000")
+        #expect(candidate?.platform == .slack)
     }
 
     @Test("different Meet URLs are different candidates")

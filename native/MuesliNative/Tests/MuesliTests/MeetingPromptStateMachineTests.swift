@@ -6,7 +6,10 @@ import Testing
 struct MeetingPromptStateMachineTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
-    private func candidate(_ id: String = "googleMeet:meet.google.com/pwm-txwq-txy") -> MeetingCandidate {
+    private func candidate(
+        _ id: String = "googleMeet:meet.google.com/pwm-txwq-txy",
+        suppressionID: String? = nil
+    ) -> MeetingCandidate {
         MeetingCandidate(
             id: id,
             platform: .googleMeet,
@@ -14,7 +17,8 @@ struct MeetingPromptStateMachineTests {
             url: "meet.google.com/pwm-txwq-txy",
             evidence: [.micActive, .cameraActive, .browserURL, .foregroundApp],
             startedAt: now,
-            meetingTitle: nil
+            meetingTitle: nil,
+            suppressionID: suppressionID
         )
     }
 
@@ -114,6 +118,39 @@ struct MeetingPromptStateMachineTests {
 
         #expect(decision(machine, candidate: dismissed).reason == .userDismissedSuppression)
         #expect(decision(machine, candidate: other).action == .show)
+    }
+
+    @Test("user dismiss suppresses same meeting session even if candidate id changes")
+    func userDismissSuppressesSameMeetingSession() {
+        let machine = immediateMachine()
+        let dismissed = candidate("cal:evt-slack", suppressionID: "app:com.tinyspeck.slackmacgap:session:1")
+        let sameSession = candidate(
+            "app:com.tinyspeck.slackmacgap:session:1",
+            suppressionID: "app:com.tinyspeck.slackmacgap:session:1"
+        )
+
+        machine.markShown(dismissed)
+        machine.markUserDismissed(dismissed)
+
+        let result = decision(machine, candidate: sameSession)
+
+        #expect(result.action == .none)
+        #expect(result.reason == .userDismissedSuppression)
+    }
+
+    @Test("user dismiss does not suppress a later meeting session")
+    func userDismissDoesNotSuppressLaterMeetingSession() {
+        let machine = immediateMachine()
+        let dismissed = candidate("app:com.tinyspeck.slackmacgap:session:1")
+        let laterSession = candidate("app:com.tinyspeck.slackmacgap:session:2")
+
+        machine.markShown(dismissed)
+        machine.markUserDismissed(dismissed)
+
+        let result = decision(machine, candidate: laterSession)
+
+        #expect(result.action == .show)
+        #expect(result.candidate?.id == laterSession.id)
     }
 
     @Test("auto-dismiss suppression survives candidate dropout")

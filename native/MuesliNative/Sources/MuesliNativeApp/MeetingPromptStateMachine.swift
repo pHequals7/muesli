@@ -32,8 +32,8 @@ struct MeetingPromptDecision: Equatable {
 
 final class MeetingPromptStateMachine {
     private(set) var visiblePromptID: String?
-    private var userDismissedCandidateIDs: Set<String> = []
-    private var autoDismissedCandidateIDs: Set<String> = []
+    private var userDismissedSuppressionIDs: Set<String> = []
+    private var autoDismissedSuppressionIDs: Set<String> = []
     private var lastCandidateID: String?
     private let candidateStabilityDelay: TimeInterval
     private var pendingCandidateID: String?
@@ -87,12 +87,12 @@ final class MeetingPromptStateMachine {
             lastCandidateID = candidate.id
         }
 
-        if userDismissedCandidateIDs.contains(candidate.id) {
+        if userDismissedSuppressionIDs.contains(candidate.suppressionID) {
             resetPendingCandidate()
             return MeetingPromptDecision(action: .none, candidate: candidate, reason: .userDismissedSuppression)
         }
 
-        if autoDismissedCandidateIDs.contains(candidate.id) {
+        if autoDismissedSuppressionIDs.contains(candidate.suppressionID) {
             resetPendingCandidate()
             return MeetingPromptDecision(action: .none, candidate: candidate, reason: .autoDismissedSuppression)
         }
@@ -117,14 +117,14 @@ final class MeetingPromptStateMachine {
     func markAutoDismissed(_ candidate: MeetingCandidate) {
         if visiblePromptID == candidate.id { visiblePromptID = nil }
         lastCandidateID = candidate.id
-        autoDismissedCandidateIDs.insert(candidate.id)
+        autoDismissedSuppressionIDs.insert(candidate.suppressionID)
         resetPendingCandidate()
     }
 
     func markUserDismissed(_ candidate: MeetingCandidate) {
         if visiblePromptID == candidate.id { visiblePromptID = nil }
-        userDismissedCandidateIDs.insert(candidate.id)
-        autoDismissedCandidateIDs.remove(candidate.id)
+        userDismissedSuppressionIDs.insert(candidate.suppressionID)
+        autoDismissedSuppressionIDs.remove(candidate.suppressionID)
         resetPendingCandidate()
     }
 
@@ -144,10 +144,8 @@ final class MeetingPromptStateMachine {
             pendingCandidateFirstSeenAt = now
             return false
         }
-        guard let firstSeen = pendingCandidateFirstSeenAt else {
-            pendingCandidateFirstSeenAt = now
-            return false
-        }
+        let firstSeen = pendingCandidateFirstSeenAt ?? now
+        pendingCandidateFirstSeenAt = firstSeen
         return now.timeIntervalSince(firstSeen) >= candidateStabilityDelay
     }
 
