@@ -212,7 +212,6 @@ jobs:
             python -m openhands.resolver.send_pull_request
             --selected-repo "${GITHUB_REPOSITORY}"
             --issue-number "${ISSUE_NUMBER}"
-            --issue-type "${ISSUE_TYPE}"
             --output-dir output
             --token "${PAT_TOKEN}"
             --username "${PAT_USERNAME}"
