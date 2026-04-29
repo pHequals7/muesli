@@ -224,7 +224,7 @@ jobs:
           else
             args+=(--pr-type branch --send-on-failure)
           fi
-          "${args[@]}" | tee publish_result.txt
+          "${args[@]}"
 
       - name: Comment on resolver result
         if: always() && steps.context.outputs.smoke_only != 'true'
