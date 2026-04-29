@@ -262,6 +262,8 @@ struct MeetingsView: View {
         let f = DateFormatter(); f.dateFormat = "EEE"; return f
     }()
 
+    private static let maxUpcomingEvents = 5
+
     private var groupedUpcomingEvents: [UpcomingEventGroup] {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
@@ -273,7 +275,16 @@ struct MeetingsView: View {
         let monthFormatter = Self.monthFormatter
         let weekdayFormatter = Self.weekdayFormatter
 
-        return grouped.keys.sorted().map { date in
+        let sortedDates = grouped.keys.sorted()
+        var result: [UpcomingEventGroup] = []
+        var remaining = Self.maxUpcomingEvents
+
+        for date in sortedDates {
+            guard remaining > 0 else { break }
+            let sortedEvents = grouped[date]!.sorted { $0.startDate < $1.startDate }
+            let limitedEvents = Array(sortedEvents.prefix(remaining))
+            remaining -= limitedEvents.count
+
             let isToday = calendar.isDate(date, inSameDayAs: today)
             let isTomorrow = calendar.date(byAdding: .day, value: 1, to: today).map { calendar.isDate(date, inSameDayAs: $0) } ?? false
             let dayLabel: String
@@ -284,16 +295,18 @@ struct MeetingsView: View {
             } else {
                 dayLabel = monthFormatter.string(from: date)
             }
-            return UpcomingEventGroup(
+            result.append(UpcomingEventGroup(
                 id: date.description,
                 date: date,
                 dayLabel: dayLabel,
                 dayNumber: dayFormatter.string(from: date),
                 dayOfWeek: weekdayFormatter.string(from: date),
                 isToday: isToday,
-                events: grouped[date]!.sorted { $0.startDate < $1.startDate }
-            )
+                events: limitedEvents
+            ))
         }
+
+        return result
     }
 
     @ViewBuilder
