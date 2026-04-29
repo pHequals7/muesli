@@ -166,15 +166,21 @@ jobs:
             --selected-repo "${GITHUB_REPOSITORY}"
             --issue-number "${ISSUE_NUMBER}"
             --issue-type "${ISSUE_TYPE}"
-            --comment-id "${COMMENT_ID}"
             --max-iterations "${OPENHANDS_MAX_ITER}"
             --token "${PAT_TOKEN}"
             --username "${PAT_USERNAME}"
             --llm-model "${LLM_MODEL}"
             --llm-api-key "${LLM_API_KEY}"
-            --repo-instruction-file ".openhands/microagents/repo.md"
             --output-dir output
           )
+          if [ "${COMMENT_ID}" != "none" ]; then
+            args+=(--comment-id "${COMMENT_ID}")
+          fi
+          if [ -f ".openhands/microagents/repo.md" ]; then
+            args+=(--repo-instruction-file ".openhands/microagents/repo.md")
+          else
+            echo "Warning: .openhands/microagents/repo.md not found; running without repository instructions."
+          fi
           if [ -n "${LLM_BASE_URL}" ]; then
             args+=(--llm-base-url "${LLM_BASE_URL}")
           fi
@@ -200,6 +206,7 @@ jobs:
         env:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
           ISSUE_TYPE: ${{ steps.context.outputs.issue_type }}
+          RESULT_SUCCESS: ${{ steps.result.outputs.success }}
         run: |
           args=(
             python -m openhands.resolver.send_pull_request
@@ -219,7 +226,7 @@ jobs:
             args+=(--llm-base-url "${LLM_BASE_URL}")
           fi
 
-          if [ "${{ steps.result.outputs.success }}" = "true" ]; then
+          if [ "${RESULT_SUCCESS}" = "true" ]; then
             args+=(--pr-type draft)
           else
             args+=(--pr-type branch --send-on-failure)
