@@ -120,8 +120,13 @@ jobs:
             exit 1
           fi
 
+          probe_dir="$(mktemp -d)"
           probe_branch="openhands-auth-probe-${GITHUB_RUN_ID}"
-          if ! git push --dry-run "https://${PAT_USERNAME}:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${probe_branch}"; then
+          git -C "${probe_dir}" init
+          git -C "${probe_dir}" config user.name "openhands-agent"
+          git -C "${probe_dir}" config user.email "openhands-agent@users.noreply.github.com"
+          git -C "${probe_dir}" commit --allow-empty -m "OpenHands auth probe"
+          if ! git -C "${probe_dir}" push --dry-run "https://${PAT_USERNAME}:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${probe_branch}"; then
             echo "Error: PAT failed an HTTPS git push dry run."
             exit 1
           fi
