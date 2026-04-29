@@ -61,7 +61,7 @@ jobs:
             const payload = context.payload;
             let issueNumber;
             let issueType = 'issue';
-            let commentId = 'None';
+            let commentId = 'none';
             let commentBody = '';
 
             if (eventName === 'pull_request') {
@@ -110,7 +110,7 @@ jobs:
       - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
-          path: ${{ env.pythonLocation }}/lib/python3.12/site-packages/*
+          path: ${{ env.pythonLocation }}/lib/python3.12/site-packages
           key: ${{ runner.os }}-pip-openhands-ai-1.6.0
 
       - name: Install OpenHands resolver runtime
@@ -135,6 +135,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
         run: |
+          if [ ! -f ".openhands/microagents/repo.md" ]; then
+            echo "Expected .openhands/microagents/repo.md to exist."
+            exit 1
+          fi
           LITELLM_VERSION="$(python - <<'PY'
           import importlib.metadata as metadata
           print(metadata.version("litellm"))
@@ -183,7 +187,7 @@ jobs:
         id: result
         if: steps.context.outputs.smoke_only != 'true' && hashFiles('output/output.jsonl') != ''
         run: |
-          if grep -q '"success":true' output/output.jsonl; then
+          if grep -qE '"success"[[:space:]]*:[[:space:]]*true' output/output.jsonl; then
             echo "success=true" >> "$GITHUB_OUTPUT"
           else
             echo "success=false" >> "$GITHUB_OUTPUT"
