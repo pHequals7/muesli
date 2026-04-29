@@ -73,10 +73,19 @@ final class MeetingDetector {
         "net.whatsapp.WhatsApp": "WhatsApp",
     ]
 
-    /// Apps that can host calls, but should not override an active browser
-    /// because they may run in the background without being the current meeting.
+    /// Apps that can host calls, but should not trigger from generic
+    /// "running + mic" because they may run in the background without being
+    /// the current meeting.
     private static let weakDedicatedAppBundleIDs: Set<String> = [
+        "com.tinyspeck.slackmacgap",
         "net.whatsapp.WhatsApp",
+    ]
+
+    /// Apps that require process-level audio attribution in the live detector.
+    /// The legacy detector has no process attribution signal, so it should not
+    /// infer these apps from process presence alone.
+    private static let attributedAudioRequiredBundleIDs: Set<String> = [
+        "com.tinyspeck.slackmacgap",
     ]
 
     /// Browsers: always running, so require an extra signal
@@ -147,7 +156,9 @@ final class MeetingDetector {
         }
 
         for app in signals.runningApps where app.bundleID != selfBundleID {
-            if let name = Self.dedicatedApps[app.bundleID], Self.isWeakDedicatedApp(app.bundleID) {
+            if let name = Self.dedicatedApps[app.bundleID],
+               Self.isWeakDedicatedApp(app.bundleID),
+               !Self.requiresAttributedAudio(app.bundleID) {
                 return MeetingDetection(appName: name, meetingTitle: nil)
             }
         }
@@ -235,6 +246,7 @@ final class MeetingDetector {
         for app in signals.runningApps {
             guard app.bundleID != selfBundleID, !detectedKeys.contains(app.bundleID) else { continue }
             guard !hasActiveStrongerDetection() else { continue }
+            guard !Self.requiresAttributedAudio(app.bundleID) else { continue }
             if let name = Self.dedicatedApps[app.bundleID], Self.isWeakDedicatedApp(app.bundleID) {
                 detectedKeys.insert(app.bundleID)
                 return MeetingDetection(appName: name, meetingTitle: nil)
@@ -268,7 +280,8 @@ final class MeetingDetector {
     private func bestSnapshot(_ snapshot: MeetingActivitySnapshot?) -> (name: String, bundleID: String?, sourceID: String?)? {
         guard let snapshot, snapshot.bundleID != selfBundleID else { return nil }
         let sourceID = snapshot.browserURL
-        if let name = Self.dedicatedApps[snapshot.bundleID] {
+        if let name = Self.dedicatedApps[snapshot.bundleID],
+           !Self.requiresAttributedAudio(snapshot.bundleID) {
             return (name, snapshot.bundleID, sourceID)
         }
         if let name = Self.browserApps[snapshot.bundleID] {
@@ -291,13 +304,20 @@ final class MeetingDetector {
             if let name = Self.browserApps[app.bundleID], app.isActive { return (name, app.bundleID, nil) }
         }
         for app in apps where app.bundleID != selfBundleID {
-            if let name = Self.dedicatedApps[app.bundleID] { return (name, app.bundleID, nil) }
+            if let name = Self.dedicatedApps[app.bundleID],
+               !Self.requiresAttributedAudio(app.bundleID) {
+                return (name, app.bundleID, nil)
+            }
         }
         return (nil, nil, nil)
     }
 
     private static func isWeakDedicatedApp(_ bundleID: String) -> Bool {
         weakDedicatedAppBundleIDs.contains(bundleID)
+    }
+
+    private static func requiresAttributedAudio(_ bundleID: String) -> Bool {
+        attributedAudioRequiredBundleIDs.contains(bundleID)
     }
 
     private func hasActiveStrongerDetection() -> Bool {

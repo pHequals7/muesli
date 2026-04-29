@@ -164,8 +164,8 @@ struct MeetingDetectorTests {
         #expect(d.evaluate(signals)?.appName == "FaceTime")
     }
 
-    @Test("mic active + Slack running triggers")
-    func slackPlusMic() {
+    @Test("mic active + Slack running does NOT trigger")
+    func slackPlusMicDoesNotTrigger() {
         let d = makeDetector()
         let signals = MeetingSignals(
             micActive: true,
@@ -173,7 +173,25 @@ struct MeetingDetectorTests {
             calendarEvent: nil,
             runningApps: [RunningAppInfo(bundleID: "com.tinyspeck.slackmacgap", isActive: false)]
         )
-        #expect(d.evaluate(signals)?.appName == "Slack")
+        #expect(d.evaluate(signals) == nil)
+    }
+
+    @Test("mic active + Slack foreground snapshot does NOT trigger")
+    func slackForegroundSnapshotDoesNotTrigger() {
+        let d = makeDetector()
+        let signals = MeetingSignals(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: nil,
+            runningApps: [RunningAppInfo(bundleID: "com.tinyspeck.slackmacgap", isActive: true)],
+            activitySnapshot: MeetingActivitySnapshot(
+                bundleID: "com.tinyspeck.slackmacgap",
+                appName: "Slack",
+                browserURL: nil
+            )
+        )
+        #expect(d.evaluate(signals) == nil)
+        #expect(d.currentDetection(signals) == nil)
     }
 
     // MARK: - Browser + Mic (Priority 3, weakest)

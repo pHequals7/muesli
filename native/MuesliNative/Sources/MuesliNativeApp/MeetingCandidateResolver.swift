@@ -228,8 +228,17 @@ final class MeetingCandidateResolver {
         "net.whatsapp.WhatsApp": ("WhatsApp", .whatsApp),
     ]
 
+    /// Apps that are call-capable but too noisy for generic "running + mic"
+    /// detection. Electron chat apps can keep audio sessions warm while the
+    /// user is only messaging, so they need attributed full-duplex audio or a
+    /// stronger signal such as a calendar/browser meeting.
     static let weakDedicatedAppBundleIDs: Set<String> = [
+        "com.tinyspeck.slackmacgap",
         "net.whatsapp.WhatsApp",
+    ]
+
+    private static let fullDuplexAudioRequiredBundleIDs: Set<String> = [
+        "com.tinyspeck.slackmacgap",
     ]
 
     static let browserApps: [String: String] = [
@@ -384,6 +393,7 @@ final class MeetingCandidateResolver {
         for app in apps.sorted(by: { $0.isActive && !$1.isActive }) where app.bundleID != selfBundleID {
             guard let match = Self.dedicatedApps[app.bundleID] else { continue }
             if !includeWeakApps && Self.weakDedicatedAppBundleIDs.contains(app.bundleID) { continue }
+            if Self.fullDuplexAudioRequiredBundleIDs.contains(app.bundleID) { continue }
             return (app.bundleID, match.name, match.platform)
         }
         return nil
@@ -396,7 +406,14 @@ final class MeetingCandidateResolver {
         let candidates = processes.filter { process in
             guard process.bundleID != selfBundleID else { return false }
             guard Self.dedicatedApps[process.bundleID] != nil else { return false }
-            return includeWeakApps || !Self.weakDedicatedAppBundleIDs.contains(process.bundleID)
+            if !Self.weakDedicatedAppBundleIDs.contains(process.bundleID) {
+                return true
+            }
+            guard includeWeakApps else { return false }
+            guard Self.fullDuplexAudioRequiredBundleIDs.contains(process.bundleID) else {
+                return true
+            }
+            return process.isRunningOutput
         }
 
         return candidates.sorted { lhs, rhs in

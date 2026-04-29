@@ -18,6 +18,13 @@ struct MeetingPromptStateMachineTests {
         )
     }
 
+    private func immediateMachine(autoDismissCooldown: TimeInterval = 120) -> MeetingPromptStateMachine {
+        MeetingPromptStateMachine(
+            autoDismissCooldown: autoDismissCooldown,
+            candidateStabilityDelay: 0
+        )
+    }
+
     private func decision(
         _ machine: MeetingPromptStateMachine,
         candidate: MeetingCandidate?,
@@ -39,20 +46,41 @@ struct MeetingPromptStateMachineTests {
         )
     }
 
-    @Test("eligible candidate shows within one evaluation")
-    func eligibleCandidateShows() {
+    @Test("eligible candidate waits for stability delay")
+    func eligibleCandidateWaitsForStabilityDelay() {
         let machine = MeetingPromptStateMachine()
         let candidate = candidate()
 
-        let result = decision(machine, candidate: candidate)
+        let first = decision(machine, candidate: candidate, now: now)
+        let second = decision(machine, candidate: candidate, now: now.addingTimeInterval(2.9))
+        let third = decision(machine, candidate: candidate, now: now.addingTimeInterval(3.1))
+
+        #expect(first.action == .none)
+        #expect(first.reason == .candidatePending)
+        #expect(second.action == .none)
+        #expect(second.reason == .candidatePending)
+        #expect(third.action == .show)
+        #expect(third.candidate?.id == candidate.id)
+    }
+
+    @Test("candidate change restarts stability delay")
+    func candidateChangeRestartsStabilityDelay() {
+        let machine = MeetingPromptStateMachine()
+        let firstCandidate = candidate()
+        let secondCandidate = candidate("googleMeet:meet.google.com/abc-defg-hij")
+
+        #expect(decision(machine, candidate: firstCandidate, now: now).reason == .candidatePending)
+        #expect(decision(machine, candidate: secondCandidate, now: now.addingTimeInterval(2)).reason == .candidatePending)
+
+        let result = decision(machine, candidate: secondCandidate, now: now.addingTimeInterval(5.2))
 
         #expect(result.action == .show)
-        #expect(result.candidate?.id == candidate.id)
+        #expect(result.candidate?.id == secondCandidate.id)
     }
 
     @Test("visible state clears after auto-dismiss and does not immediately re-show same candidate")
     func autoDismissClearsVisibleState() {
-        let machine = MeetingPromptStateMachine()
+        let machine = immediateMachine()
         let candidate = candidate()
 
         machine.markShown(candidate)
@@ -66,7 +94,7 @@ struct MeetingPromptStateMachineTests {
 
     @Test("new candidate can show after prior candidate auto-dismiss")
     func newCandidateAfterAutoDismissShows() {
-        let machine = MeetingPromptStateMachine()
+        let machine = immediateMachine()
         let oldCandidate = candidate()
         let newCandidate = candidate("googleMeet:meet.google.com/abc-defg-hij")
 
@@ -80,7 +108,7 @@ struct MeetingPromptStateMachineTests {
 
     @Test("user dismiss suppresses only that candidate")
     func userDismissSuppressesOnlyThatCandidate() {
-        let machine = MeetingPromptStateMachine()
+        let machine = immediateMachine()
         let dismissed = candidate()
         let other = candidate("googleMeet:meet.google.com/abc-defg-hij")
 
@@ -93,7 +121,7 @@ struct MeetingPromptStateMachineTests {
 
     @Test("auto-dismiss cooldown survives one-tick candidate dropout")
     func autoDismissCooldownSurvivesCandidateDropout() {
-        let machine = MeetingPromptStateMachine(autoDismissCooldown: 120)
+        let machine = immediateMachine(autoDismissCooldown: 120)
         let candidate = candidate()
 
         machine.markShown(candidate)
@@ -109,7 +137,7 @@ struct MeetingPromptStateMachineTests {
 
     @Test("auto-dismiss cooldown expires for same candidate")
     func autoDismissCooldownExpires() {
-        let machine = MeetingPromptStateMachine(autoDismissCooldown: 10)
+        let machine = immediateMachine(autoDismissCooldown: 10)
         let candidate = candidate()
 
         machine.markShown(candidate)
@@ -122,16 +150,31 @@ struct MeetingPromptStateMachineTests {
 
     @Test("prompt does not show while recording or starting recording")
     func promptBlockedDuringRecordingStates() {
-        let machine = MeetingPromptStateMachine()
+        let machine = immediateMachine()
         let candidate = candidate()
 
         #expect(decision(machine, candidate: candidate, isRecording: true).reason == .recording)
         #expect(decision(machine, candidate: candidate, isStartingRecording: true).reason == .recording)
     }
 
+    @Test("recording state resets pending candidate dwell")
+    func recordingStateResetsPendingCandidateDwell() {
+        let machine = MeetingPromptStateMachine()
+        let candidate = candidate()
+
+        #expect(decision(machine, candidate: candidate, now: now).reason == .candidatePending)
+        #expect(decision(machine, candidate: candidate, isRecording: true, now: now.addingTimeInterval(2)).reason == .recording)
+
+        let afterRecording = decision(machine, candidate: candidate, now: now.addingTimeInterval(4))
+        let afterFreshDwell = decision(machine, candidate: candidate, now: now.addingTimeInterval(7.1))
+
+        #expect(afterRecording.reason == .candidatePending)
+        #expect(afterFreshDwell.action == .show)
+    }
+
     @Test("calendar notification blocks detection notification without overwriting it")
     func calendarNotificationBlocksDetectionNotification() {
-        let machine = MeetingPromptStateMachine()
+        let machine = immediateMachine()
         let candidate = candidate()
 
         let result = decision(machine, candidate: candidate, isCalendarVisible: true)

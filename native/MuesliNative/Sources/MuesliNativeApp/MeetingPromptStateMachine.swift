@@ -20,6 +20,7 @@ struct MeetingPromptDecision: Equatable {
         case calendarNotificationVisible
         case recording
         case promptAlreadyVisible
+        case candidatePending
         case autoDismissedCooldown
         case userDismissedSuppression
     }
@@ -35,9 +36,13 @@ final class MeetingPromptStateMachine {
     private var autoDismissedUntilByID: [String: Date] = [:]
     private var lastCandidateID: String?
     private let autoDismissCooldown: TimeInterval
+    private let candidateStabilityDelay: TimeInterval
+    private var pendingCandidateID: String?
+    private var pendingCandidateFirstSeenAt: Date?
 
-    init(autoDismissCooldown: TimeInterval = 120) {
+    init(autoDismissCooldown: TimeInterval = 120, candidateStabilityDelay: TimeInterval = 3) {
         self.autoDismissCooldown = autoDismissCooldown
+        self.candidateStabilityDelay = candidateStabilityDelay
     }
 
     func evaluate(
@@ -54,18 +59,21 @@ final class MeetingPromptStateMachine {
         reconcileVisibility(visibility)
 
         guard detectionEnabled else {
+            resetPendingCandidate()
             return visiblePromptID == nil
                 ? MeetingPromptDecision(action: .none, candidate: nil, reason: .disabled)
                 : MeetingPromptDecision(action: .hide, candidate: nil, reason: .disabled)
         }
 
         guard !isRecording, !isStartingRecording else {
+            resetPendingCandidate()
             return visiblePromptID == nil
                 ? MeetingPromptDecision(action: .none, candidate: candidate, reason: .recording)
                 : MeetingPromptDecision(action: .hide, candidate: candidate, reason: .recording)
         }
 
         guard !isCalendarNotificationVisible else {
+            resetPendingCandidate()
             return visiblePromptID == nil
                 ? MeetingPromptDecision(action: .none, candidate: candidate, reason: .calendarNotificationVisible)
                 : MeetingPromptDecision(action: .hide, candidate: candidate, reason: .calendarNotificationVisible)
@@ -73,6 +81,7 @@ final class MeetingPromptStateMachine {
 
         guard let candidate else {
             lastCandidateID = nil
+            resetPendingCandidate()
             return visiblePromptID == nil
                 ? MeetingPromptDecision(action: .none, candidate: nil, reason: .noCandidate)
                 : MeetingPromptDecision(action: .hide, candidate: nil, reason: .noCandidate)
@@ -83,15 +92,21 @@ final class MeetingPromptStateMachine {
         }
 
         if let until = userSuppressedUntilByID[candidate.id], now < until {
+            resetPendingCandidate()
             return MeetingPromptDecision(action: .none, candidate: candidate, reason: .userDismissedSuppression)
         }
 
         if let until = autoDismissedUntilByID[candidate.id], now < until {
+            resetPendingCandidate()
             return MeetingPromptDecision(action: .none, candidate: candidate, reason: .autoDismissedCooldown)
         }
 
         if visiblePromptID == candidate.id {
             return MeetingPromptDecision(action: .none, candidate: candidate, reason: .promptAlreadyVisible)
+        }
+
+        guard candidateHasBeenStable(candidate, now: now) else {
+            return MeetingPromptDecision(action: .none, candidate: candidate, reason: .candidatePending)
         }
 
         return MeetingPromptDecision(action: .show, candidate: candidate, reason: .eligible)
@@ -100,18 +115,21 @@ final class MeetingPromptStateMachine {
     func markShown(_ candidate: MeetingCandidate) {
         visiblePromptID = candidate.id
         lastCandidateID = candidate.id
+        resetPendingCandidate()
     }
 
     func markAutoDismissed(_ candidate: MeetingCandidate, now: Date = Date()) {
         if visiblePromptID == candidate.id { visiblePromptID = nil }
         lastCandidateID = candidate.id
         autoDismissedUntilByID[candidate.id] = now.addingTimeInterval(autoDismissCooldown)
+        resetPendingCandidate()
     }
 
     func markUserDismissed(_ candidate: MeetingCandidate, until: Date) {
         if visiblePromptID == candidate.id { visiblePromptID = nil }
         userSuppressedUntilByID[candidate.id] = until
         autoDismissedUntilByID.removeValue(forKey: candidate.id)
+        resetPendingCandidate()
     }
 
     func markClosed(_ candidate: MeetingCandidate) {
@@ -120,6 +138,26 @@ final class MeetingPromptStateMachine {
 
     func resetVisiblePrompt() {
         visiblePromptID = nil
+        resetPendingCandidate()
+    }
+
+    private func candidateHasBeenStable(_ candidate: MeetingCandidate, now: Date) -> Bool {
+        guard candidateStabilityDelay > 0 else { return true }
+        guard pendingCandidateID == candidate.id else {
+            pendingCandidateID = candidate.id
+            pendingCandidateFirstSeenAt = now
+            return false
+        }
+        guard let firstSeen = pendingCandidateFirstSeenAt else {
+            pendingCandidateFirstSeenAt = now
+            return false
+        }
+        return now.timeIntervalSince(firstSeen) >= candidateStabilityDelay
+    }
+
+    private func resetPendingCandidate() {
+        pendingCandidateID = nil
+        pendingCandidateFirstSeenAt = nil
     }
 
     private func reconcileVisibility(_ visibility: MeetingPromptVisibility) {

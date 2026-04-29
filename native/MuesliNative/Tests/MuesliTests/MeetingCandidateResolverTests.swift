@@ -143,6 +143,105 @@ struct MeetingCandidateResolverTests {
         #expect(candidate?.sourcePID == 4321)
     }
 
+    @Test("Slack running plus global mic activity does not resolve")
+    func slackRunningPlusGlobalMicDoesNotResolve() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: true,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.tinyspeck.slackmacgap", isActive: true),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap"
+        ))
+
+        #expect(candidate == nil)
+    }
+
+    @Test("Slack input-only process does not resolve")
+    func slackInputOnlyProcessDoesNotResolve() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 6789,
+                    bundleID: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap"
+        ))
+
+        #expect(candidate == nil)
+    }
+
+    @Test("Slack full-duplex process resolves to Slack")
+    func slackFullDuplexProcessResolves() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 6789,
+                    bundleID: "com.tinyspeck.slackmacgap",
+                    appName: "Slack",
+                    isRunningInput: true,
+                    isRunningOutput: true
+                ),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap"
+        ))
+
+        #expect(candidate?.id == "app:com.tinyspeck.slackmacgap")
+        #expect(candidate?.platform == .slack)
+        #expect(candidate?.appName == "Slack")
+        #expect(candidate?.sourcePID == 6789)
+    }
+
+    @Test("WhatsApp input-only process remains eligible")
+    func whatsAppInputOnlyProcessRemainsEligible() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 2468,
+                    bundleID: "net.whatsapp.WhatsApp",
+                    appName: "WhatsApp",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "net.whatsapp.WhatsApp"
+        ))
+
+        #expect(candidate?.id == "app:net.whatsapp.WhatsApp")
+        #expect(candidate?.platform == .whatsApp)
+        #expect(candidate?.appName == "WhatsApp")
+        #expect(candidate?.sourcePID == 2468)
+    }
+
+    @Test("calendar fallback does not label Slack without attributed audio")
+    func calendarFallbackDoesNotLabelSlackWithoutAudio() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: true,
+            cameraActive: false,
+            calendarEvent: CalendarEventContext(id: "evt-slack", title: "Team sync"),
+            runningApps: [
+                RunningAppInfo(bundleID: "com.tinyspeck.slackmacgap", isActive: true),
+            ],
+            foregroundBundleID: "com.tinyspeck.slackmacgap"
+        ))
+
+        #expect(candidate?.id == "cal:evt-slack")
+        #expect(candidate?.platform == .unknown)
+        #expect(candidate?.appName == "Meeting")
+        #expect(candidate?.meetingTitle == "Team sync")
+        #expect(candidate?.sourceBundleID == nil)
+    }
+
     @Test("different Meet URLs are different candidates")
     func differentMeetURLsAreDifferentCandidates() {
         let first = resolver().resolve(snapshot(browserMeetings: [
