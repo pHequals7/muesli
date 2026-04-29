@@ -77,9 +77,9 @@ final class MeetingMonitor {
         log("prompt_auto_dismissed id=\(candidate.id)")
     }
 
-    func markPromptUserDismissed(_ candidate: MeetingCandidate, duration: TimeInterval = 120) {
-        promptState.markUserDismissed(candidate, until: Date().addingTimeInterval(duration))
-        log("prompt_suppressed id=\(candidate.id) reason=user_dismissed duration=\(Int(duration))")
+    func markPromptUserDismissed(_ candidate: MeetingCandidate) {
+        promptState.markUserDismissed(candidate)
+        log("prompt_suppressed id=\(candidate.id) reason=user_dismissed")
     }
 
     func markPromptClosed(_ candidate: MeetingCandidate) {
@@ -168,7 +168,7 @@ final class MeetingMonitor {
         guard key != lastSuppressionLogKey else { return }
         lastSuppressionLogKey = key
         switch decision.reason {
-        case .autoDismissedCooldown:
+        case .autoDismissedSuppression:
             log("prompt_suppressed id=\(candidate.id) reason=auto_dismissed")
         case .userDismissedSuppression:
             log("prompt_suppressed id=\(candidate.id) reason=user_dismissed")

@@ -18,11 +18,8 @@ struct MeetingPromptStateMachineTests {
         )
     }
 
-    private func immediateMachine(autoDismissCooldown: TimeInterval = 120) -> MeetingPromptStateMachine {
-        MeetingPromptStateMachine(
-            autoDismissCooldown: autoDismissCooldown,
-            candidateStabilityDelay: 0
-        )
+    private func immediateMachine() -> MeetingPromptStateMachine {
+        MeetingPromptStateMachine(candidateStabilityDelay: 0)
     }
 
     private func decision(
@@ -84,12 +81,12 @@ struct MeetingPromptStateMachineTests {
         let candidate = candidate()
 
         machine.markShown(candidate)
-        machine.markAutoDismissed(candidate, now: now)
+        machine.markAutoDismissed(candidate)
         let result = decision(machine, candidate: candidate)
 
         #expect(machine.visiblePromptID == nil)
         #expect(result.action == .none)
-        #expect(result.reason == .autoDismissedCooldown)
+        #expect(result.reason == .autoDismissedSuppression)
     }
 
     @Test("new candidate can show after prior candidate auto-dismiss")
@@ -99,7 +96,7 @@ struct MeetingPromptStateMachineTests {
         let newCandidate = candidate("googleMeet:meet.google.com/abc-defg-hij")
 
         machine.markShown(oldCandidate)
-        machine.markAutoDismissed(oldCandidate, now: now)
+        machine.markAutoDismissed(oldCandidate)
         let result = decision(machine, candidate: newCandidate)
 
         #expect(result.action == .show)
@@ -113,39 +110,40 @@ struct MeetingPromptStateMachineTests {
         let other = candidate("googleMeet:meet.google.com/abc-defg-hij")
 
         machine.markShown(dismissed)
-        machine.markUserDismissed(dismissed, until: now.addingTimeInterval(120))
+        machine.markUserDismissed(dismissed)
 
         #expect(decision(machine, candidate: dismissed).reason == .userDismissedSuppression)
         #expect(decision(machine, candidate: other).action == .show)
     }
 
-    @Test("auto-dismiss cooldown survives one-tick candidate dropout")
-    func autoDismissCooldownSurvivesCandidateDropout() {
-        let machine = immediateMachine(autoDismissCooldown: 120)
+    @Test("auto-dismiss suppression survives candidate dropout")
+    func autoDismissSuppressionSurvivesCandidateDropout() {
+        let machine = immediateMachine()
         let candidate = candidate()
 
         machine.markShown(candidate)
-        machine.markAutoDismissed(candidate, now: now)
+        machine.markAutoDismissed(candidate)
 
         #expect(decision(machine, candidate: nil, now: now.addingTimeInterval(1)).reason == .noCandidate)
 
         let result = decision(machine, candidate: candidate, now: now.addingTimeInterval(2))
 
         #expect(result.action == .none)
-        #expect(result.reason == .autoDismissedCooldown)
+        #expect(result.reason == .autoDismissedSuppression)
     }
 
-    @Test("auto-dismiss cooldown expires for same candidate")
-    func autoDismissCooldownExpires() {
-        let machine = immediateMachine(autoDismissCooldown: 10)
+    @Test("auto-dismiss suppression does not expire for same candidate")
+    func autoDismissSuppressionDoesNotExpire() {
+        let machine = immediateMachine()
         let candidate = candidate()
 
         machine.markShown(candidate)
-        machine.markAutoDismissed(candidate, now: now)
+        machine.markAutoDismissed(candidate)
 
-        let result = decision(machine, candidate: candidate, now: now.addingTimeInterval(11))
+        let result = decision(machine, candidate: candidate, now: now.addingTimeInterval(3_600))
 
-        #expect(result.action == .show)
+        #expect(result.action == .none)
+        #expect(result.reason == .autoDismissedSuppression)
     }
 
     @Test("prompt does not show while recording or starting recording")
