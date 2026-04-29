@@ -340,10 +340,11 @@ final class MeetingNotificationController {
 
 // MARK: - Meeting Platform Detection
 
-enum MeetingPlatform {
+enum MeetingPlatform: Equatable {
     case zoom
     case googleMeet
     case teams
+    case slack
     case webex
     case facetime
 
@@ -365,11 +366,13 @@ enum MeetingPlatform {
             self = .googleMeet
         case .teams:
             self = .teams
+        case .slack:
+            self = .slack
         case .webex:
             self = .webex
         case .facetime:
             self = .facetime
-        case .slack, .whatsApp, .unknown:
+        case .whatsApp, .unknown:
             return nil
         }
     }
@@ -394,6 +397,12 @@ enum MeetingPlatform {
                 return image
             }
             return NSImage(systemSymbolName: "person.3.fill", accessibilityDescription: "Teams")
+        case .slack:
+            if let url = Bundle.main.url(forResource: "slack", withExtension: "png"),
+               let image = NSImage(contentsOf: url) {
+                return image
+            }
+            return NSImage(systemSymbolName: "message.fill", accessibilityDescription: "Slack")
         case .webex:
             return NSImage(systemSymbolName: "video.fill", accessibilityDescription: "Webex")
         case .facetime:
