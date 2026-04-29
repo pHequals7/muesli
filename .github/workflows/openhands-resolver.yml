@@ -102,6 +102,31 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Preflight PAT publishing credentials
+        run: |
+          pat_login="$(GH_TOKEN="${PAT_TOKEN}" gh api user --jq .login)"
+          if [ "${pat_login}" = "${PAT_USERNAME}" ]; then
+            echo "PAT login matches PAT_USERNAME."
+          else
+            echo "Error: PAT login does not match PAT_USERNAME."
+            exit 1
+          fi
+
+          echo "Effective repository permissions for PAT:"
+          GH_TOKEN="${PAT_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}" --jq .permissions
+
+          if [ "$(GH_TOKEN="${PAT_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}" --jq .permissions.push)" != "true" ]; then
+            echo "Error: PAT does not have push permission on ${GITHUB_REPOSITORY}."
+            exit 1
+          fi
+
+          probe_branch="openhands-auth-probe-${GITHUB_RUN_ID}"
+          if ! git push --dry-run "https://${PAT_USERNAME}:${PAT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${probe_branch}"; then
+            echo "Error: PAT failed an HTTPS git push dry run."
+            exit 1
+          fi
+          echo "PAT HTTPS git push dry run succeeded."
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
