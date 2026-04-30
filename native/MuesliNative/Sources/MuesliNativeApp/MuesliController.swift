@@ -464,6 +464,7 @@ final class MuesliController: NSObject {
         appState.activePostProcessor = PostProcessorOption.resolve(id: config.activePostProcessorId)
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
+        appState.isMeetingRecordingPaused = isMeetingRecordingPaused()
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
         appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
         appState.isGoogleCalendarVerified = googleCalAuth.isVerified
@@ -1738,6 +1739,10 @@ final class MuesliController: NSObject {
         activeMeetingSession?.isRecording == true || isStoppingMeetingRecording
     }
 
+    func isMeetingRecordingPaused() -> Bool {
+        activeMeetingSession?.isPaused == true
+    }
+
     private var meetingTerminationState: MeetingTerminationState {
         MeetingTerminationPolicy.state(
             isStarting: isStartingMeetingRecording,
@@ -1795,6 +1800,36 @@ final class MuesliController: NSObject {
         } else {
             startForegroundMeetingRecording()
         }
+    }
+
+    @objc func toggleMeetingRecordingPause() {
+        if isMeetingRecordingPaused() {
+            resumeMeetingRecording()
+        } else {
+            pauseMeetingRecording()
+        }
+    }
+
+    func pauseMeetingRecording() {
+        guard let activeMeetingSession,
+              activeMeetingSession.isRecording,
+              !activeMeetingSession.isPaused,
+              !isStoppingMeetingRecording else { return }
+        activeMeetingSession.pause()
+        statusBarController?.setStatus("Meeting paused")
+        statusBarController?.refresh()
+        syncAppState()
+    }
+
+    func resumeMeetingRecording() {
+        guard let activeMeetingSession,
+              activeMeetingSession.isRecording,
+              activeMeetingSession.isPaused,
+              !isStoppingMeetingRecording else { return }
+        activeMeetingSession.resume()
+        statusBarController?.setStatus("Meeting: \(activeMeetingDisplayTitle())")
+        statusBarController?.refresh()
+        syncAppState()
     }
 
     @objc func startMeetingFromCalendarMenuItem(_ sender: NSMenuItem) {
@@ -1916,6 +1951,7 @@ final class MuesliController: NSObject {
                 }
                 indicator.setMeetingRecording(true, config: config)
                 statusBarController?.refresh()
+                syncAppState()
                 return
             } catch {
                 guard shouldRetryAfterPermissionRequest,
@@ -2266,6 +2302,15 @@ final class MuesliController: NSObject {
             return cached
         }
         return try? dictationStore.meeting(id: id)?.title
+    }
+
+    private func activeMeetingDisplayTitle() -> String {
+        guard let activeMeetingID,
+              let title = liveMeetingTitle(id: activeMeetingID)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return "Meeting"
+        }
+        return title
     }
 
     private func completedLiveMeetingTitle(for result: MeetingSessionResult, existingMeetingID: Int64) -> String {

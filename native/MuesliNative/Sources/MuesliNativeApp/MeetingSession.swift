@@ -116,11 +116,15 @@ final class MeetingSession {
 
     /// Current mic power level for waveform visualization.
     func currentPower() -> Float {
-        streamingMicRecorder.currentPower()
+        if isPaused {
+            return -160
+        }
+        return streamingMicRecorder.currentPower()
     }
 
     private(set) var startTime: Date?
     private(set) var isRecording = false
+    private(set) var isPaused = false
 
     init(
         title: String,
@@ -155,6 +159,7 @@ final class MeetingSession {
             chunkTimingTracker.start()
             systemChunkTimingTracker.start()
             isRecording = true
+            isPaused = false
         }
 
         do {
@@ -182,6 +187,7 @@ final class MeetingSession {
             systemChunkRecorder = nil
             chunkRotationQueue.sync {
                 isRecording = false
+                isPaused = false
                 startTime = nil
                 chunkTimingTracker.discard()
                 systemChunkTimingTracker.discard()
@@ -204,11 +210,47 @@ final class MeetingSession {
         }
     }
 
+    func pause() {
+        let shouldPause = chunkRotationQueue.sync { () -> Bool in
+            guard isRecording, !isPaused else { return false }
+            appendFlushedStreamingMicOnQueue()
+            rotateChunkOnQueue()
+            rotateSystemChunkOnQueue()
+            retainedRecordingWriter?.markPauseBoundary()
+            neuralAec.resetForStreaming()
+            isPaused = true
+            return true
+        }
+        guard shouldPause else { return }
+
+        fullSessionMicRecorder.pause()
+        streamingMicRecorder.pause()
+        systemAudioRecorder.pause()
+        Task { await screenContextCollector.setPaused(true) }
+        fputs("[meeting] recording paused\n", stderr)
+    }
+
+    func resume() {
+        let shouldResume = chunkRotationQueue.sync { () -> Bool in
+            guard isRecording, isPaused else { return false }
+            isPaused = false
+            return true
+        }
+        guard shouldResume else { return }
+
+        fullSessionMicRecorder.resume()
+        streamingMicRecorder.resume()
+        systemAudioRecorder.resume()
+        Task { await screenContextCollector.setPaused(false) }
+        fputs("[meeting] recording resumed\n", stderr)
+    }
+
     /// Abandon the recording — stop everything, delete temp files, don't transcribe.
     func discard() {
         Task { await screenContextCollector.stopAndDrain() }
         let (rawRecorder, systemRecorder) = chunkRotationQueue.sync { () -> (PCMChunkRecorder?, PCMChunkRecorder?) in
             isRecording = false
+            isPaused = false
             chunkTimingTracker.discard()
             systemChunkTimingTracker.discard()
             let rawRecorder = rawMicChunkRecorder
@@ -255,15 +297,10 @@ final class MeetingSession {
         systemAudioRecorder.onPCMSamples = nil
         let (meetingStart, lastChunkTiming, lastRawMicURL, lastSystemChunkTiming, lastSystemChunkURL) = chunkRotationQueue.sync { () -> (Date, MeetingChunkTimingSnapshot?, URL?, MeetingChunkTimingSnapshot?, URL?) in
             isRecording = false
+            isPaused = false
 
             // Flush partial AEC frame before stopping chunk recorder
-            let flushed = self.neuralAec.flushStreamingMic()
-            if !flushed.isEmpty {
-                let flushedInt16 = flushed.map { sample -> Int16 in
-                    Int16(max(-1.0, min(1.0, sample)) * 32767)
-                }
-                self.rawMicChunkRecorder?.append(flushedInt16)
-            }
+            appendFlushedStreamingMicOnQueue()
 
             let meetingStart = self.startTime ?? Date()
             let lastRawMicURL = rawMicChunkRecorder?.stop()
@@ -523,6 +560,15 @@ final class MeetingSession {
         return trimmedCandidate
     }
 
+    private func appendFlushedStreamingMicOnQueue() {
+        let flushed = neuralAec.flushStreamingMic()
+        guard !flushed.isEmpty else { return }
+        let flushedInt16 = flushed.map { sample -> Int16 in
+            Int16(max(-1.0, min(1.0, sample)) * 32767)
+        }
+        rawMicChunkRecorder?.append(flushedInt16)
+    }
+
     /// Called by VAD on speech boundaries or max-duration fallback.
     /// Rotates the streaming mic file and sends the completed chunk for transcription.
     private func rotateChunk() {
@@ -532,7 +578,7 @@ final class MeetingSession {
     }
 
     private func rotateChunkOnQueue() {
-        guard isRecording else { return }
+        guard isRecording, !isPaused else { return }
         guard let chunkTiming = chunkTimingTracker.rotate() else {
             return
         }
@@ -573,7 +619,7 @@ final class MeetingSession {
     }
 
     private func rotateSystemChunkOnQueue() {
-        guard isRecording else { return }
+        guard isRecording, !isPaused else { return }
         guard let chunkURL = systemChunkRecorder?.rotateFile(),
               let chunkTiming = systemChunkTimingTracker.rotate() else {
             return
@@ -679,7 +725,7 @@ final class MeetingSession {
         guard !rawSamples.isEmpty else { return }
 
         chunkRotationQueue.async { [weak self] in
-            guard let self, self.isRecording else { return }
+            guard let self, self.isRecording, !self.isPaused else { return }
 
             self.retainedRecordingWriter?.appendMic(rawSamples)
             self.chunkTimingTracker.append(sampleCount: rawSamples.count)
@@ -706,7 +752,7 @@ final class MeetingSession {
         guard !samples.isEmpty else { return }
 
         chunkRotationQueue.async { [weak self] in
-            guard let self, self.isRecording else { return }
+            guard let self, self.isRecording, !self.isPaused else { return }
 
             self.retainedRecordingWriter?.appendSystem(samples)
             self.systemChunkRecorder?.append(samples)

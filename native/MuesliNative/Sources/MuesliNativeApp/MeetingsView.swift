@@ -574,14 +574,14 @@ struct MeetingsView: View {
         HStack(spacing: MuesliTheme.spacing12) {
             HStack(spacing: 8) {
                 Circle()
-                    .fill(meeting.status == .recording ? MuesliTheme.recording : MuesliTheme.accent)
+                    .fill(activeMeetingStatusColor(for: meeting))
                     .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(meeting.title)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(MuesliTheme.textPrimary)
                         .lineLimit(1)
-                    Text(meeting.status == .recording ? "Recording now" : "Finalizing notes")
+                    Text(activeMeetingStatusText(for: meeting))
                         .font(MuesliTheme.caption())
                         .foregroundStyle(MuesliTheme.textSecondary)
                 }
@@ -608,12 +608,34 @@ struct MeetingsView: View {
 
             if meeting.status == .recording {
                 Button {
+                    controller.toggleMeetingRecordingPause()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: appState.isMeetingRecordingPaused ? "play.fill" : "pause.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                        Text(appState.isMeetingRecordingPaused ? "Resume" : "Pause")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(appState.isMeetingRecordingPaused ? MuesliTheme.backgroundBase : MuesliTheme.textPrimary)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 8)
+                    .background(appState.isMeetingRecordingPaused ? MuesliTheme.accent : MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(appState.isMeetingRecordingPaused ? MuesliTheme.accent.opacity(0.35) : MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!appState.isMeetingRecording)
+
+                Button {
                     controller.stopMeetingRecording()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 10, weight: .semibold))
-                        Text("Stop Recording")
+                        Text("Stop")
                             .font(.system(size: 12, weight: .semibold))
                     }
                     .foregroundStyle(.white)
@@ -623,6 +645,7 @@ struct MeetingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                 }
                 .buttonStyle(.plain)
+                .disabled(!appState.isMeetingRecording)
             }
         }
         .padding(MuesliTheme.spacing12)
@@ -632,6 +655,16 @@ struct MeetingsView: View {
             RoundedRectangle(cornerRadius: MuesliTheme.cornerLarge)
                 .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
         )
+    }
+
+    private func activeMeetingStatusText(for meeting: MeetingRecord) -> String {
+        guard meeting.status == .recording else { return "Finalizing notes" }
+        return appState.isMeetingRecordingPaused ? "Recording paused" : "Recording now"
+    }
+
+    private func activeMeetingStatusColor(for meeting: MeetingRecord) -> Color {
+        guard meeting.status == .recording else { return MuesliTheme.accent }
+        return appState.isMeetingRecordingPaused ? MuesliTheme.transcribing : MuesliTheme.recording
     }
 
     @ViewBuilder

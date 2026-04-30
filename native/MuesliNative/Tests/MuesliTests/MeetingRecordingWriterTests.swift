@@ -29,6 +29,19 @@ struct MeetingRecordingWriterTests {
         #expect(samples == [1200, -800, 400])
     }
 
+    @Test("pause boundary prevents unmatched samples from mixing across pause")
+    func pauseBoundaryFlushesPendingSamples() throws {
+        let writer = try MeetingRecordingWriter()
+        writer.appendMic([1000, 3000])
+        writer.markPauseBoundary()
+        writer.appendSystem([5000, 7000])
+
+        let tempURL = try #require(writer.stop())
+        let samples = try readMonoPCM16WAVSamples(from: tempURL)
+
+        #expect(samples == [1000, 3000, 5000, 7000])
+    }
+
     @Test("persistTemporaryRecording moves the temp wav into the meeting recordings directory with a slugged name")
     func persistTemporaryRecordingMovesFile() throws {
         let writer = try MeetingRecordingWriter()

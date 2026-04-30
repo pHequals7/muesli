@@ -159,15 +159,7 @@ struct MeetingDetailView: View {
 
                 VStack(alignment: .trailing, spacing: 10) {
                     if showsManualNotesEditor(for: meeting) {
-                        HStack(spacing: MuesliTheme.spacing8) {
-                            statusChip(for: meeting)
-                            if meeting.status == .recording {
-                                stopRecordingButton
-                                discardRecordingButton
-                            } else if controller.canDeleteMeeting(meeting), meeting.status == .noteOnly || meeting.status == .failed {
-                                deleteButton
-                            }
-                        }
+                        recordingControlGroup(for: meeting)
                     } else {
                         documentModePicker
 
@@ -503,11 +495,14 @@ struct MeetingDetailView: View {
 
     @ViewBuilder
     private func statusChip(for meeting: MeetingRecord) -> some View {
+        let isPaused = meeting.status == .recording && appState.isMeetingRecordingPaused
+        let label = isPaused ? "Paused" : meeting.status.displayLabel
+        let color = isPaused ? MuesliTheme.transcribing : meeting.status.displayColor
         HStack(spacing: 6) {
             Circle()
-                .fill(meeting.status.displayColor)
+                .fill(color)
                 .frame(width: 7, height: 7)
-            Text(meeting.status.displayLabel)
+            Text(label)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(MuesliTheme.textSecondary)
         }
@@ -519,6 +514,38 @@ struct MeetingDetailView: View {
             Capsule()
                 .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private func recordingControlGroup(for meeting: MeetingRecord) -> some View {
+        if meeting.status == .recording {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: MuesliTheme.spacing8) {
+                    statusChip(for: meeting)
+                    pauseResumeRecordingButton
+                    stopRecordingButton
+                    discardRecordingButton
+                }
+                .recordingControlsBackground()
+
+                VStack(alignment: .trailing, spacing: MuesliTheme.spacing8) {
+                    statusChip(for: meeting)
+                    HStack(spacing: MuesliTheme.spacing8) {
+                        pauseResumeRecordingButton
+                        stopRecordingButton
+                        discardRecordingButton
+                    }
+                    .recordingControlsBackground()
+                }
+            }
+        } else if controller.canDeleteMeeting(meeting), meeting.status == .noteOnly || meeting.status == .failed {
+            HStack(spacing: MuesliTheme.spacing8) {
+                statusChip(for: meeting)
+                deleteButton
+            }
+        } else {
+            statusChip(for: meeting)
+        }
     }
 
     @ViewBuilder
@@ -614,6 +641,32 @@ struct MeetingDetailView: View {
         }
     }
 
+    private var pauseResumeRecordingButton: some View {
+        let isPaused = appState.isMeetingRecordingPaused
+        return Button {
+            controller.toggleMeetingRecordingPause()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isPaused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(isPaused ? "Resume" : "Pause")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(isPaused ? MuesliTheme.backgroundBase : MuesliTheme.textPrimary)
+            .padding(.horizontal, MuesliTheme.spacing12)
+            .padding(.vertical, 7)
+            .background(isPaused ? MuesliTheme.accent : MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(isPaused ? MuesliTheme.accent.opacity(0.35) : MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!appState.isMeetingRecording)
+        .help(isPaused ? "Resume recording" : "Pause recording")
+    }
+
     private var stopRecordingButton: some View {
         Button {
             if let meeting {
@@ -624,16 +677,17 @@ struct MeetingDetailView: View {
             HStack(spacing: 6) {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 10, weight: .semibold))
-                Text("Stop Recording")
+                Text("Stop")
                     .font(.system(size: 12, weight: .semibold))
             }
             .foregroundStyle(.white)
             .padding(.horizontal, MuesliTheme.spacing12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
             .background(MuesliTheme.recording)
             .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
         }
         .buttonStyle(.plain)
+        .disabled(!appState.isMeetingRecording)
         .help("Stop recording")
     }
 
@@ -900,6 +954,18 @@ struct MeetingDetailView: View {
             return s == 0 ? "\(m)m" : "\(m)m \(s)s"
         }
         return "\(rounded)s"
+    }
+}
+
+private extension View {
+    func recordingControlsBackground() -> some View {
+        padding(5)
+            .background(MuesliTheme.backgroundRaised)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
     }
 }
 

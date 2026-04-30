@@ -59,6 +59,12 @@ final class MeetingRecordingWriter {
         }
     }
 
+    func markPauseBoundary() {
+        lock.withLock { state in
+            writeMixedSamples(state: &state, flushAll: true)
+        }
+    }
+
     func cancel() {
         let tempURL = lock.withLock { state -> URL? in
             state.fileHandle?.closeFile()

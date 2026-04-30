@@ -58,6 +58,7 @@ final class AppState {
 
     // Live status
     var isMeetingRecording: Bool = false
+    var isMeetingRecordingPaused: Bool = false
     var isChatGPTAuthenticated: Bool = false
     var isGoogleCalendarAvailable: Bool = false
     var isGoogleCalendarVerified: Bool = false

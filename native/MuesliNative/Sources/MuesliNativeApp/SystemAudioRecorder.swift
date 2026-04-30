@@ -11,6 +11,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SystemAudioCapturing 
     private var outputURL: URL?
     private var totalBytesWritten = 0
     private(set) var isRecording = false
+    private(set) var isPaused = false
 
     private static let sampleRate: Double = 16_000
     private static let channels: Int = 1
@@ -38,6 +39,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SystemAudioCapturing 
         outputURL = url
         totalBytesWritten = 0
         isRecording = true
+        isPaused = false
 
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -70,6 +72,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SystemAudioCapturing 
     func stop() -> URL? {
         guard isRecording || outputFile != nil || outputURL != nil else { return nil }
         isRecording = false
+        isPaused = false
         onPCMSamples = nil
 
         if let stream {
@@ -97,6 +100,16 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SystemAudioCapturing 
 
         fputs("[system-audio] capture stopped, \(writtenBytes) bytes written\n", stderr)
         return completedURL
+    }
+
+    func pause() {
+        guard isRecording else { return }
+        isPaused = true
+    }
+
+    func resume() {
+        guard isRecording else { return }
+        isPaused = false
     }
 
     // MARK: - SCStream setup
@@ -136,7 +149,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SystemAudioCapturing 
     // MARK: - SCStreamOutput
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .audio, isRecording else { return }
+        guard type == .audio, isRecording, !isPaused else { return }
 
         guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { return }
         let length = CMBlockBufferGetDataLength(blockBuffer)
@@ -228,6 +241,7 @@ final class SystemAudioRecorder: NSObject, SCStreamOutput, SystemAudioCapturing 
 
     private func cleanupFailedStart() {
         isRecording = false
+        isPaused = false
         stream = nil
         onPCMSamples = nil
 
