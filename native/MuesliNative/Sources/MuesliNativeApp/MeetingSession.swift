@@ -106,6 +106,7 @@ final class MeetingSession {
     private let micChunkHealthTracker = MeetingTranscriptChunkHealthTracker()
     private let systemChunkHealthTracker = MeetingTranscriptChunkHealthTracker()
     private let chunkRotationQueue = DispatchQueue(label: "MuesliNative.MeetingSession.chunkRotation")
+    private let pausedDisplayLock = OSAllocatedUnfairLock(initialState: false)
     private var chunkTimingTracker = MeetingChunkTimingTracker()
     private var systemChunkTimingTracker = MeetingChunkTimingTracker()
     private var systemChunkRecorder: PCMChunkRecorder?
@@ -116,7 +117,7 @@ final class MeetingSession {
 
     /// Current mic power level for waveform visualization.
     func currentPower() -> Float {
-        if chunkRotationQueue.sync(execute: { isPaused }) {
+        if pausedDisplayLock.withLock({ $0 }) {
             return -160
         }
         return streamingMicRecorder.currentPower()
@@ -125,6 +126,11 @@ final class MeetingSession {
     private(set) var startTime: Date?
     private(set) var isRecording = false
     private(set) var isPaused = false
+
+    private func setPausedStateOnQueue(_ paused: Bool) {
+        isPaused = paused
+        pausedDisplayLock.withLock { $0 = paused }
+    }
 
     init(
         title: String,
@@ -159,7 +165,7 @@ final class MeetingSession {
             chunkTimingTracker.start()
             systemChunkTimingTracker.start()
             isRecording = true
-            isPaused = false
+            setPausedStateOnQueue(false)
         }
 
         do {
@@ -187,7 +193,7 @@ final class MeetingSession {
             systemChunkRecorder = nil
             chunkRotationQueue.sync {
                 isRecording = false
-                isPaused = false
+                setPausedStateOnQueue(false)
                 startTime = nil
                 chunkTimingTracker.discard()
                 systemChunkTimingTracker.discard()
@@ -218,7 +224,7 @@ final class MeetingSession {
             rotateSystemChunkOnQueue()
             retainedRecordingWriter?.markPauseBoundary()
             neuralAec.resetForStreaming()
-            isPaused = true
+            setPausedStateOnQueue(true)
             return true
         }
         guard shouldPause else { return }
@@ -233,7 +239,7 @@ final class MeetingSession {
     func resume() {
         let shouldResume = chunkRotationQueue.sync { () -> Bool in
             guard isRecording, isPaused else { return false }
-            isPaused = false
+            setPausedStateOnQueue(false)
             return true
         }
         guard shouldResume else { return }
@@ -250,7 +256,7 @@ final class MeetingSession {
         Task { await screenContextCollector.stopAndDrain() }
         let (rawRecorder, systemRecorder) = chunkRotationQueue.sync { () -> (PCMChunkRecorder?, PCMChunkRecorder?) in
             isRecording = false
-            isPaused = false
+            setPausedStateOnQueue(false)
             chunkTimingTracker.discard()
             systemChunkTimingTracker.discard()
             let rawRecorder = rawMicChunkRecorder
@@ -297,7 +303,7 @@ final class MeetingSession {
         systemAudioRecorder.onPCMSamples = nil
         let (meetingStart, lastChunkTiming, lastRawMicURL, lastSystemChunkTiming, lastSystemChunkURL) = chunkRotationQueue.sync { () -> (Date, MeetingChunkTimingSnapshot?, URL?, MeetingChunkTimingSnapshot?, URL?) in
             isRecording = false
-            isPaused = false
+            setPausedStateOnQueue(false)
 
             // Flush partial AEC frame before stopping chunk recorder
             appendFlushedStreamingMicOnQueue()

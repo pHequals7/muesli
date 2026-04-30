@@ -1996,8 +1996,6 @@ final class MuesliController: NSObject {
     }
 
     @objc func discardMeetingWithConfirmation() {
-        // Bring app to foreground so the modal alert is visible — Muesli runs as
-        // a background/accessory app and runModal() can get stuck behind other windows.
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
@@ -2007,10 +2005,33 @@ final class MuesliController: NSObject {
         alert.addButton(withTitle: "Discard")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        alert.window.level = .floating
-        alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        if alert.runModal() == .alertFirstButtonReturn {
-            discardMeetingRecording()
+        presentDiscardMeetingAlert(alert)
+    }
+
+    private func presentDiscardMeetingAlert(_ alert: NSAlert, attempt: Int = 0) {
+        if let window = confirmationAnchorWindow() {
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                Task { @MainActor [weak self] in
+                    self?.discardMeetingRecording()
+                }
+            }
+            return
+        }
+
+        openHistoryWindow()
+        guard attempt < 5 else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, alert] in
+            self?.presentDiscardMeetingAlert(alert, attempt: attempt + 1)
+        }
+    }
+
+    private func confirmationAnchorWindow() -> NSWindow? {
+        NSApp.windows.first { window in
+            window.isVisible &&
+                !window.isMiniaturized &&
+                !(window is NSPanel) &&
+                window.canBecomeKey
         }
     }
 
