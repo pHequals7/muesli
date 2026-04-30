@@ -693,7 +693,7 @@ struct MeetingDetailView: View {
 
     private var discardRecordingButton: some View {
         iconButton("xmark", label: "Discard") {
-            controller.discardMeetingRecording()
+            controller.discardMeetingWithConfirmation()
         }
     }
 
