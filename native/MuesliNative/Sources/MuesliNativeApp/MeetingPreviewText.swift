@@ -1,0 +1,82 @@
+import Foundation
+
+enum MeetingPreviewText {
+    static func snippet(from source: String, limit: Int = 88) -> String {
+        let compact = plainText(from: source)
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+
+        guard !compact.isEmpty else { return "No notes yet" }
+        guard compact.count > limit else { return compact }
+
+        let prefixCount = max(0, limit - 3)
+        return String(compact.prefix(prefixCount)) + "..."
+    }
+
+    static func plainText(from markdown: String) -> String {
+        var lines: [String] = []
+        var isInsideFence = false
+
+        for rawLine in markdown
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .split(separator: "\n", omittingEmptySubsequences: false) {
+            var line = String(rawLine).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            if line.hasPrefix("```") || line.hasPrefix("~~~") {
+                isInsideFence.toggle()
+                continue
+            }
+            guard !isInsideFence else { continue }
+
+            if line.range(of: #"^\s{0,3}[-*_]{3,}\s*$"#, options: .regularExpression) != nil ||
+                line.range(of: #"^\s{0,3}[=-]{3,}\s*$"#, options: .regularExpression) != nil {
+                continue
+            }
+
+            line = line.replacingOccurrences(
+                of: #"^\s{0,3}#{1,6}\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+            line = line.replacingOccurrences(
+                of: #"^\s*>+\s*"#,
+                with: "",
+                options: .regularExpression
+            )
+            line = line.replacingOccurrences(
+                of: #"^\s*(?:[-+*]|\d+[.)])\s+"#,
+                with: "",
+                options: .regularExpression
+            )
+            line = line.replacingOccurrences(
+                of: #"^\s*\[[ xX]\]\s+"#,
+                with: "",
+                options: .regularExpression
+            )
+            line = line.replacingOccurrences(
+                of: #"!\[([^\]]*)\]\([^)]+\)"#,
+                with: "$1",
+                options: .regularExpression
+            )
+            line = line.replacingOccurrences(
+                of: #"\[([^\]]+)\]\([^)]+\)"#,
+                with: "$1",
+                options: .regularExpression
+            )
+            line = line.replacingOccurrences(
+                of: #"[`*~]"#,
+                with: "",
+                options: .regularExpression
+            )
+            line = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !line.isEmpty {
+                lines.append(line)
+            }
+        }
+
+        return lines.joined(separator: " ")
+    }
+}
