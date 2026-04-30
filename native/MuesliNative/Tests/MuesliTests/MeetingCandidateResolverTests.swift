@@ -98,6 +98,73 @@ struct MeetingCandidateResolverTests {
         #expect(candidate?.evidence.contains(.audioInputProcess) == true)
     }
 
+    @Test("Chrome Meet audio input resolves after transient foreground loss")
+    func chromeMeetAudioInputResolvesAfterForegroundLoss() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+                RunningAppInfo(bundleID: "com.granola.app", isActive: true),
+            ],
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/pwm-txwq-txy",
+                    normalizedID: "googleMeet:meet.google.com/pwm-txwq-txy",
+                    platform: .googleMeet,
+                    isFocused: false
+                ),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 1234,
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.granola.app"
+        ))
+
+        #expect(candidate?.id == "googleMeet:meet.google.com/pwm-txwq-txy")
+        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.evidence.contains(.audioInputProcess) == true)
+        #expect(candidate?.evidence.contains(.foregroundApp) == false)
+    }
+
+    @Test("background Meet URL without browser audio does not steal foreground app detection")
+    func backgroundMeetURLWithoutBrowserAudioDoesNotStealForegroundAppDetection() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: true,
+            cameraActive: true,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+                RunningAppInfo(bundleID: "us.zoom.xos", isActive: true),
+            ],
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/pwm-txwq-txy",
+                    normalizedID: "googleMeet:meet.google.com/pwm-txwq-txy",
+                    platform: .googleMeet,
+                    isFocused: false
+                ),
+            ],
+            foregroundBundleID: "us.zoom.xos"
+        ))
+
+        #expect(candidate?.id == "app:us.zoom.xos")
+        #expect(candidate?.platform == .zoom)
+        #expect(candidate?.appName == "Zoom")
+    }
+
     @Test("focused Meet URL is eligible before mic flips")
     func focusedMeetURLIsEligibleBeforeMicFlips() {
         let candidate = resolver().resolve(snapshot(

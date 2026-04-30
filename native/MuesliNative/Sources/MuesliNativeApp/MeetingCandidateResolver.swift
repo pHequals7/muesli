@@ -302,7 +302,7 @@ final class MeetingCandidateResolver {
         }
 
         if let browserMeeting,
-           snapshot.micActive || snapshot.cameraActive || browserMeeting.isFocused {
+           browserMeeting.isFocused {
             return candidate(
                 id: browserMeeting.normalizedID,
                 platform: browserMeeting.platform,
