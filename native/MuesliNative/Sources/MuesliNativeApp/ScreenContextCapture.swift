@@ -280,7 +280,7 @@ actor MeetingScreenContextCollector {
         captureTask = Task {
             while !Task.isCancelled {
                 if isPaused {
-                    try? await Task.sleep(for: .seconds(interval))
+                    try? await Task.sleep(for: .seconds(2))
                     continue
                 }
 
