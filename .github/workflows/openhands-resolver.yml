@@ -26,7 +26,6 @@ jobs:
         ) ||
         (
           github.event_name == 'issue_comment' &&
-          github.event.issue.pull_request == '' &&
           startsWith(github.event.comment.body, vars.OPENHANDS_MACRO || '@openhands-agent')
         ) ||
         (
@@ -77,6 +76,16 @@ jobs:
               issueType = payload.issue.pull_request ? 'pr' : 'issue';
               commentId = String(payload.comment.id);
               commentBody = payload.comment.body || '';
+              if (issueType === 'pr') {
+                const { data: pullRequest } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: issueNumber,
+                });
+                if (pullRequest.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+                  throw new Error('OpenHands PR comments are supported only for same-repository PRs.');
+                }
+              }
             } else if (eventName === 'issues') {
               issueNumber = payload.issue.number;
               issueType = 'issue';
@@ -98,6 +107,18 @@ jobs:
               exit 1
             fi
           done
+
+      - name: React to trigger comment
+        if: steps.context.outputs.comment_id != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_ID: ${{ steps.context.outputs.comment_id }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}/reactions" \
+            -f content="eyes" || true
 
       - name: Check out repository
         uses: actions/checkout@v4
