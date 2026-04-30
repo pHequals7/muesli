@@ -40,8 +40,9 @@ struct AboutView: View {
                     Divider().background(MuesliTheme.surfaceBorder)
 
                     aboutRow("Check for Updates") {
-                        actionButton("Check Now", icon: "arrow.triangle.2.circlepath") {
-                            controller.retryUpdateCheck()
+                        let action = updatePrimaryAction
+                        actionButton(action.title, icon: action.icon) {
+                            performUpdateAction(action)
                         }
                     }
                 }
@@ -155,13 +156,19 @@ struct AboutView: View {
     }
 
     private enum UpdateBannerAction {
+        case check
         case install
+        case restartInstall
         case retry
 
         var title: String {
             switch self {
+            case .check:
+                return "Check Now"
             case .install:
                 return "Install Update"
+            case .restartInstall:
+                return "Restart & Install"
             case .retry:
                 return "Try Again"
             }
@@ -169,11 +176,37 @@ struct AboutView: View {
 
         var icon: String {
             switch self {
+            case .check:
+                return "arrow.triangle.2.circlepath"
             case .install:
                 return "arrow.down.circle"
+            case .restartInstall:
+                return "arrow.clockwise.circle"
             case .retry:
                 return "arrow.triangle.2.circlepath"
             }
+        }
+    }
+
+    private var updatePrimaryAction: UpdateBannerAction {
+        switch appState.sparkleUpdateStatus {
+        case .available:
+            return .install
+        case .downloaded:
+            return .restartInstall
+        case .failed:
+            return .retry
+        case .idle, .checking, .busy, .installing, .upToDate, .disabled:
+            return .check
+        }
+    }
+
+    private func performUpdateAction(_ action: UpdateBannerAction) {
+        switch action {
+        case .check, .retry:
+            controller.retryUpdateCheck()
+        case .install, .restartInstall:
+            controller.installAvailableUpdate()
         }
     }
 
@@ -209,9 +242,9 @@ struct AboutView: View {
             return UpdateBanner(
                 icon: "exclamationmark.triangle.fill",
                 title: "Muesli \(version) is ready to install",
-                message: "Quit and reopen Muesli to finish installing the update.",
+                message: "Restart Muesli from here and Sparkle will finish installing the update automatically.",
                 tint: MuesliTheme.transcribing,
-                action: nil
+                action: .restartInstall
             )
         case .installing(let version):
             return UpdateBanner(
@@ -270,12 +303,7 @@ struct AboutView: View {
 
             if let action = banner.action {
                 actionButton(action.title, icon: action.icon) {
-                    switch action {
-                    case .install:
-                        controller.installAvailableUpdate()
-                    case .retry:
-                        controller.retryUpdateCheck()
-                    }
+                    performUpdateAction(action)
                 }
             }
         }
