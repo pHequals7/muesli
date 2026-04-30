@@ -116,7 +116,7 @@ final class MeetingSession {
 
     /// Current mic power level for waveform visualization.
     func currentPower() -> Float {
-        if isPaused {
+        if chunkRotationQueue.sync(execute: { isPaused }) {
             return -160
         }
         return streamingMicRecorder.currentPower()
