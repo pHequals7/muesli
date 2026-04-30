@@ -10,6 +10,7 @@ final class MeetingMonitor {
     var isStartingRecordingProvider: (() -> Bool)?
     var isCalendarNotificationVisibleProvider: (() -> Bool)?
     var promptVisibilityProvider: (() -> MeetingPromptVisibility)?
+    var mutedDetectionBundleIDsProvider: (() -> Set<String>)?
     var onPromptCandidateChanged: ((MeetingCandidate?) -> Void)?
 
     private let resolver = MeetingCandidateResolver()
@@ -117,7 +118,8 @@ final class MeetingMonitor {
             now: now
         )
 
-        let candidate = isGloballySuppressed(now: now) ? nil : resolver.resolve(snapshot)
+        let resolvedCandidate = isGloballySuppressed(now: now) ? nil : resolver.resolve(snapshot)
+        let candidate = isMuted(resolvedCandidate) ? nil : resolvedCandidate
         logCandidateIfChanged(candidate)
 
         let decision = promptState.evaluate(
@@ -149,6 +151,11 @@ final class MeetingMonitor {
             return false
         }
         return true
+    }
+
+    private func isMuted(_ candidate: MeetingCandidate?) -> Bool {
+        guard let sourceBundleID = candidate?.sourceBundleID else { return false }
+        return mutedDetectionBundleIDsProvider?().contains(sourceBundleID) ?? false
     }
 
     private func logCandidateIfChanged(_ candidate: MeetingCandidate?) {

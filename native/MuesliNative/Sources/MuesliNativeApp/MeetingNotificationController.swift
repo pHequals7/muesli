@@ -55,8 +55,8 @@ final class MeetingNotificationController {
         let hasJoinButton = meetingURL != nil && onJoinAndRecord != nil
         let platform = explicitPlatform ?? meetingURL.flatMap { MeetingPlatform.detect(from: $0) }
 
-        let width: CGFloat = 420
-        let height: CGFloat = 74
+        let width: CGFloat = 344
+        let height: CGFloat = 60
         let margin: CGFloat = 16
         guard let frame = verifiedNotificationFrame(
             preferredScreen: preferredScreen,
@@ -83,7 +83,7 @@ final class MeetingNotificationController {
         contentView.onMouseEntered = { [weak self] in self?.pauseDismissCountdown() }
         contentView.onMouseExited = { [weak self] in self?.resumeDismissCountdown() }
         contentView.wantsLayer = true
-        contentView.layer?.cornerRadius = 12
+        contentView.layer?.cornerRadius = 10
         contentView.layer?.masksToBounds = true
         contentView.layer?.backgroundColor = NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 0.97).cgColor
         contentView.layer?.borderWidth = 1
@@ -100,13 +100,13 @@ final class MeetingNotificationController {
         progressBar.position = CGPoint(x: 0, y: 1.5)
 
         let dismissButton = NSButton(title: "×", target: self, action: #selector(handleDismiss))
-        dismissButton.font = .systemFont(ofSize: 15, weight: .medium)
-        dismissButton.frame = NSRect(x: 12, y: height - 32, width: 24, height: 24)
+        dismissButton.font = .systemFont(ofSize: 13, weight: .medium)
+        dismissButton.frame = NSRect(x: 9, y: height - 27, width: 20, height: 20)
         dismissButton.wantsLayer = true
         dismissButton.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.055).cgColor
         dismissButton.layer?.borderWidth = 1
         dismissButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
-        dismissButton.layer?.cornerRadius = 12
+        dismissButton.layer?.cornerRadius = 10
         dismissButton.alignment = .center
         dismissButton.focusRingType = .none
         dismissButton.isBordered = false
@@ -117,36 +117,36 @@ final class MeetingNotificationController {
         // Platform icon + text layout
         let textX: CGFloat
         if let platform, let icon = platform.loadIcon() {
-            let iconSize: CGFloat = 28
+            let iconSize: CGFloat = 26
             let iconView = NSImageView(image: icon)
             iconView.imageScaling = .scaleProportionallyUpOrDown
-            iconView.frame = NSRect(x: 52, y: (height - iconSize) / 2 + 2, width: iconSize, height: iconSize)
+            iconView.frame = NSRect(x: 38, y: (height - iconSize) / 2 + 1, width: iconSize, height: iconSize)
             contentView.addSubview(iconView)
-            textX = 52 + iconSize + 10
+            textX = 38 + iconSize + 9
         } else {
-            textX = 52
+            textX = 38
         }
 
         // Title label
         let titleLabel = NSTextField(labelWithString: title)
         titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .white
-        titleLabel.frame = NSRect(x: textX, y: 43, width: 180, height: 18)
+        titleLabel.frame = NSRect(x: textX, y: 32, width: 144, height: 18)
         contentView.addSubview(titleLabel)
 
         // Subtitle label
         let subtitleLabel = NSTextField(labelWithString: subtitle)
         subtitleLabel.font = .systemFont(ofSize: 11)
         subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.55)
-        subtitleLabel.frame = NSRect(x: textX, y: 23, width: 180, height: 16)
+        subtitleLabel.frame = NSRect(x: textX, y: 14, width: 144, height: 16)
         contentView.addSubview(subtitleLabel)
 
         if hasJoinButton {
             // Split button: "Join & Record" (main) + chevron dropdown with "Join Only"
-            let buttonWidth: CGFloat = 110
+            let buttonWidth: CGFloat = 98
             let chevronWidth: CGFloat = 24
             let totalWidth = buttonWidth + chevronWidth
-            let buttonX = width - totalWidth - 18
+            let buttonX = width - totalWidth - 12
             let textMaxX = buttonX - 8
             let greenColor = NSColor(red: 0.20, green: 0.72, blue: 0.53, alpha: 1.0)
             let greenDarker = NSColor(red: 0.15, green: 0.58, blue: 0.42, alpha: 1.0)
@@ -158,7 +158,7 @@ final class MeetingNotificationController {
             // Main "Join & Record" button
             let joinButton = NSButton(title: "Join & Record", target: self, action: #selector(handleJoinAndRecord))
             joinButton.font = .systemFont(ofSize: 11, weight: .medium)
-            joinButton.frame = NSRect(x: buttonX, y: 22, width: buttonWidth, height: 30)
+            joinButton.frame = NSRect(x: buttonX, y: 15, width: buttonWidth, height: 30)
             joinButton.wantsLayer = true
             joinButton.layer?.backgroundColor = greenColor.cgColor
             joinButton.layer?.cornerRadius = 6
@@ -170,7 +170,7 @@ final class MeetingNotificationController {
             // Chevron dropdown button
             let chevronButton = NSButton(title: "▾", target: self, action: #selector(handleChevronClick(_:)))
             chevronButton.font = .systemFont(ofSize: 9, weight: .medium)
-            chevronButton.frame = NSRect(x: buttonX + buttonWidth, y: 22, width: chevronWidth, height: 30)
+            chevronButton.frame = NSRect(x: buttonX + buttonWidth, y: 15, width: chevronWidth, height: 30)
             chevronButton.wantsLayer = true
             chevronButton.layer?.backgroundColor = greenDarker.cgColor
             chevronButton.layer?.cornerRadius = 6
@@ -182,7 +182,7 @@ final class MeetingNotificationController {
             // Single "Start Recording" button
             let startButton = NSButton(title: actionLabel, target: self, action: #selector(handleStartRecording))
             startButton.font = .systemFont(ofSize: 12, weight: .medium)
-            startButton.frame = NSRect(x: width - 158, y: 22, width: 140, height: 30)
+            startButton.frame = NSRect(x: width - 122, y: 15, width: 110, height: 30)
             startButton.wantsLayer = true
             startButton.layer?.backgroundColor = NSColor(red: 0.2, green: 0.5, blue: 1.0, alpha: 1.0).cgColor
             startButton.layer?.cornerRadius = 6

@@ -339,6 +339,9 @@ struct AppConfigTests {
         #expect(config.meetingSummaryBackend == "openai")
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.meetingRecordingSavePolicy == .never)
+        #expect(config.showScheduledMeetingNotifications == true)
+        #expect(config.showMeetingDetectionNotification == true)
+        #expect(config.mutedMeetingDetectionAppBundleIDs.isEmpty)
         #expect(config.openAIAPIKey.isEmpty)
         #expect(config.openRouterAPIKey.isEmpty)
         #expect(config.dictationHotkey == .default)
@@ -372,6 +375,9 @@ struct AppConfigTests {
         config.meetingHookEnabled = true
         config.meetingHookPath = "/tmp/meeting-hook.sh"
         config.meetingHookTimeoutSeconds = 45
+        config.showScheduledMeetingNotifications = false
+        config.showMeetingDetectionNotification = false
+        config.mutedMeetingDetectionAppBundleIDs = ["com.google.Chrome", "com.tinyspeck.slackmacgap"]
 
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
@@ -388,6 +394,9 @@ struct AppConfigTests {
         #expect(decoded.meetingHookEnabled == true)
         #expect(decoded.meetingHookPath == "/tmp/meeting-hook.sh")
         #expect(decoded.meetingHookTimeoutSeconds == 45)
+        #expect(decoded.showScheduledMeetingNotifications == false)
+        #expect(decoded.showMeetingDetectionNotification == false)
+        #expect(decoded.mutedMeetingDetectionAppBundleIDs == ["com.google.Chrome", "com.tinyspeck.slackmacgap"])
         #expect(decoded.meetingTranscriptionBackend == config.meetingTranscriptionBackend)
         #expect(decoded.indicatorAnchor == config.indicatorAnchor)
     }
@@ -408,6 +417,9 @@ struct AppConfigTests {
         #expect(json["user_name"] != nil)
         #expect(json["default_meeting_template_id"] != nil)
         #expect(json["meeting_recording_save_policy"] != nil)
+        #expect(json["show_scheduled_meeting_notifications"] != nil)
+        #expect(json["show_meeting_detection_notification"] != nil)
+        #expect(json["muted_meeting_detection_app_bundle_ids"] != nil)
         #expect(json["custom_meeting_templates"] != nil)
         #expect(json["meeting_hook_enabled"] != nil)
         #expect(json["meeting_hook_path"] != nil)
@@ -426,6 +438,9 @@ struct AppConfigTests {
         #expect(config.hasCompletedOnboarding == false)
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.meetingRecordingSavePolicy == .never)
+        #expect(config.showScheduledMeetingNotifications == true)
+        #expect(config.showMeetingDetectionNotification == true)
+        #expect(config.mutedMeetingDetectionAppBundleIDs.isEmpty)
         #expect(config.customMeetingTemplates.isEmpty)
         #expect(config.meetingHookEnabled == false)
         #expect(config.meetingHookPath.isEmpty)
