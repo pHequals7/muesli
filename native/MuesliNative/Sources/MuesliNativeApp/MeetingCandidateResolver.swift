@@ -295,7 +295,7 @@ final class MeetingCandidateResolver {
                 url: browserMeeting.url,
                 title: snapshot.calendarEvent?.title,
                 evidence: browserEvidence(from: snapshot, context: browserMeeting, inputProcess: inputProcess),
-                sourceBundleID: inputProcess.bundleID,
+                sourceBundleID: browserMeeting.bundleID,
                 sourcePID: inputProcess.pid,
                 now: snapshot.now
             )
@@ -328,7 +328,7 @@ final class MeetingCandidateResolver {
                     url: browserMeeting.url,
                     title: calendarEvent.title,
                     evidence: browserEvidence(from: snapshot, context: browserMeeting, inputProcess: inputProcess).union([.calendarEvent]),
-                    sourceBundleID: inputProcess?.bundleID ?? browserMeeting.bundleID,
+                    sourceBundleID: browserMeeting.bundleID,
                     sourcePID: inputProcess?.pid ?? browserMeeting.pid,
                     now: snapshot.now
                 )
@@ -487,7 +487,13 @@ final class MeetingCandidateResolver {
         for bundleID: String,
         in snapshot: MeetingSignalSnapshot
     ) -> AudioProcessActivity? {
-        snapshot.audioInputProcesses.first { $0.bundleID == bundleID }
+        snapshot.audioInputProcesses.first {
+            $0.bundleID == bundleID || isHelperBundleID($0.bundleID, for: bundleID)
+        }
+    }
+
+    private func isHelperBundleID(_ helperBundleID: String, for parentBundleID: String) -> Bool {
+        helperBundleID.lowercased().hasPrefix("\(parentBundleID.lowercased()).")
     }
 
     private func platform(for bundleID: String) -> MeetingCandidate.Platform? {

@@ -120,9 +120,9 @@ struct MeetingCandidateResolverTests {
             ],
             audioInputProcesses: [
                 AudioProcessActivity(
-                    pid: 1234,
-                    bundleID: "com.google.Chrome",
-                    appName: "Chrome",
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
                     isRunningInput: true,
                     isRunningOutput: false
                 ),
@@ -133,6 +133,7 @@ struct MeetingCandidateResolverTests {
         #expect(candidate?.id == "googleMeet:meet.google.com/pwm-txwq-txy")
         #expect(candidate?.platform == .googleMeet)
         #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.sourcePID == 9876)
         #expect(candidate?.evidence.contains(.audioInputProcess) == true)
         #expect(candidate?.evidence.contains(.foregroundApp) == false)
     }
