@@ -6,6 +6,15 @@
         <language>en</language>
         <!-- Items are added by scripts/release-preprod.sh -->
         <item>
+            <title>0.6.5-preprod.1</title>
+            <pubDate>Thu, 30 Apr 2026 14:49:48 +0530</pubDate>
+            <sparkle:version>6005001</sparkle:version>
+            <sparkle:shortVersionString>0.6.5-preprod.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.6.5-preprod.1/MuesliPreprod-0.6.5-preprod.1.dmg" length="62608451" type="application/octet-stream" sparkle:edSignature="3X9hoR7e0H3AWBlbdP6Tn7iCGwRi/C5ySBSxrVb8Kgt6FxCCp90p4brQPw1W+5MSMqcweHnEFiEmnXpjrkgVAA=="/>
+        </item>
+        <item>
             <title>0.6.4-preprod.1</title>
             <pubDate>Wed, 29 Apr 2026 12:37:41 +0530</pubDate>
             <sparkle:version>6004001</sparkle:version>
@@ -22,15 +31,6 @@
             <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
             <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.6.3-preprod.6/MuesliPreprod-0.6.3-preprod.6.dmg" length="62301951" type="application/octet-stream" sparkle:edSignature="sZGM/U9eMjT/w4rJwj0xsA16dU3SHuAlc6q0UU/TOmXPxzIJkYm1utoyZPyfPM5Mwq9fH3bV3q9AT6pGovvsBg=="/>
-        </item>
-        <item>
-            <title>0.6.3-preprod.5</title>
-            <pubDate>Sun, 26 Apr 2026 18:09:20 +0530</pubDate>
-            <sparkle:version>6003005</sparkle:version>
-            <sparkle:shortVersionString>0.6.3-preprod.5</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>10.13</sparkle:minimumSystemVersion>
-            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/pHequals7/muesli/releases/download/v0.6.3-preprod.5/MuesliPreprod-0.6.3-preprod.5.dmg" length="62301808" type="application/octet-stream" sparkle:edSignature="2WkwzxBN5p/9SvwKpxQpW/c8QZOWi7BRKeXntIU3t14+QMaPSJPKEQvsYSme7eYAOsX8WDceR5IehGdRscJxBg=="/>
         </item>
     </channel>
 </rss>
