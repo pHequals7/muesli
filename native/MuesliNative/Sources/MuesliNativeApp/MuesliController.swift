@@ -2010,19 +2010,34 @@ final class MuesliController: NSObject {
 
     private func presentDiscardMeetingAlert(_ alert: NSAlert, attempt: Int = 0) {
         if let window = confirmationAnchorWindow() {
-            alert.beginSheetModal(for: window) { [weak self] response in
-                guard response == .alertFirstButtonReturn else { return }
-                Task { @MainActor [weak self] in
-                    self?.discardMeetingRecording()
-                }
-            }
+            beginDiscardMeetingAlert(alert, for: window)
             return
         }
 
         showActiveMeetingDocumentIfNeeded()
         historyWindowController?.show()
+        if let window = confirmationAnchorWindow() {
+            beginDiscardMeetingAlert(alert, for: window)
+            return
+        }
+
+        guard attempt < 20 else {
+            NSLog("Unable to present discard meeting confirmation: no anchor window became available")
+            NSSound.beep()
+            return
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, alert] in
             self?.presentDiscardMeetingAlert(alert, attempt: attempt + 1)
+        }
+    }
+
+    private func beginDiscardMeetingAlert(_ alert: NSAlert, for window: NSWindow) {
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            Task { @MainActor [weak self] in
+                self?.discardMeetingRecording()
+            }
         }
     }
 

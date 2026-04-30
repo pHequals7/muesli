@@ -66,10 +66,11 @@ enum MeetingPreviewText {
                 options: .regularExpression
             )
             line = line.replacingOccurrences(
-                of: #"[`*_~]"#,
-                with: "",
+                of: #"`([^`\n]+)`"#,
+                with: "$1",
                 options: .regularExpression
             )
+            line = stripMarkdownDelimiters(from: line)
             line = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
             if !line.isEmpty {
@@ -78,5 +79,26 @@ enum MeetingPreviewText {
         }
 
         return lines.joined(separator: " ")
+    }
+
+    private static func stripMarkdownDelimiters(from text: String) -> String {
+        var result = text
+        let replacements = [
+            (#"\*\*([^*\n]+)\*\*"#, "$1"),
+            (#"__([^_\n]+)__"#, "$1"),
+            (#"~~([^~\n]+)~~"#, "$1"),
+            (#"(^|[\s(\[{])\*([^*\n]+)\*($|[\s)\]}.,;:!?])"#, "$1$2$3"),
+            (#"(^|[\s(\[{])_([^_\n]+)_($|[\s)\]}.,;:!?])"#, "$1$2$3")
+        ]
+
+        for (pattern, replacement) in replacements {
+            result = result.replacingOccurrences(
+                of: pattern,
+                with: replacement,
+                options: .regularExpression
+            )
+        }
+
+        return result
     }
 }

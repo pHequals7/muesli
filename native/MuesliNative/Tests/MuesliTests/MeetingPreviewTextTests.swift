@@ -18,6 +18,16 @@ struct MeetingPreviewTextTests {
         #expect(preview == "Customer Sync Decisions Ship pause controls Follow up with Rishab Polish meeting previews")
     }
 
+    @Test("preserves non-markdown underscores and tildes")
+    func preservesIdentifierCharacters() {
+        let preview = MeetingPreviewText.snippet(from: """
+        ## Implementation Notes
+        Use `my_function` for ~50 rows before _polishing_ the summary.
+        """, limit: 120)
+
+        #expect(preview == "Implementation Notes Use my_function for ~50 rows before polishing the summary.")
+    }
+
     @Test("falls back when source is empty after cleanup")
     func emptyPreviewFallback() {
         let preview = MeetingPreviewText.snippet(from: """
