@@ -8,14 +8,15 @@ struct MeetingPromptStateMachineTests {
 
     private func candidate(
         _ id: String = "googleMeet:meet.google.com/pwm-txwq-txy",
-        suppressionID: String? = nil
+        suppressionID: String? = nil,
+        evidence: Set<MeetingCandidate.Evidence> = [.micActive, .cameraActive, .browserURL, .foregroundApp]
     ) -> MeetingCandidate {
         MeetingCandidate(
             id: id,
             platform: .googleMeet,
             appName: "Chrome",
             url: "meet.google.com/pwm-txwq-txy",
-            evidence: [.micActive, .cameraActive, .browserURL, .foregroundApp],
+            evidence: evidence,
             startedAt: now,
             meetingTitle: nil,
             suppressionID: suppressionID
@@ -50,7 +51,7 @@ struct MeetingPromptStateMachineTests {
     @Test("eligible candidate waits for stability delay")
     func eligibleCandidateWaitsForStabilityDelay() {
         let machine = MeetingPromptStateMachine()
-        let candidate = candidate()
+        let candidate = candidate(evidence: [.micActive, .cameraActive, .dedicatedApp])
 
         let first = decision(machine, candidate: candidate, now: now)
         let second = decision(machine, candidate: candidate, now: now.addingTimeInterval(2.9))
@@ -64,11 +65,27 @@ struct MeetingPromptStateMachineTests {
         #expect(third.candidate?.id == candidate.id)
     }
 
+    @Test("browser URL candidate waits for stability delay")
+    func browserCandidateWaitsForStabilityDelay() {
+        let machine = MeetingPromptStateMachine()
+        let candidate = candidate()
+
+        let first = decision(machine, candidate: candidate, now: now)
+        let second = decision(machine, candidate: candidate, now: now.addingTimeInterval(3.1))
+
+        #expect(first.reason == .candidatePending)
+        #expect(second.action == .show)
+        #expect(second.candidate?.id == candidate.id)
+    }
+
     @Test("candidate change restarts stability delay")
     func candidateChangeRestartsStabilityDelay() {
         let machine = MeetingPromptStateMachine()
-        let firstCandidate = candidate()
-        let secondCandidate = candidate("googleMeet:meet.google.com/abc-defg-hij")
+        let firstCandidate = candidate(evidence: [.micActive, .cameraActive, .dedicatedApp])
+        let secondCandidate = candidate(
+            "googleMeet:meet.google.com/abc-defg-hij",
+            evidence: [.micActive, .cameraActive, .dedicatedApp]
+        )
 
         #expect(decision(machine, candidate: firstCandidate, now: now).reason == .candidatePending)
         #expect(decision(machine, candidate: secondCandidate, now: now.addingTimeInterval(2)).reason == .candidatePending)
@@ -85,7 +102,7 @@ struct MeetingPromptStateMachineTests {
         let candidate = candidate()
 
         machine.markShown(candidate)
-        machine.markAutoDismissed(candidate)
+        machine.markAutoDismissed(candidate, now: now)
         let result = decision(machine, candidate: candidate)
 
         #expect(machine.visiblePromptID == nil)
@@ -100,7 +117,7 @@ struct MeetingPromptStateMachineTests {
         let newCandidate = candidate("googleMeet:meet.google.com/abc-defg-hij")
 
         machine.markShown(oldCandidate)
-        machine.markAutoDismissed(oldCandidate)
+        machine.markAutoDismissed(oldCandidate, now: now)
         let result = decision(machine, candidate: newCandidate)
 
         #expect(result.action == .show)
@@ -159,7 +176,7 @@ struct MeetingPromptStateMachineTests {
         let candidate = candidate()
 
         machine.markShown(candidate)
-        machine.markAutoDismissed(candidate)
+        machine.markAutoDismissed(candidate, now: now)
 
         #expect(decision(machine, candidate: nil, now: now.addingTimeInterval(1)).reason == .noCandidate)
 
@@ -169,13 +186,30 @@ struct MeetingPromptStateMachineTests {
         #expect(result.reason == .autoDismissedSuppression)
     }
 
-    @Test("auto-dismiss suppression does not expire for same candidate")
-    func autoDismissSuppressionDoesNotExpire() {
+    @Test("browser auto-dismiss suppression expires for same candidate")
+    func browserAutoDismissSuppressionExpires() {
         let machine = immediateMachine()
         let candidate = candidate()
 
         machine.markShown(candidate)
-        machine.markAutoDismissed(candidate)
+        machine.markAutoDismissed(candidate, now: now)
+
+        let result = decision(machine, candidate: candidate, now: now.addingTimeInterval(121))
+
+        #expect(result.action == .show)
+    }
+
+    @Test("app auto-dismiss suppression does not expire for same session")
+    func appAutoDismissSuppressionDoesNotExpire() {
+        let machine = immediateMachine()
+        let candidate = candidate(
+            "app:com.tinyspeck.slackmacgap:session:1",
+            suppressionID: "app:com.tinyspeck.slackmacgap:session:1",
+            evidence: [.micActive, .audioInputProcess, .dedicatedApp]
+        )
+
+        machine.markShown(candidate)
+        machine.markAutoDismissed(candidate, now: now)
 
         let result = decision(machine, candidate: candidate, now: now.addingTimeInterval(3_600))
 
@@ -195,7 +229,7 @@ struct MeetingPromptStateMachineTests {
     @Test("recording state resets pending candidate dwell")
     func recordingStateResetsPendingCandidateDwell() {
         let machine = MeetingPromptStateMachine()
-        let candidate = candidate()
+        let candidate = candidate(evidence: [.micActive, .cameraActive, .dedicatedApp])
 
         #expect(decision(machine, candidate: candidate, now: now).reason == .candidatePending)
         #expect(decision(machine, candidate: candidate, isRecording: true, now: now.addingTimeInterval(2)).reason == .recording)

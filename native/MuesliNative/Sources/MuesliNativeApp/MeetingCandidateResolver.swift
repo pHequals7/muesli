@@ -171,7 +171,7 @@ enum MeetingURLNormalizer {
 
         if host == "meet.google.com" {
             guard let code = path.split(separator: "/").first.map(String.init),
-                  !code.isEmpty else { return nil }
+                  isGoogleMeetCode(code) else { return nil }
             let identity = "meet.google.com/\(code.lowercased())"
             return NormalizedMeetingURL(
                 id: "googleMeet:\(identity)",
@@ -205,6 +205,19 @@ enum MeetingURLNormalizer {
         }
 
         return nil
+    }
+
+    private static func isGoogleMeetCode(_ value: String) -> Bool {
+        let parts = value.lowercased().split(separator: "-")
+        guard parts.count == 3,
+              parts[0].count == 3,
+              parts[1].count == 4,
+              parts[2].count == 3 else {
+            return false
+        }
+        return parts.allSatisfy { part in
+            part.allSatisfy { $0 >= "a" && $0 <= "z" }
+        }
     }
 
     private static func zoomMeetingID(from path: String) -> String? {

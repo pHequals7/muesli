@@ -2569,7 +2569,7 @@ final class MuesliController: NSObject {
         let title = candidate.meetingTitle ?? candidate.platform.displayName
         presentedMeetingCandidate = candidate
         let preferredScreen = meetingSourceWindowLocator.screen(for: candidate)
-        meetingNotification.show(
+        let didShow = meetingNotification.show(
             promptID: candidate.id,
             title: "Meeting detected",
             subtitle: title,
@@ -2601,7 +2601,11 @@ final class MuesliController: NSObject {
                 self.meetingMonitor.markPromptClosed(candidate)
             }
         )
-        meetingMonitor.markPromptShown(candidate)
+        if didShow {
+            meetingMonitor.markPromptShown(candidate)
+        } else if presentedMeetingCandidate == candidate {
+            presentedMeetingCandidate = nil
+        }
     }
 
     @MainActor
