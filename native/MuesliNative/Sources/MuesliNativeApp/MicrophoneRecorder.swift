@@ -45,7 +45,6 @@ final class MicrophoneRecorder: NSObject, AVAudioRecorderDelegate {
     }
 
     func resume() {
-        guard recorder != nil else { return }
         recorder?.record()
     }
 

@@ -2019,8 +2019,8 @@ final class MuesliController: NSObject {
             return
         }
 
-        openHistoryWindow()
-        guard attempt < 5 else { return }
+        showActiveMeetingDocumentIfNeeded()
+        historyWindowController?.show()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, alert] in
             self?.presentDiscardMeetingAlert(alert, attempt: attempt + 1)
         }
@@ -2031,6 +2031,10 @@ final class MuesliController: NSObject {
             window.isVisible &&
                 !window.isMiniaturized &&
                 !(window is NSPanel) &&
+                window.canBecomeKey
+        } ?? NSApp.windows.first { window in
+            window.isVisible &&
+                !window.isMiniaturized &&
                 window.canBecomeKey
         }
     }
