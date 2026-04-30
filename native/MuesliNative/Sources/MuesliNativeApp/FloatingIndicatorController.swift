@@ -82,6 +82,7 @@ final class FloatingIndicatorController: NSObject {
     private var hoverExitWorkItem: DispatchWorkItem?
     private let configStore: ConfigStore
     private var isMeetingRecording = false
+    private var isMeetingRecordingPaused = false
     private var glassView: NSVisualEffectView?
     private var tintLayer: CALayer?
     private var micIconView: NSImageView?
@@ -93,6 +94,7 @@ final class FloatingIndicatorController: NSObject {
     var powerProvider: (() -> Float)?
     var onStopMeeting: (() -> Void)?
     var onDiscardMeeting: (() -> Void)?
+    var onToggleMeetingPause: (() -> Void)?
     var onCancelToggleDictation: (() -> Void)?
     var onPositionSaved: ((CGPoint) -> Void)?
     var isToggleDictation = false
@@ -113,7 +115,7 @@ final class FloatingIndicatorController: NSObject {
         if state == .recording, let x {
             if x < 30 {
                 if isMeetingRecording {
-                    onDiscardMeeting?()
+                    onToggleMeetingPause?()
                 } else {
                     onCancelToggleDictation?()
                 }
@@ -134,7 +136,9 @@ final class FloatingIndicatorController: NSObject {
     }
 
     func handleOptionClick() {
-        if !isMeetingRecording, state == .recording {
+        if isMeetingRecording, state == .recording {
+            onDiscardMeeting?()
+        } else if state == .recording {
             onCancelToggleDictation?()
         }
     }
@@ -184,11 +188,21 @@ final class FloatingIndicatorController: NSObject {
 
     func setMeetingRecording(_ recording: Bool, config: AppConfig) {
         isMeetingRecording = recording
+        if !recording {
+            isMeetingRecordingPaused = false
+        }
         if recording {
             setState(.recording, config: config)
         } else {
             setState(.idle, config: config)
         }
+    }
+
+    func setMeetingRecordingPaused(_ paused: Bool, config: AppConfig) {
+        guard isMeetingRecordingPaused != paused else { return }
+        isMeetingRecordingPaused = paused
+        guard isMeetingRecording, state == .recording else { return }
+        setState(.recording, config: config)
     }
 
     func setTranscribingTitle(_ title: String, config: AppConfig) {
@@ -254,12 +268,12 @@ final class FloatingIndicatorController: NSObject {
             contentView.layer?.borderColor = style.border.cgColor
 
             if state == .recording {
-                // All recordings: X on left, waveform in middle, stop on right.
+                // Dictation uses cancel on the left. Meeting recordings use pause/resume.
                 iconLabel.isHidden = false
                 iconLabel.animator().alphaValue = 1
-                iconLabel.stringValue = "\u{2715}"  // ✕
-                iconLabel.textColor = .white.withAlphaComponent(0.45)
-                iconLabel.font = NSFont.systemFont(ofSize: 7, weight: .semibold)
+                iconLabel.stringValue = recordingControlSymbol()
+                iconLabel.textColor = .white.withAlphaComponent(isMeetingRecording ? 0.86 : 0.45)
+                iconLabel.font = NSFont.systemFont(ofSize: isMeetingRecording ? 8 : 7, weight: .semibold)
                 let xSize: CGFloat = 10
                 iconLabel.frame = NSRect(
                     x: 7,
@@ -524,6 +538,11 @@ final class FloatingIndicatorController: NSObject {
 
         contentView.layer?.addSublayer(stop)
         stopLayer = stop
+    }
+
+    private func recordingControlSymbol() -> String {
+        guard isMeetingRecording else { return "\u{2715}" }
+        return isMeetingRecordingPaused ? "\u{25B6}" : "\u{23F8}"
     }
 
     private func removeStopLayer() {

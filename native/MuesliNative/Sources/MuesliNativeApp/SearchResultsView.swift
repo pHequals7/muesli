@@ -233,10 +233,16 @@ private struct SearchMeetingRow: View {
     private func bestMatchField() -> String {
         let q = query.lowercased()
         if record.title.lowercased().contains(q) {
-            return record.formattedNotes.isEmpty ? record.rawTranscript : record.formattedNotes
+            return MeetingPreviewText.plainText(
+                from: record.formattedNotes.isEmpty ? record.rawTranscript : record.formattedNotes
+            )
         }
-        if record.formattedNotes.lowercased().contains(q) { return record.formattedNotes }
-        if record.rawTranscript.lowercased().contains(q) { return record.rawTranscript }
+        if record.formattedNotes.lowercased().contains(q) {
+            return MeetingPreviewText.plainText(from: record.formattedNotes)
+        }
+        if record.rawTranscript.lowercased().contains(q) {
+            return MeetingPreviewText.plainText(from: record.rawTranscript)
+        }
         return ""
     }
 

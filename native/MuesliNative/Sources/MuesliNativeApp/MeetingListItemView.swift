@@ -240,11 +240,7 @@ struct MeetingListItemView: View {
         } else {
             source = record.formattedNotes.isEmpty ? record.rawTranscript : record.formattedNotes
         }
-        let compact = source.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        if compact.count > 88 {
-            return String(compact.prefix(85)) + "..."
-        }
-        return compact.isEmpty ? "No notes yet" : compact
+        return MeetingPreviewText.snippet(from: source)
     }
 
 }

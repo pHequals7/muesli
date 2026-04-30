@@ -200,6 +200,7 @@ final class MuesliController: NSObject {
         indicator.hotkeyLabel = config.dictationHotkey.label
         indicator.onStopMeeting = { [weak self] in self?.stopMeetingRecording() }
         indicator.onDiscardMeeting = { [weak self] in self?.discardMeetingWithConfirmation() }
+        indicator.onToggleMeetingPause = { [weak self] in self?.toggleMeetingRecordingPause() }
         indicator.onStopToggleDictation = { [weak self] in
             guard let self else { return }
             if self.hotkeyMonitor.isToggleRecording {
@@ -464,6 +465,8 @@ final class MuesliController: NSObject {
         appState.activePostProcessor = PostProcessorOption.resolve(id: config.activePostProcessorId)
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
+        appState.isMeetingRecordingPaused = isMeetingRecordingPaused()
+        indicator.setMeetingRecordingPaused(appState.isMeetingRecordingPaused, config: config)
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
         appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
         appState.isGoogleCalendarVerified = googleCalAuth.isVerified
@@ -1738,6 +1741,10 @@ final class MuesliController: NSObject {
         activeMeetingSession?.isRecording == true || isStoppingMeetingRecording
     }
 
+    func isMeetingRecordingPaused() -> Bool {
+        activeMeetingSession?.isPaused == true
+    }
+
     private var meetingTerminationState: MeetingTerminationState {
         MeetingTerminationPolicy.state(
             isStarting: isStartingMeetingRecording,
@@ -1795,6 +1802,38 @@ final class MuesliController: NSObject {
         } else {
             startForegroundMeetingRecording()
         }
+    }
+
+    @objc func toggleMeetingRecordingPause() {
+        if isMeetingRecordingPaused() {
+            resumeMeetingRecording()
+        } else {
+            pauseMeetingRecording()
+        }
+    }
+
+    func pauseMeetingRecording() {
+        guard let activeMeetingSession,
+              activeMeetingSession.isRecording,
+              !activeMeetingSession.isPaused,
+              !isStoppingMeetingRecording else { return }
+        activeMeetingSession.pause()
+        indicator.setMeetingRecordingPaused(true, config: config)
+        statusBarController?.setStatus("Meeting paused")
+        statusBarController?.refresh()
+        syncAppState()
+    }
+
+    func resumeMeetingRecording() {
+        guard let activeMeetingSession,
+              activeMeetingSession.isRecording,
+              activeMeetingSession.isPaused,
+              !isStoppingMeetingRecording else { return }
+        activeMeetingSession.resume()
+        indicator.setMeetingRecordingPaused(false, config: config)
+        statusBarController?.setStatus("Meeting: \(activeMeetingDisplayTitle())")
+        statusBarController?.refresh()
+        syncAppState()
     }
 
     @objc func startMeetingFromCalendarMenuItem(_ sender: NSMenuItem) {
@@ -1916,6 +1955,7 @@ final class MuesliController: NSObject {
                 }
                 indicator.setMeetingRecording(true, config: config)
                 statusBarController?.refresh()
+                syncAppState()
                 return
             } catch {
                 guard shouldRetryAfterPermissionRequest,
@@ -1956,8 +1996,6 @@ final class MuesliController: NSObject {
     }
 
     @objc func discardMeetingWithConfirmation() {
-        // Bring app to foreground so the modal alert is visible — Muesli runs as
-        // a background/accessory app and runModal() can get stuck behind other windows.
         NSApp.activate(ignoringOtherApps: true)
 
         let alert = NSAlert()
@@ -1967,8 +2005,52 @@ final class MuesliController: NSObject {
         alert.addButton(withTitle: "Discard")
         alert.addButton(withTitle: "Cancel")
         alert.buttons.first?.hasDestructiveAction = true
-        if alert.runModal() == .alertFirstButtonReturn {
-            discardMeetingRecording()
+        presentDiscardMeetingAlert(alert)
+    }
+
+    private func presentDiscardMeetingAlert(_ alert: NSAlert, attempt: Int = 0) {
+        if let window = confirmationAnchorWindow() {
+            beginDiscardMeetingAlert(alert, for: window)
+            return
+        }
+
+        showActiveMeetingDocumentIfNeeded()
+        historyWindowController?.show()
+        if let window = confirmationAnchorWindow() {
+            beginDiscardMeetingAlert(alert, for: window)
+            return
+        }
+
+        guard attempt < 20 else {
+            NSLog("Unable to present discard meeting confirmation: no anchor window became available")
+            NSSound.beep()
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, alert] in
+            self?.presentDiscardMeetingAlert(alert, attempt: attempt + 1)
+        }
+    }
+
+    private func beginDiscardMeetingAlert(_ alert: NSAlert, for window: NSWindow) {
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            Task { @MainActor [weak self] in
+                self?.discardMeetingRecording()
+            }
+        }
+    }
+
+    private func confirmationAnchorWindow() -> NSWindow? {
+        NSApp.windows.first { window in
+            window.isVisible &&
+                !window.isMiniaturized &&
+                !(window is NSPanel) &&
+                window.canBecomeKey
+        } ?? NSApp.windows.first { window in
+            window.isVisible &&
+                !window.isMiniaturized &&
+                window.canBecomeKey
         }
     }
 
@@ -2266,6 +2348,15 @@ final class MuesliController: NSObject {
             return cached
         }
         return try? dictationStore.meeting(id: id)?.title
+    }
+
+    private func activeMeetingDisplayTitle() -> String {
+        guard let activeMeetingID,
+              let title = liveMeetingTitle(id: activeMeetingID)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return "Meeting"
+        }
+        return title
     }
 
     private func completedLiveMeetingTitle(for result: MeetingSessionResult, existingMeetingID: Int64) -> String {

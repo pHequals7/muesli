@@ -8,7 +8,10 @@ import MuesliCore
 protocol SystemAudioCapturing: AnyObject {
     var onPCMSamples: (([Int16]) -> Void)? { get set }
     var isRecording: Bool { get }
+    var isPaused: Bool { get }
     func start() async throws
+    func pause()
+    func resume()
     func stop() -> URL?
 }
 
@@ -33,6 +36,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
     private var outputURL: URL?
     private var totalBytesWritten = 0
     private(set) var isRecording = false
+    private(set) var isPaused = false
 
     private static let targetSampleRate: Double = 16_000
     private static let maxRenderFrames: UInt32 = 4096
@@ -63,6 +67,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
         outputURL = url
         totalBytesWritten = 0
         isRecording = true
+        isPaused = false
 
         do {
             try createTapAndAggregateDevice()
@@ -78,6 +83,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
     func stop() -> URL? {
         guard isRecording || outputFile != nil || outputURL != nil else { return nil }
         isRecording = false
+        isPaused = false
         onPCMSamples = nil
 
         if let au = audioUnit {
@@ -116,6 +122,16 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
 
         fputs("[system-audio] CoreAudio tap stopped, \(bytes) bytes written\n", stderr)
         return url
+    }
+
+    func pause() {
+        guard isRecording else { return }
+        isPaused = true
+    }
+
+    func resume() {
+        guard isRecording else { return }
+        isPaused = false
     }
 
     // MARK: - Tap + Aggregate Device Setup
@@ -277,6 +293,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
             au, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, &bufferList
         )
         guard status == noErr else { return status }
+        guard !recorder.isPaused else { return noErr }
 
         // Copy rendered data and dispatch off the audio thread for conversion + I/O
         let data = Data(bytes: rawBuf, count: byteSize)
@@ -285,7 +302,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
         let srcRate = recorder.sourceSampleRate
 
         recorder.processingQueue.async { [weak recorder] in
-            guard let recorder, recorder.isRecording else { return }
+            guard let recorder, recorder.isRecording, !recorder.isPaused else { return }
             recorder.processAudioData(data, frameCount: frameCount, channels: channels, sourceRate: srcRate)
         }
 
@@ -295,6 +312,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
     // MARK: - Audio Processing (processing queue)
 
     private func processAudioData(_ data: Data, frameCount: Int, channels: Int, sourceRate: Double) {
+        guard isRecording, !isPaused else { return }
         data.withUnsafeBytes { rawBuffer in
             let floatPtr = rawBuffer.bindMemory(to: Float.self)
 
@@ -544,6 +562,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing {
 
     private func cleanupFailedStart() {
         isRecording = false
+        isPaused = false
         onPCMSamples = nil
 
         if let au = audioUnit {

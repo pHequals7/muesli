@@ -40,6 +40,14 @@ final class MicrophoneRecorder: NSObject, AVAudioRecorderDelegate {
         return url
     }
 
+    func pause() {
+        recorder?.pause()
+    }
+
+    func resume() {
+        recorder?.record()
+    }
+
     func currentPower() -> Float {
         recorder?.updateMeters()
         return recorder?.averagePower(forChannel: 0) ?? -160

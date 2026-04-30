@@ -19,6 +19,7 @@ final class StreamingMicRecorder {
         var fileURL: URL?
         var bytesWritten: Int = 0
         var latestPowerDB: Float = -160
+        var isPaused = false
     }
 
     private static let sampleRate: Double = 16_000
@@ -104,11 +105,17 @@ final class StreamingMicRecorder {
                 return max(-160, min(0, rawDB))
             }()
 
-            self.lock.withLock { state in
+            let shouldEmit = self.lock.withLock { state -> Bool in
+                guard !state.isPaused else {
+                    state.latestPowerDB = -160
+                    return false
+                }
                 state.fileHandle?.write(pcmData)
                 state.bytesWritten += pcmData.count
                 state.latestPowerDB = powerDB
+                return true
             }
+            guard shouldEmit else { return }
 
             self.onPCMSamples?(int16Samples)
 
@@ -157,6 +164,21 @@ final class StreamingMicRecorder {
         }
 
         return finalizeFile(finalState)
+    }
+
+    func pause() {
+        guard isRunning else { return }
+        lock.withLock { state in
+            state.isPaused = true
+            state.latestPowerDB = -160
+        }
+    }
+
+    func resume() {
+        guard isRunning else { return }
+        lock.withLock { state in
+            state.isPaused = false
+        }
     }
 
     func cancel() {

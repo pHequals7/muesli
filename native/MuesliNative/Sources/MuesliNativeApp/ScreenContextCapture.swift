@@ -263,6 +263,7 @@ actor MeetingScreenContextCollector {
 
     private var snapshots: [Snapshot] = []
     private var captureTask: Task<Void, Never>?
+    private var isPaused = false
 
     private static func isMeaningfulAppContext(_ text: String, appName: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -275,8 +276,14 @@ actor MeetingScreenContextCollector {
     ///   When `false`, uses Accessibility API only (lightweight, no screenshots).
     func startPeriodicCapture(interval: TimeInterval = 60, useOCR: Bool = false) {
         captureTask?.cancel()
+        isPaused = false
         captureTask = Task {
             while !Task.isCancelled {
+                if isPaused {
+                    try? await Task.sleep(for: .seconds(2))
+                    continue
+                }
+
                 let timestamp = Date()
                 let appContext = DictationContextCapture.capture()
                 let appContextText = DictationContextCapture.formatForPrompt(appContext)
@@ -314,10 +321,15 @@ actor MeetingScreenContextCollector {
         }
     }
 
+    func setPaused(_ paused: Bool) {
+        isPaused = paused
+    }
+
     @discardableResult
     func stopAndDrain() -> String {
         captureTask?.cancel()
         captureTask = nil
+        isPaused = false
         guard !snapshots.isEmpty else { return "" }
 
         var deduped: [Snapshot] = []

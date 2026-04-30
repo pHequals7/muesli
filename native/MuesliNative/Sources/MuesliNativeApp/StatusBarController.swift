@@ -8,7 +8,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let runtime: RuntimePaths
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
-    private let statusLabel = NSMenuItem(title: "Status: Idle", action: nil, keyEquivalent: "")
+    private let statusLabel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var statusMessage: String?
     private var countdownOverride: String?
 
     init(controller: MuesliController, runtime: RuntimePaths) {
@@ -21,7 +22,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     func setStatus(_ text: String) {
-        statusLabel.title = "Status: \(text)"
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        statusMessage = trimmed.isEmpty || trimmed == "Idle" ? nil : trimmed
+        statusLabel.title = statusMessage ?? ""
     }
 
     func refresh() {
@@ -102,10 +105,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(actionItem(title: "Open \(AppIdentity.displayName)", action: #selector(MuesliController.openHistoryWindow as (MuesliController) -> () -> Void)))
-        let meetingTitle = controller.isMeetingRecording() ? "Stop Meeting Recording" : "Start Meeting Recording"
-        menu.addItem(actionItem(title: meetingTitle, action: #selector(MuesliController.toggleMeetingRecording)))
         if controller.isMeetingRecording() {
+            let pauseTitle = controller.isMeetingRecordingPaused() ? "Resume Meeting Recording" : "Pause Meeting Recording"
+            menu.addItem(actionItem(title: pauseTitle, action: #selector(MuesliController.toggleMeetingRecordingPause)))
+            menu.addItem(actionItem(title: "Stop Meeting Recording", action: #selector(MuesliController.toggleMeetingRecording)))
             menu.addItem(actionItem(title: "Discard Meeting Recording...", action: #selector(MuesliController.discardMeetingWithConfirmation)))
+        } else {
+            menu.addItem(actionItem(title: "Start Meeting Recording", action: #selector(MuesliController.toggleMeetingRecording)))
         }
         menu.addItem(.separator())
 
@@ -158,8 +164,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(actionItem(title: "Settings…", action: #selector(MuesliController.openSettingsTab)))
         menu.addItem(actionItem(title: "Check for Updates…", action: #selector(MuesliController.checkForUpdates)))
-        statusLabel.isEnabled = false
-        menu.addItem(statusLabel)
+        if let statusMessage {
+            statusLabel.title = statusMessage
+            statusLabel.isEnabled = false
+            menu.addItem(statusLabel)
+        }
         menu.addItem(.separator())
         menu.addItem(actionItem(title: "Quit", action: #selector(MuesliController.quitApp)))
     }
