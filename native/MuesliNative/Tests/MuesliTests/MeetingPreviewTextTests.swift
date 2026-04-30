@@ -12,9 +12,10 @@ struct MeetingPreviewTextTests {
         ## Decisions
         - **Ship** pause controls
         - [ ] Follow up with [Rishab](https://example.com)
+        - _Polish_ __meeting__ previews
         """, limit: 120)
 
-        #expect(preview == "Customer Sync Decisions Ship pause controls Follow up with Rishab")
+        #expect(preview == "Customer Sync Decisions Ship pause controls Follow up with Rishab Polish meeting previews")
     }
 
     @Test("falls back when source is empty after cleanup")

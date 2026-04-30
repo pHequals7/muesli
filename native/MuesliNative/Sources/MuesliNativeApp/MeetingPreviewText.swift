@@ -66,7 +66,7 @@ enum MeetingPreviewText {
                 options: .regularExpression
             )
             line = line.replacingOccurrences(
-                of: #"[`*~]"#,
+                of: #"[`*_~]"#,
                 with: "",
                 options: .regularExpression
             )
