@@ -32,8 +32,7 @@ final class BrowserMeetingActivityCollector {
                 url: normalized.url,
                 normalizedID: normalized.id,
                 platform: normalized.platform,
-                isFocused: app.isActive,
-                requiresMediaActivity: normalized.requiresMediaActivity
+                isFocused: app.isActive
             )
             cachedMeetings[bundleID] = CachedBrowserMeeting(context: context, observedAt: now)
             return context
@@ -54,8 +53,7 @@ final class BrowserMeetingActivityCollector {
                     url: cached.context.url,
                     normalizedID: cached.context.normalizedID,
                     platform: cached.context.platform,
-                    isFocused: false,
-                    requiresMediaActivity: cached.context.requiresMediaActivity
+                    isFocused: false
                 )
             }
 
@@ -72,7 +70,7 @@ final class BrowserMeetingActivityCollector {
               let url = activeBrowserURLViaAppleScript(bundleID: bundleID) else {
             return nil
         }
-        return MeetingURLNormalizer.normalizeBrowserActivity(url)
+        return MeetingURLNormalizer.normalize(url)
     }
 
     private func normalizedAXDocumentURL(for app: NSRunningApplication) -> NormalizedMeetingURL? {
@@ -91,7 +89,7 @@ final class BrowserMeetingActivityCollector {
             return nil
         }
 
-        return MeetingURLNormalizer.normalizeBrowserActivity(rawURL)
+        return MeetingURLNormalizer.normalize(rawURL)
     }
 
     private func activeBrowserURLViaAppleScript(bundleID: String) -> String? {
