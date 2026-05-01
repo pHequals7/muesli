@@ -292,11 +292,8 @@ final class MuesliController: NSObject {
         }
 
         // Defer permission-triggering monitors until after onboarding
-        if canRunMainApp {
-            calendarMonitor.start()
-            startCalendarMonitoring()
-            if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
-            meetingMonitor.start()
+        if canRunMainApp && config.resolvedOnboardingUseCase.includesMeetings {
+            startMeetingFeatureMonitors(includeMaraudersMap: true)
         }
 
         Task { [weak self] in
@@ -891,6 +888,15 @@ final class MuesliController: NSObject {
         }
     }
 
+    private func startMeetingFeatureMonitors(includeMaraudersMap: Bool) {
+        calendarMonitor.start()
+        startCalendarMonitoring()
+        if includeMaraudersMap, config.maraudersMapUnlocked {
+            startMaraudersMapMonitoring()
+        }
+        meetingMonitor.start()
+    }
+
     /// Check all upcoming calendar events (EventKit + Google) for events starting within 5 minutes.
     /// Shows a notification when the event enters the 5-minute window, and schedules a second
     /// "Meeting starting now" notification at event start time.
@@ -1125,9 +1131,9 @@ final class MuesliController: NSObject {
                 hotkeyMonitor.start()
             }
             // Start monitors that were deferred during onboarding
-            calendarMonitor.start()
-            startCalendarMonitoring()
-            meetingMonitor.start()
+            if onboardingUseCase.includesMeetings {
+                startMeetingFeatureMonitors(includeMaraudersMap: false)
+            }
             TelemetryDeck.signal("onboarding.completed", parameters: [
                 "use_case": onboardingUseCase.rawValue,
                 "dictation_selected": onboardingUseCase.includesDictation ? "true" : "false",
@@ -1190,7 +1196,7 @@ final class MuesliController: NSObject {
 
     private func onboardingProgressForPermissionRepair() -> OnboardingProgress {
         OnboardingProgress(
-            currentStep: 3,
+            currentStep: OnboardingView.dictationTestStep - 1,
             userName: config.userName,
             selectedBackendKey: config.sttBackend,
             selectedModelKey: config.sttModel,

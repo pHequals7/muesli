@@ -41,6 +41,7 @@ struct OnboardingView: View {
     @State private var dictationTestResult: String?
     @State private var dictationTestError: String?
     @State private var isModelStillDownloading = false
+    @State private var modelDownloadBackend: BackendOption?
     @State private var modelDownloadTask: Task<Void, Never>?
     @State private var modelDownloadProgress: Double?
     @State private var modelDownloadStatus: String?
@@ -200,7 +201,6 @@ struct OnboardingView: View {
         .background(MuesliTheme.backgroundBase)
         .preferredColorScheme(.dark)
         .onAppear {
-            bringOnboardingToFront()
             saveProgress(atStep: currentStep)
         }
         .onChange(of: currentStep) { _, step in
@@ -216,6 +216,7 @@ struct OnboardingView: View {
             saveProgress(atStep: currentStep)
         }
         .onChange(of: selectedBackend) { _, _ in
+            resetModelDownloadForBackendChange()
             saveProgress(atStep: currentStep)
         }
         .onChange(of: selectedCohereLanguage) { _, _ in
@@ -693,7 +694,7 @@ struct OnboardingView: View {
                 }
                 .buttonStyle(.plain)
 
-                if step.name == "Input Monitoring" {
+                if step.name == "Input Monitoring", grantingPermissionName == step.name {
                     Button {
                         openApplicationsFolder()
                     } label: {
@@ -1269,31 +1270,43 @@ struct OnboardingView: View {
     private func ensureModelDownloadStarted() {
         if selectedBackend.isDownloaded {
             isModelStillDownloading = false
+            modelDownloadBackend = nil
             modelDownloadProgress = 1.0
             modelDownloadStatus = "Download complete"
             modelDownloadError = nil
             return
         }
-        guard modelDownloadTask == nil else {
-            isModelStillDownloading = true
-            return
+
+        if modelDownloadTask != nil {
+            guard modelDownloadBackend != selectedBackend else {
+                isModelStillDownloading = true
+                return
+            }
+            modelDownloadTask?.cancel()
+            modelDownloadTask = nil
+            modelDownloadBackend = nil
         }
 
+        let backend = selectedBackend
+        modelDownloadBackend = backend
         isModelStillDownloading = true
         modelDownloadProgress = 0.02
-        modelDownloadStatus = "Starting \(selectedBackend.label) download..."
+        modelDownloadStatus = "Starting \(backend.label) download..."
         modelDownloadError = nil
 
-        let backend = selectedBackend
         modelDownloadTask = Task {
             defer {
                 Task { @MainActor in
-                    modelDownloadTask = nil
+                    if modelDownloadBackend == backend {
+                        modelDownloadTask = nil
+                        modelDownloadBackend = nil
+                    }
                 }
             }
             do {
                 try await controller.downloadModelForOnboarding(backend) { progress, status in
                     Task { @MainActor in
+                        guard selectedBackend == backend else { return }
                         modelDownloadProgress = max(progress, 0.02)
                         modelDownloadStatus = status ?? "Downloading \(backend.label)..."
                         modelDownloadError = nil
@@ -1301,13 +1314,17 @@ struct OnboardingView: View {
                     }
                 }
                 await MainActor.run {
+                    guard selectedBackend == backend else { return }
                     modelDownloadProgress = 1.0
                     modelDownloadStatus = "Download complete"
                     modelDownloadError = nil
                     withAnimation { isModelStillDownloading = false }
                 }
+            } catch is CancellationError {
+                // Backend changes cancel the old task; the new selection owns the download UI.
             } catch {
                 await MainActor.run {
+                    guard selectedBackend == backend else { return }
                     modelDownloadError = "Download failed. Check your connection and retry."
                     modelDownloadStatus = "Download paused"
                     modelDownloadProgress = nil
@@ -1318,10 +1335,14 @@ struct OnboardingView: View {
         }
     }
 
-    private func bringOnboardingToFront() {
-        NSApp.activate(ignoringOtherApps: true)
-        NSApp.keyWindow?.makeKeyAndOrderFront(nil)
-        NSApp.keyWindow?.orderFrontRegardless()
+    private func resetModelDownloadForBackendChange() {
+        modelDownloadTask?.cancel()
+        modelDownloadTask = nil
+        modelDownloadBackend = nil
+        modelDownloadProgress = selectedBackend.isDownloaded ? 1.0 : nil
+        modelDownloadStatus = selectedBackend.isDownloaded ? "Download complete" : nil
+        modelDownloadError = nil
+        isModelStillDownloading = false
     }
 
     private var googleCalendarStep: some View {
