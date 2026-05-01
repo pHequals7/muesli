@@ -138,6 +138,65 @@ struct MeetingCandidateResolverTests {
         #expect(candidate?.evidence.contains(.foregroundApp) == false)
     }
 
+    @Test("Chrome audio input resolves without URL after foreground loss")
+    func chromeAudioInputResolvesWithoutURLAfterForegroundLoss() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+                RunningAppInfo(bundleID: "com.granola.app", isActive: true),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.granola.app"
+        ))
+
+        #expect(candidate?.id == "browser:com.google.Chrome:session:1800000000")
+        #expect(candidate?.suppressionID == candidate?.id)
+        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.appName == "Chrome")
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.sourcePID == 9876)
+        #expect(candidate?.evidence.contains(.audioInputProcess) == true)
+        #expect(candidate?.evidence.contains(.foregroundApp) == false)
+    }
+
+    @Test("Chrome audio input without URL beats background WhatsApp")
+    func chromeAudioInputWithoutURLBeatsBackgroundWhatsApp() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.google.Chrome"
+        ))
+
+        #expect(candidate?.id == "browser:com.google.Chrome:session:1800000000")
+        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.appName == "Chrome")
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.evidence.contains(.foregroundApp) == true)
+    }
+
     @Test("background Meet URL without browser audio does not steal foreground app detection")
     func backgroundMeetURLWithoutBrowserAudioDoesNotStealForegroundAppDetection() {
         let candidate = resolver().resolve(snapshot(
