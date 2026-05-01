@@ -190,6 +190,94 @@ struct MeetingCandidateResolverTests {
         #expect(candidate?.sourceBundleID == "com.google.Chrome")
     }
 
+    @Test("focused Google Meet landing is ignored without media activity")
+    func focusedGoogleMeetLandingIsIgnoredWithoutMediaActivity() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/landing",
+                    normalizedID: "googleMeet:meet.google.com/landing",
+                    platform: .googleMeet,
+                    isFocused: true,
+                    requiresMediaActivity: true
+                ),
+            ],
+            foregroundBundleID: "com.google.Chrome"
+        ))
+
+        #expect(candidate == nil)
+    }
+
+    @Test("focused Google Meet landing with media activity resolves")
+    func focusedGoogleMeetLandingWithMediaActivityResolves() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: true,
+            cameraActive: true,
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/landing",
+                    normalizedID: "googleMeet:meet.google.com/landing",
+                    platform: .googleMeet,
+                    isFocused: true,
+                    requiresMediaActivity: true
+                ),
+            ],
+            foregroundBundleID: "com.google.Chrome"
+        ))
+
+        #expect(candidate?.id == "googleMeet:meet.google.com/landing")
+        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+    }
+
+    @Test("background Google Meet landing with browser helper audio resolves")
+    func backgroundGoogleMeetLandingWithBrowserHelperAudioResolves() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+                RunningAppInfo(bundleID: "com.granola.app", isActive: true),
+            ],
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/landing",
+                    normalizedID: "googleMeet:meet.google.com/landing",
+                    platform: .googleMeet,
+                    isFocused: false,
+                    requiresMediaActivity: true
+                ),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.granola.app"
+        ))
+
+        #expect(candidate?.id == "googleMeet:meet.google.com/landing")
+        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.sourcePID == 9876)
+        #expect(candidate?.evidence.contains(.audioInputProcess) == true)
+    }
+
     @Test("Teams active audio input resolves to Teams")
     func teamsActiveAudioInputResolvesToTeams() {
         let candidate = resolver().resolve(snapshot(
@@ -456,5 +544,15 @@ struct MeetingCandidateResolverTests {
     func googleMeetURLNormalizationRejectsLandingPages() {
         #expect(MeetingURLNormalizer.normalize("https://meet.google.com/landing") == nil)
         #expect(MeetingURLNormalizer.normalize("https://meet.google.com/") == nil)
+    }
+
+    @Test("browser activity normalizer admits Google Meet landing with media requirement")
+    func browserActivityNormalizerAdmitsGoogleMeetLandingWithMediaRequirement() {
+        let normalized = MeetingURLNormalizer.normalizeBrowserActivity("https://meet.google.com/landing?authuser=0")
+
+        #expect(normalized?.id == "googleMeet:meet.google.com/landing")
+        #expect(normalized?.url == "meet.google.com/landing")
+        #expect(normalized?.platform == .googleMeet)
+        #expect(normalized?.requiresMediaActivity == true)
     }
 }

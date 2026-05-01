@@ -95,6 +95,7 @@ struct BrowserMeetingContext: Equatable {
     let normalizedID: String
     let platform: MeetingCandidate.Platform
     let isFocused: Bool
+    let requiresMediaActivity: Bool
 
     init(
         bundleID: String,
@@ -103,7 +104,8 @@ struct BrowserMeetingContext: Equatable {
         url: String,
         normalizedID: String,
         platform: MeetingCandidate.Platform,
-        isFocused: Bool
+        isFocused: Bool,
+        requiresMediaActivity: Bool = false
     ) {
         self.bundleID = bundleID
         self.appName = appName
@@ -112,6 +114,7 @@ struct BrowserMeetingContext: Equatable {
         self.normalizedID = normalizedID
         self.platform = platform
         self.isFocused = isFocused
+        self.requiresMediaActivity = requiresMediaActivity
     }
 }
 
@@ -150,10 +153,34 @@ struct NormalizedMeetingURL: Equatable {
     let id: String
     let url: String
     let platform: MeetingCandidate.Platform
+    let requiresMediaActivity: Bool
+
+    init(
+        id: String,
+        url: String,
+        platform: MeetingCandidate.Platform,
+        requiresMediaActivity: Bool = false
+    ) {
+        self.id = id
+        self.url = url
+        self.platform = platform
+        self.requiresMediaActivity = requiresMediaActivity
+    }
 }
 
 enum MeetingURLNormalizer {
     static func normalize(_ rawValue: String) -> NormalizedMeetingURL? {
+        normalizedURL(rawValue, allowGoogleMeetLanding: false)
+    }
+
+    static func normalizeBrowserActivity(_ rawValue: String) -> NormalizedMeetingURL? {
+        normalizedURL(rawValue, allowGoogleMeetLanding: true)
+    }
+
+    private static func normalizedURL(
+        _ rawValue: String,
+        allowGoogleMeetLanding: Bool
+    ) -> NormalizedMeetingURL? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
@@ -170,8 +197,17 @@ enum MeetingURLNormalizer {
             .joined(separator: "/")
 
         if host == "meet.google.com" {
-            guard let code = path.split(separator: "/").first.map(String.init),
-                  isGoogleMeetCode(code) else { return nil }
+            guard let code = path.split(separator: "/").first.map(String.init) else { return nil }
+            if allowGoogleMeetLanding, code.lowercased() == "landing" {
+                let identity = "meet.google.com/landing"
+                return NormalizedMeetingURL(
+                    id: "googleMeet:\(identity)",
+                    url: identity,
+                    platform: .googleMeet,
+                    requiresMediaActivity: true
+                )
+            }
+            guard isGoogleMeetCode(code) else { return nil }
             let identity = "meet.google.com/\(code.lowercased())"
             return NormalizedMeetingURL(
                 id: "googleMeet:\(identity)",
@@ -302,7 +338,8 @@ final class MeetingCandidateResolver {
         }
 
         if let browserMeeting,
-           browserMeeting.isFocused {
+           browserMeeting.isFocused,
+           !browserMeeting.requiresMediaActivity || hasMediaActivity(snapshot) {
             return candidate(
                 id: browserMeeting.normalizedID,
                 platform: browserMeeting.platform,
