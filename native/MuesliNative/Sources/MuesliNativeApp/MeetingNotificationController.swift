@@ -2,9 +2,12 @@ import AppKit
 import QuartzCore
 import Foundation
 import MuesliCore
+import os
 
 @MainActor
 final class MeetingNotificationController {
+    private static let logger = Logger(subsystem: "com.muesli.native", category: "MeetingNotification")
+
     private var panel: NSPanel?
     private var dismissTimer: Timer?
     private var progressLayer: CALayer?
@@ -62,7 +65,10 @@ final class MeetingNotificationController {
             width: width,
             height: height,
             margin: margin
-        ) else { return false }
+        ) else {
+            Self.logger.error("notification_frame_unavailable title=\(title, privacy: .public)")
+            return false
+        }
         self.onClose = onClose
 
         let panel = NSPanel(
@@ -71,7 +77,7 @@ final class MeetingNotificationController {
             backing: .buffered,
             defer: false
         )
-        panel.level = .statusBar
+        panel.level = .screenSaver
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -199,6 +205,9 @@ final class MeetingNotificationController {
         isVisible = true
         currentPromptID = promptID
         shownAt = Date()
+        Self.logger.notice(
+            "notification_panel_shown promptID=\(promptID ?? "nil", privacy: .public) level=\(panel.level.rawValue) frame=\(NSStringFromRect(frame), privacy: .public)"
+        )
 
         startDismissCountdown(duration: duration)
         return true
