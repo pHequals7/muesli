@@ -2572,7 +2572,7 @@ final class MuesliController: NSObject {
             return
         }
 
-        let title = candidate.meetingTitle ?? candidate.platform.displayName
+        let title = candidate.subtitle
         presentedMeetingCandidate = candidate
         let preferredScreen = meetingSourceWindowLocator.screen(for: candidate)
         let didShow = meetingNotification.show(

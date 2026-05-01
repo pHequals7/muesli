@@ -71,7 +71,7 @@ struct MeetingCandidate: Equatable {
     }
 
     var subtitle: String {
-        meetingTitle ?? platform.displayName
+        meetingTitle ?? (platform == .unknown ? appName : platform.displayName)
     }
 
     static func == (lhs: MeetingCandidate, rhs: MeetingCandidate) -> Bool {
@@ -370,7 +370,7 @@ final class MeetingCandidateResolver {
                 )
                 return candidate(
                     id: "cal:\(calendarEvent.id)",
-                    platform: .googleMeet,
+                    platform: .unknown,
                     appName: browserAudio.appName,
                     url: nil,
                     title: calendarEvent.title,
@@ -404,7 +404,7 @@ final class MeetingCandidateResolver {
             )
             return candidate(
                 id: sessionID,
-                platform: .googleMeet,
+                platform: .unknown,
                 appName: browserAudio.appName,
                 url: nil,
                 title: nil,

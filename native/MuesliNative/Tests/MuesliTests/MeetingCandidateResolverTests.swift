@@ -213,7 +213,8 @@ struct MeetingCandidateResolverTests {
 
         #expect(candidate?.id == "browser:com.google.Chrome:session:1800000000")
         #expect(candidate?.suppressionID == candidate?.id)
-        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.platform == .unknown)
+        #expect(candidate?.subtitle == "Chrome")
         #expect(candidate?.appName == "Chrome")
         #expect(candidate?.sourceBundleID == "com.google.Chrome")
         #expect(candidate?.sourcePID == 9876)
@@ -243,7 +244,8 @@ struct MeetingCandidateResolverTests {
         ))
 
         #expect(candidate?.id == "browser:com.google.Chrome:session:1800000000")
-        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.platform == .unknown)
+        #expect(candidate?.subtitle == "Chrome")
         #expect(candidate?.appName == "Chrome")
         #expect(candidate?.sourceBundleID == "com.google.Chrome")
         #expect(candidate?.evidence.contains(.foregroundApp) == true)
