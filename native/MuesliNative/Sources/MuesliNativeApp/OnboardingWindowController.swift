@@ -16,9 +16,10 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         if window == nil { buildWindow() }
-        window?.makeKeyAndOrderFront(nil)
         window?.center()
-        NSApplication.shared.activate()
+        window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
     func close() {
@@ -38,6 +39,8 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.level = .floating
+        window.collectionBehavior = [.moveToActiveSpace]
         window.backgroundColor = NSColor(red: 0.067, green: 0.071, blue: 0.078, alpha: 1)
 
         let rootView: OnboardingView
@@ -55,13 +58,15 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
                 initialBackend: backend,
                 initialCohereLanguage: cohereLanguage,
                 initialHotkey: hotkey,
-                initialSystemAudioRequested: progress.systemAudioRequested
+                initialSystemAudioRequested: progress.systemAudioRequested,
+                initialUseCase: OnboardingUseCase.resolved(progress.onboardingUseCaseRawValue)
             )
         } else {
             rootView = OnboardingView(
                 controller: controller,
                 appState: controller.appState,
-                initialCohereLanguage: controller.config.resolvedCohereLanguage
+                initialCohereLanguage: controller.config.resolvedCohereLanguage,
+                initialUseCase: controller.config.resolvedOnboardingUseCase
             )
         }
         window.contentView = NSHostingView(rootView: rootView)

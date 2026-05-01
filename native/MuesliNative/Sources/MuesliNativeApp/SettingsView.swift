@@ -203,8 +203,39 @@ struct SettingsView: View {
         ("1e1e2e", "Dark"),
     ]
 
-    private let sharedContextDescription =
-        "Uses nearby app text for dictation cleanup and meeting summaries, plus OCR context for meetings when available. All processing stays on-device."
+    private var screenContextDescription: String {
+        if screenRecordingGranted {
+            return "Adds nearby app text and meeting OCR context. Processed on-device."
+        }
+        return "Requires Screen Recording. Adds nearby app text and meeting OCR context."
+    }
+
+    @ViewBuilder
+    private func screenContextRow(_ title: String, controlWidth rowControlWidth: CGFloat? = nil) -> some View {
+        let width = rowControlWidth ?? controlWidth
+        HStack(alignment: .top, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(MuesliTheme.body())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Text(screenContextDescription)
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .layoutPriority(1)
+
+            Spacer(minLength: 20)
+
+            ZStack(alignment: .trailing) {
+                Color.clear.frame(width: width, height: 1)
+                screenContextControl(width: width)
+            }
+        }
+        .frame(minHeight: 52)
+    }
+
     private let customIndicatorPositionLabel = "Custom (drag to reposition)"
 
     private var settingsPanePicker: some View {
@@ -326,15 +357,7 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("App context") {
-                    settingsSwitch(isOn: appState.config.enableScreenContext) { newValue in
-                        controller.updateConfig { $0.enableScreenContext = newValue }
-                    }
-                }
-                Text(sharedContextDescription)
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .padding(.horizontal, MuesliTheme.spacing16)
+                screenContextRow("App context")
             }
         }
     }
@@ -365,15 +388,7 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Meeting context") {
-                    settingsSwitch(isOn: appState.config.enableScreenContext) { newValue in
-                        controller.updateConfig { $0.enableScreenContext = newValue }
-                    }
-                }
-                Text(sharedContextDescription)
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .padding(.horizontal, MuesliTheme.spacing16)
+                screenContextRow("Meeting context")
             }
 
             settingsSection("Meeting Summaries") {
@@ -1049,6 +1064,51 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private func screenContextControl(width: CGFloat? = nil) -> some View {
+        if screenRecordingGranted {
+            settingsSwitch(isOn: appState.config.enableScreenContext) { newValue in
+                handleScreenContextToggle(newValue)
+            }
+            .frame(width: width, alignment: .trailing)
+        } else {
+            Button {
+                handleScreenContextToggle(true)
+            } label: {
+                Text("Grant")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MuesliTheme.accent)
+                    .frame(width: width)
+                    .frame(minHeight: 32)
+                    .background(MuesliTheme.accentSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func handleScreenContextToggle(_ enabled: Bool) {
+        guard enabled else {
+            controller.updateConfig { $0.enableScreenContext = false }
+            return
+        }
+
+        guard CGPreflightScreenCaptureAccess() else {
+            controller.updateConfig { $0.enableScreenContext = false }
+            let granted = CGRequestScreenCaptureAccess()
+            screenRecordingGranted = CGPreflightScreenCaptureAccess()
+            if granted || screenRecordingGranted {
+                controller.updateConfig { $0.enableScreenContext = true }
+            } else {
+                openPrivacyPane("Privacy_ScreenCapture")
+            }
+            return
+        }
+
+        screenRecordingGranted = true
+        controller.updateConfig { $0.enableScreenContext = true }
+    }
+
     private func startPermissionPolling() {
         refreshPermissionStatuses()
         permissionPollTimer?.invalidate()
@@ -1069,6 +1129,9 @@ struct SettingsView: View {
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        if !screenRecordingGranted && appState.config.enableScreenContext {
+            controller.updateConfig { $0.enableScreenContext = false }
+        }
         refreshSystemAudioPermissionIfNeeded()
     }
 

@@ -9,6 +9,7 @@ struct OnboardingView: View {
 
     @State private var currentStep: Int
     @State private var userName: String
+    @State private var selectedUseCase: OnboardingUseCase
     @State private var selectedBackend: BackendOption
     @State private var selectedCohereLanguage: CohereTranscribeLanguage
     @State private var summaryBackend: MeetingSummaryBackendOption = .openRouter
@@ -40,15 +41,58 @@ struct OnboardingView: View {
     @State private var dictationTestResult: String?
     @State private var dictationTestError: String?
     @State private var isModelStillDownloading = false
-    @State private var modelPollTimer: Timer?
+    @State private var modelDownloadTask: Task<Void, Never>?
+    @State private var modelDownloadProgress: Double?
+    @State private var modelDownloadStatus: String?
+    @State private var modelDownloadError: String?
 
     // Google Calendar
     @State private var isSigningInGoogleCal = false
     @State private var googleCalSignInDone = false
     @State private var googleCalSignInError: String?
 
-    private let totalSteps = 7
     static let dictationTestStep = 4
+
+    private enum Step: Int {
+        case welcome = 0
+        case model = 1
+        case hotkey = 2
+        case permissions = 3
+        case dictationTest = 4
+        case meetingSummary = 5
+        case googleCalendar = 6
+    }
+
+    private var orderedSteps: [Int] {
+        Self.orderedSteps(for: selectedUseCase)
+    }
+
+    private var currentStepIndex: Int {
+        orderedSteps.firstIndex(of: currentStep) ?? 0
+    }
+
+    private var totalSteps: Int {
+        orderedSteps.count
+    }
+
+    private static func orderedSteps(for useCase: OnboardingUseCase) -> [Int] {
+        var steps = [Step.welcome.rawValue, Step.model.rawValue]
+        if useCase.includesDictation {
+            steps += [Step.hotkey.rawValue, Step.permissions.rawValue, Step.dictationTest.rawValue]
+        } else if useCase.includesMeetings {
+            steps += [Step.permissions.rawValue]
+        }
+        if useCase.includesMeetings {
+            steps += [Step.meetingSummary.rawValue, Step.googleCalendar.rawValue]
+        }
+        return steps
+    }
+
+    private static func normalizedStep(_ step: Int, for useCase: OnboardingUseCase) -> Int {
+        let steps = orderedSteps(for: useCase)
+        if steps.contains(step) { return step }
+        return steps.first { $0 > step } ?? steps.last ?? Step.welcome.rawValue
+    }
 
     init(
         controller: MuesliController,
@@ -58,7 +102,8 @@ struct OnboardingView: View {
         initialBackend: BackendOption = .parakeetMultilingual,
         initialCohereLanguage: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage,
         initialHotkey: HotkeyConfig = .default,
-        initialSystemAudioRequested: Bool = false
+        initialSystemAudioRequested: Bool = false,
+        initialUseCase: OnboardingUseCase = .dictation
     ) {
         self.controller = controller
         self.appState = appState
@@ -69,17 +114,25 @@ struct OnboardingView: View {
         let initialInputMonitoringGranted = CGPreflightListenEventAccess()
         let initialScreenRecordingGranted = CGPreflightScreenCaptureAccess()
         let initialSystemAudioGranted = initialSystemAudioRequested
-        let initialPermissionsGranted = initialMicGranted
-            && initialAccessibilityGranted
-            && initialInputMonitoringGranted
-            && initialScreenRecordingGranted
-            && (!appState.config.useCoreAudioTap || initialSystemAudioGranted)
-        let effectiveInitialStep = initialStep >= Self.dictationTestStep && !initialPermissionsGranted
-            ? 3
+        let initialPermissions = OnboardingPermissionSnapshot(
+            microphone: initialMicGranted,
+            accessibility: initialAccessibilityGranted,
+            inputMonitoring: initialInputMonitoringGranted,
+            systemAudio: initialSystemAudioGranted,
+            screenRecording: initialScreenRecordingGranted
+        )
+        let permissionGatedInitialStep = initialUseCase.includesDictation
+            ? OnboardingPermissionGate.resumeStep(
+                requestedStep: initialStep,
+                permissions: initialPermissions,
+                dictationTestStep: Self.dictationTestStep
+            )
             : initialStep
+        let effectiveInitialStep = Self.normalizedStep(permissionGatedInitialStep, for: initialUseCase)
 
         _currentStep = State(initialValue: effectiveInitialStep)
         _userName = State(initialValue: initialUserName)
+        _selectedUseCase = State(initialValue: initialUseCase)
         _selectedBackend = State(initialValue: initialBackend)
         _selectedCohereLanguage = State(initialValue: initialCohereLanguage)
         _selectedHotkey = State(initialValue: initialHotkey)
@@ -111,9 +164,9 @@ struct OnboardingView: View {
             // Bottom bar
             HStack {
                 HStack(spacing: 6) {
-                    ForEach(0..<totalSteps, id: \.self) { i in
+                    ForEach(Array(orderedSteps.enumerated()), id: \.offset) { index, step in
                         Circle()
-                            .fill(i == currentStep ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                            .fill(step == currentStep ? MuesliTheme.accent : MuesliTheme.textTertiary)
                             .frame(width: 7, height: 7)
                     }
                 }
@@ -121,11 +174,9 @@ struct OnboardingView: View {
                 Spacer()
 
                 HStack(spacing: MuesliTheme.spacing12) {
-                    if currentStep > 0 {
+                    if currentStepIndex > 0 {
                         Button("Back") {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                currentStep -= 1
-                            }
+                            goToPreviousStep()
                         }
                         .buttonStyle(.plain)
                         .font(MuesliTheme.body())
@@ -149,12 +200,19 @@ struct OnboardingView: View {
         .background(MuesliTheme.backgroundBase)
         .preferredColorScheme(.dark)
         .onAppear {
+            bringOnboardingToFront()
             saveProgress(atStep: currentStep)
         }
         .onChange(of: currentStep) { _, step in
             saveProgress(atStep: step)
         }
         .onChange(of: userName) { _, _ in
+            saveProgress(atStep: currentStep)
+        }
+        .onChange(of: selectedUseCase) { _, _ in
+            if !orderedSteps.contains(currentStep) {
+                currentStep = Self.normalizedStep(currentStep, for: selectedUseCase)
+            }
             saveProgress(atStep: currentStep)
         }
         .onChange(of: selectedBackend) { _, _ in
@@ -172,32 +230,46 @@ struct OnboardingView: View {
         switch currentStep {
         case 0:
             onboardingButton("Continue", enabled: !userName.trimmingCharacters(in: .whitespaces).isEmpty) {
-                withAnimation(.easeInOut(duration: 0.2)) { currentStep = 1 }
+                goToNextStep()
             }
         case 1:
-            onboardingButton("Download & Continue", enabled: true) {
+            onboardingButton(selectedBackend.isDownloaded ? "Continue" : "Download & Continue", enabled: true) {
                 startDownload()
             }
         case 2:
             onboardingButton("Continue", enabled: true) {
-                withAnimation(.easeInOut(duration: 0.2)) { currentStep = 3 }
+                goToNextStep()
             }
         case 3:
-            onboardingButton("Continue", enabled: allPermissionsGranted) {
-                saveProgressAndRestart()
+            onboardingButton("Continue", enabled: requiredPermissionsGranted) {
+                if selectedUseCase.includesDictation {
+                    saveProgressAndRestart()
+                } else {
+                    goToNextStep()
+                }
             }
         case 4:
             HStack(spacing: MuesliTheme.spacing12) {
-                skipButton { withAnimation(.easeInOut(duration: 0.2)) { currentStep = 5 } }
-                onboardingButton("Continue", enabled: dictationTestResult != nil) {
-                    withAnimation(.easeInOut(duration: 0.2)) { currentStep = 5 }
+                skipButton {
+                    if selectedUseCase.includesMeetings {
+                        goToNextStep()
+                    } else {
+                        finishOnboarding(withKey: false)
+                    }
+                }
+                onboardingButton(selectedUseCase.includesMeetings ? "Continue" : "Finish", enabled: dictationTestResult != nil) {
+                    if selectedUseCase.includesMeetings {
+                        goToNextStep()
+                    } else {
+                        finishOnboarding(withKey: false)
+                    }
                 }
             }
         case 5:
             HStack(spacing: MuesliTheme.spacing12) {
-                skipButton { withAnimation(.easeInOut(duration: 0.2)) { currentStep = 6 } }
+                skipButton { goToNextStep() }
                 onboardingButton("Continue", enabled: true) {
-                    withAnimation(.easeInOut(duration: 0.2)) { currentStep = 6 }
+                    goToNextStep()
                 }
             }
         case 6:
@@ -209,6 +281,20 @@ struct OnboardingView: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    private func goToNextStep() {
+        guard currentStepIndex < orderedSteps.count - 1 else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            currentStep = orderedSteps[currentStepIndex + 1]
+        }
+    }
+
+    private func goToPreviousStep() {
+        guard currentStepIndex > 0 else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            currentStep = orderedSteps[currentStepIndex - 1]
         }
     }
 
@@ -246,7 +332,7 @@ struct OnboardingView: View {
     // MARK: - Step 1: Welcome
 
     private var welcomeStep: some View {
-        VStack(spacing: MuesliTheme.spacing24) {
+        VStack(spacing: MuesliTheme.spacing16) {
             Spacer()
 
             MWaveformIcon(barCount: 13, spacing: 3)
@@ -276,9 +362,80 @@ struct OnboardingView: View {
                     .frame(width: 280, height: 32)
             }
 
+            VStack(spacing: MuesliTheme.spacing8) {
+                Text("What will you use Muesli for?")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+
+                HStack(spacing: MuesliTheme.spacing8) {
+                    useCaseCard(
+                        icon: "mic.fill",
+                        title: "Dictation",
+                        subtitle: "Talk to type",
+                        selected: selectedUseCase.includesDictation
+                    ) {
+                        switch selectedUseCase {
+                        case .dictation:
+                            selectedUseCase = .dictation
+                        case .meetings:
+                            selectedUseCase = .dictationAndMeetings
+                        case .dictationAndMeetings:
+                            selectedUseCase = .meetings
+                        }
+                    }
+
+                    useCaseCard(
+                        icon: "person.2.fill",
+                        title: "Meetings",
+                        subtitle: "Notes and summaries",
+                        selected: selectedUseCase.includesMeetings
+                    ) {
+                        switch selectedUseCase {
+                        case .dictation:
+                            selectedUseCase = .dictationAndMeetings
+                        case .meetings:
+                            selectedUseCase = .meetings
+                        case .dictationAndMeetings:
+                            selectedUseCase = .dictation
+                        }
+                    }
+                }
+            }
+
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func useCaseCard(
+        icon: String,
+        title: String,
+        subtitle: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: .medium))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                Text(subtitle)
+                    .font(.system(size: 10))
+                    .foregroundStyle(selected ? .white.opacity(0.72) : MuesliTheme.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(selected ? .white : MuesliTheme.textSecondary)
+            .frame(width: 138, height: 78)
+            .background(selected ? MuesliTheme.accent : MuesliTheme.backgroundRaised)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(selected ? MuesliTheme.accent : MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Step 2: Model Selection
@@ -417,15 +574,16 @@ struct OnboardingView: View {
     // MARK: - Step 3: Permissions (sequential, one at a time)
 
     /// The ordered list of permissions to grant during onboarding.
-    /// Screen Recording is handled specially: granting it may terminate the app,
-    /// so that grant path saves progress directly to the post-restart dictation
-    /// test. If macOS does not terminate, the normal Continue button performs
-    /// the single deliberate restart.
+    /// Keep this to the core dictation path so first-run setup gets to a
+    /// successful transcription before meeting-specific permissions appear.
     private var permissionSteps: [(icon: String, name: String, description: String, granted: Bool, action: () -> Void)] {
         var steps: [(String, String, String, Bool, () -> Void)] = [
             ("mic.fill", "Microphone", "Record audio for dictation and meetings", micGranted, {
                 AVCaptureDevice.requestAccess(for: .audio) { _ in }
-            }),
+            })
+        ]
+        if selectedUseCase.includesDictation {
+            steps += [
             ("hand.raised.fill", "Accessibility", "Paste transcribed text into other apps", accessibilityGranted, {
                 let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
                 AXIsProcessTrustedWithOptions(opts)
@@ -435,27 +593,7 @@ struct OnboardingView: View {
                     self.openSystemSettings("Privacy_ListenEvent")
                 }
             }),
-        ]
-        if appState.config.useCoreAudioTap {
-            steps.append(("speaker.wave.2.fill", "System Audio", "Capture meeting audio from other participants", systemAudioGranted, {
-                Task {
-                    let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
-                    await MainActor.run {
-                        self.systemAudioGranted = granted
-                        if granted {
-                            self.notePermissionGranted("System Audio")
-                        }
-                        self.saveProgress(atStep: self.currentStep)
-                    }
-                }
-            }))
-            steps.append(("rectangle.dashed.badge.record", "Screen Recording", "Capture screen content for richer meeting context", screenRecordingGranted, {
-                requestScreenRecordingDuringOnboarding()
-            }))
-        } else {
-            steps.append(("rectangle.dashed.badge.record", "Screen & System Audio", "Capture system audio and screen content during meetings", screenRecordingGranted, {
-                requestScreenRecordingDuringOnboarding()
-            }))
+            ]
         }
         return steps
     }
@@ -506,17 +644,21 @@ struct OnboardingView: View {
                     .frame(height: 64)
 
                 Button {
-                    grantingPermissionName = step.name
-                    recentlyGrantedPermissionName = nil
-                    saveProgress(atStep: currentStep)
-                    step.action()
+                    if grantingPermissionName == step.name && !isConfirmingGrant {
+                        openSystemSettings(systemSettingsPane(for: displayIndex))
+                    } else {
+                        grantingPermissionName = step.name
+                        recentlyGrantedPermissionName = nil
+                        saveProgress(atStep: currentStep)
+                        step.action()
+                    }
                 } label: {
                     HStack(spacing: 6) {
                         if isConfirmingGrant {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 12, weight: .bold))
                         }
-                        Text(isConfirmingGrant ? "Granted" : "Grant Permission")
+                        Text(permissionButtonTitle(for: step.name, isConfirmingGrant: isConfirmingGrant))
                             .font(.system(size: 14, weight: .semibold))
                     }
                     .foregroundStyle(.white)
@@ -550,6 +692,17 @@ struct OnboardingView: View {
                         .foregroundStyle(MuesliTheme.accent)
                 }
                 .buttonStyle(.plain)
+
+                if step.name == "Input Monitoring" {
+                    Button {
+                        openApplicationsFolder()
+                    } label: {
+                        Text("Need to add Muesli manually? Open Applications")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
             } else {
                 // All granted
                 VStack(spacing: MuesliTheme.spacing8) {
@@ -570,6 +723,12 @@ struct OnboardingView: View {
         .onDisappear { stopPermissionPolling() }
     }
 
+    private func permissionButtonTitle(for permissionName: String, isConfirmingGrant: Bool) -> String {
+        if isConfirmingGrant { return "Granted" }
+        if grantingPermissionName == permissionName { return "Open Settings" }
+        return "Grant Permission"
+    }
+
     private func systemSettingsPane(for permissionIndex: Int) -> String {
         let steps = permissionSteps
         guard permissionIndex < steps.count else { return "Privacy_Microphone" }
@@ -577,8 +736,6 @@ struct OnboardingView: View {
         case "Microphone": return "Privacy_Microphone"
         case "Accessibility": return "Privacy_Accessibility"
         case "Input Monitoring": return "Privacy_ListenEvent"
-        case "Screen Recording", "Screen & System Audio": return "Privacy_ScreenCapture"
-        case "System Audio": return "Privacy_ScreenCapture"
         default: return "Privacy_Microphone"
         }
     }
@@ -634,12 +791,19 @@ struct OnboardingView: View {
         .animation(.easeInOut(duration: 0.25), value: granted)
     }
 
-    private var allPermissionsGranted: Bool {
-        let core = micGranted && accessibilityGranted && inputMonitoringGranted
-        if appState.config.useCoreAudioTap {
-            return core && systemAudioGranted && screenRecordingGranted
+    private var requiredPermissionsGranted: Bool {
+        if !selectedUseCase.includesDictation {
+            return micGranted
         }
-        return core && screenRecordingGranted
+        return OnboardingPermissionGate.hasRequiredDictationPermissions(
+            OnboardingPermissionSnapshot(
+                microphone: micGranted,
+                accessibility: accessibilityGranted,
+                inputMonitoring: inputMonitoringGranted,
+                systemAudio: systemAudioGranted,
+                screenRecording: screenRecordingGranted
+            )
+        )
     }
 
     private func startPermissionPolling() {
@@ -676,10 +840,6 @@ struct OnboardingView: View {
             return accessibilityGranted
         case "Input Monitoring":
             return inputMonitoringGranted
-        case "System Audio":
-            return systemAudioGranted
-        case "Screen Recording", "Screen & System Audio":
-            return screenRecordingGranted
         default:
             return false
         }
@@ -712,7 +872,8 @@ struct OnboardingView: View {
             selectedCohereLanguageCode: selectedCohereLanguage.rawValue,
             hotkeyKeyCode: selectedHotkey.keyCode,
             hotkeyLabel: selectedHotkey.label,
-            systemAudioRequested: systemAudioGranted
+            systemAudioRequested: systemAudioGranted,
+            onboardingUseCaseRawValue: selectedUseCase.rawValue
         )
         OnboardingProgress.save(progress)
     }
@@ -722,24 +883,14 @@ struct OnboardingView: View {
         controller.relaunchApp()
     }
 
-    private func requestScreenRecordingDuringOnboarding() {
-        saveProgress(atStep: Self.dictationTestStep)
-        CGRequestScreenCaptureAccess()
-
-        Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1))
-            screenRecordingGranted = CGPreflightScreenCaptureAccess()
-            if screenRecordingGranted {
-                notePermissionGranted(appState.config.useCoreAudioTap ? "Screen Recording" : "Screen & System Audio")
-                saveProgress(atStep: Self.dictationTestStep)
-            }
-        }
-    }
-
     private func openSystemSettings(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func openApplicationsFolder() {
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications", isDirectory: true))
     }
 
     // MARK: - Step 4: Hotkey Configuration
@@ -850,11 +1001,35 @@ struct OnboardingView: View {
 
             if isModelStillDownloading {
                 VStack(spacing: MuesliTheme.spacing8) {
-                    ProgressView()
-                        .controlSize(.regular)
-                    Text("Waiting for model download to finish...")
+                    if let modelDownloadProgress {
+                        ProgressView(value: modelDownloadProgress, total: 1.0)
+                            .frame(width: 260)
+                        Text("\(Int((modelDownloadProgress * 100).rounded()))%")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                    } else {
+                        ProgressView()
+                            .controlSize(.regular)
+                    }
+                    Text(modelDownloadStatus ?? "Downloading \(selectedBackend.label)...")
                         .font(MuesliTheme.caption())
                         .foregroundStyle(MuesliTheme.textTertiary)
+                        .multilineTextAlignment(.center)
+
+                    if let modelDownloadError {
+                        Text(modelDownloadError)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+
+                        Button("Retry Download") {
+                            self.modelDownloadError = nil
+                            ensureModelDownloadStarted()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(MuesliTheme.accent)
+                    }
                 }
             } else {
                 VStack(spacing: MuesliTheme.spacing16) {
@@ -912,7 +1087,7 @@ struct OnboardingView: View {
         }
         .frame(maxWidth: .infinity)
         .onAppear {
-            checkModelDownloadStatus()
+            ensureModelDownloadStarted()
             controller.startHotkeyMonitor()
             controller.dictationTestRecordingStarted = {
                 withAnimation { isDictationTesting = true }
@@ -928,8 +1103,6 @@ struct OnboardingView: View {
             }
         }
         .onDisappear {
-            modelPollTimer?.invalidate()
-            modelPollTimer = nil
             // Cancel any in-flight recording before clearing callbacks to prevent
             // the transcription Task from falling through to the production paste path
             controller.cancelTestDictation()
@@ -937,18 +1110,6 @@ struct OnboardingView: View {
             controller.dictationTestRecordingStarted = nil
             // Stop hotkey monitor when leaving dictation test to prevent real dictation
             controller.stopHotkeyMonitor()
-        }
-    }
-
-    private func checkModelDownloadStatus() {
-        isModelStillDownloading = !selectedBackend.isDownloaded
-        guard isModelStillDownloading else { return }
-        modelPollTimer?.invalidate()
-        modelPollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { timer in
-            if selectedBackend.isDownloaded {
-                withAnimation { isModelStillDownloading = false }
-                timer.invalidate()
-            }
         }
     }
 
@@ -1101,15 +1262,66 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     private func startDownload() {
-        // Start download in background, advance onboarding immediately
-        Task {
+        ensureModelDownloadStarted()
+        goToNextStep()
+    }
+
+    private func ensureModelDownloadStarted() {
+        if selectedBackend.isDownloaded {
+            isModelStillDownloading = false
+            modelDownloadProgress = 1.0
+            modelDownloadStatus = "Download complete"
+            modelDownloadError = nil
+            return
+        }
+        guard modelDownloadTask == nil else {
+            isModelStillDownloading = true
+            return
+        }
+
+        isModelStillDownloading = true
+        modelDownloadProgress = 0.02
+        modelDownloadStatus = "Starting \(selectedBackend.label) download..."
+        modelDownloadError = nil
+
+        let backend = selectedBackend
+        modelDownloadTask = Task {
+            defer {
+                Task { @MainActor in
+                    modelDownloadTask = nil
+                }
+            }
             do {
-                try await controller.downloadModelForOnboarding(selectedBackend) { _, _ in }
+                try await controller.downloadModelForOnboarding(backend) { progress, status in
+                    Task { @MainActor in
+                        modelDownloadProgress = max(progress, 0.02)
+                        modelDownloadStatus = status ?? "Downloading \(backend.label)..."
+                        modelDownloadError = nil
+                        isModelStillDownloading = true
+                    }
+                }
+                await MainActor.run {
+                    modelDownloadProgress = 1.0
+                    modelDownloadStatus = "Download complete"
+                    modelDownloadError = nil
+                    withAnimation { isModelStillDownloading = false }
+                }
             } catch {
-                fputs("[muesli-native] background model download failed: \(error)\n", stderr)
+                await MainActor.run {
+                    modelDownloadError = "Download failed. Check your connection and retry."
+                    modelDownloadStatus = "Download paused"
+                    modelDownloadProgress = nil
+                    isModelStillDownloading = true
+                }
+                fputs("[muesli-native] onboarding model download failed: \(error)\n", stderr)
             }
         }
-        withAnimation(.easeInOut(duration: 0.2)) { currentStep = 2 }
+    }
+
+    private func bringOnboardingToFront() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.keyWindow?.makeKeyAndOrderFront(nil)
+        NSApp.keyWindow?.orderFrontRegardless()
     }
 
     private var googleCalendarStep: some View {
@@ -1215,6 +1427,7 @@ struct OnboardingView: View {
             backend: selectedBackend,
             cohereLanguage: selectedCohereLanguage,
             hotkey: selectedHotkey,
+            onboardingUseCase: selectedUseCase,
             summaryBackend: summaryBackend,
             apiKey: withKey ? apiKey : nil
         )

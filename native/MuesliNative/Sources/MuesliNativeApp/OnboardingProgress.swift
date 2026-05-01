@@ -1,5 +1,30 @@
 import Foundation
 
+struct OnboardingPermissionSnapshot: Equatable {
+    var microphone: Bool
+    var accessibility: Bool
+    var inputMonitoring: Bool
+    var systemAudio: Bool
+    var screenRecording: Bool
+}
+
+enum OnboardingPermissionGate {
+    static func hasRequiredDictationPermissions(_ permissions: OnboardingPermissionSnapshot) -> Bool {
+        permissions.microphone && permissions.accessibility && permissions.inputMonitoring
+    }
+
+    static func resumeStep(
+        requestedStep: Int,
+        permissions: OnboardingPermissionSnapshot,
+        dictationTestStep: Int
+    ) -> Int {
+        if requestedStep >= dictationTestStep && !hasRequiredDictationPermissions(permissions) {
+            return dictationTestStep - 1
+        }
+        return requestedStep
+    }
+}
+
 struct OnboardingProgress: Codable {
     static let currentSchemaVersion = 3
 
@@ -12,6 +37,7 @@ struct OnboardingProgress: Codable {
     var hotkeyKeyCode: UInt16
     var hotkeyLabel: String
     var systemAudioRequested: Bool = false
+    var onboardingUseCaseRawValue: String = OnboardingUseCase.dictation.rawValue
 
     init(
         schemaVersion: Int = currentSchemaVersion,
@@ -22,7 +48,8 @@ struct OnboardingProgress: Codable {
         selectedCohereLanguageCode: String = CohereTranscribeLanguage.defaultLanguage.rawValue,
         hotkeyKeyCode: UInt16,
         hotkeyLabel: String,
-        systemAudioRequested: Bool = false
+        systemAudioRequested: Bool = false,
+        onboardingUseCaseRawValue: String = OnboardingUseCase.dictation.rawValue
     ) {
         self.schemaVersion = schemaVersion
         self.currentStep = currentStep
@@ -33,6 +60,7 @@ struct OnboardingProgress: Codable {
         self.hotkeyKeyCode = hotkeyKeyCode
         self.hotkeyLabel = hotkeyLabel
         self.systemAudioRequested = systemAudioRequested
+        self.onboardingUseCaseRawValue = OnboardingUseCase.resolved(onboardingUseCaseRawValue).rawValue
     }
 
     init(from decoder: Decoder) throws {
@@ -48,6 +76,9 @@ struct OnboardingProgress: Codable {
         hotkeyKeyCode = try c.decode(UInt16.self, forKey: .hotkeyKeyCode)
         hotkeyLabel = try c.decode(String.self, forKey: .hotkeyLabel)
         systemAudioRequested = try c.decodeIfPresent(Bool.self, forKey: .systemAudioRequested) ?? false
+        onboardingUseCaseRawValue = OnboardingUseCase.resolved(
+            try c.decodeIfPresent(String.self, forKey: .onboardingUseCaseRawValue)
+        ).rawValue
     }
 
     private static var fileURL: URL {

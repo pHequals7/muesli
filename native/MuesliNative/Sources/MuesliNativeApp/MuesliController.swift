@@ -191,9 +191,11 @@ final class MuesliController: NSObject {
         hotkeyMonitor.onToggleStart = { [weak self] in self?.handleToggleStart() }
         hotkeyMonitor.onToggleStop = { [weak self] in self?.handleToggleStop() }
         hotkeyMonitor.doubleTapEnabled = config.enableDoubleTapDictation
+        let canRunMainApp = config.hasCompletedOnboarding
+            && hasRequiredStartupPermissions(for: config.resolvedOnboardingUseCase)
 
         // Defer permission-triggering monitors until after onboarding
-        if config.hasCompletedOnboarding {
+        if canRunMainApp && config.resolvedOnboardingUseCase.includesDictation {
             hotkeyMonitor.targetKeyCode = config.dictationHotkey.keyCode
             hotkeyMonitor.start()
         }
@@ -290,7 +292,7 @@ final class MuesliController: NSObject {
         }
 
         // Defer permission-triggering monitors until after onboarding
-        if config.hasCompletedOnboarding {
+        if canRunMainApp {
             calendarMonitor.start()
             startCalendarMonitoring()
             if config.maraudersMapUnlocked { startMaraudersMapMonitoring() }
@@ -323,17 +325,19 @@ final class MuesliController: NSObject {
             }
         }
 
-        if !config.hasCompletedOnboarding {
+        if !canRunMainApp {
             if let progress = OnboardingProgress.load() {
                 // Start hotkey monitor when resuming past the hotkey config step (step 2).
                 // The hotkey is configured at step 2, permissions at step 3, and the
                 // single onboarding restart path resumes into the dictation test at step 4.
-                // Screen Recording may trigger that restart itself; otherwise Muesli does.
-                if progress.currentStep > 2 {
+                if OnboardingUseCase.resolved(progress.onboardingUseCaseRawValue).includesDictation,
+                   progress.currentStep > 2 {
                     hotkeyMonitor.targetKeyCode = progress.hotkeyKeyCode
                     hotkeyMonitor.start()
                 }
                 showOnboarding(resumeFrom: progress)
+            } else if config.hasCompletedOnboarding {
+                showOnboarding(resumeFrom: onboardingProgressForPermissionRepair())
             } else {
                 showOnboarding()
             }
@@ -341,7 +345,7 @@ final class MuesliController: NSObject {
             openHistoryWindow()
         }
 
-        if config.hasCompletedOnboarding {
+        if canRunMainApp {
             PostInstallChecker.check()
         }
     }
@@ -1083,6 +1087,7 @@ final class MuesliController: NSObject {
         backend: BackendOption,
         cohereLanguage: CohereTranscribeLanguage,
         hotkey: HotkeyConfig,
+        onboardingUseCase: OnboardingUseCase,
         summaryBackend: MeetingSummaryBackendOption?,
         apiKey: String?
     ) {
@@ -1095,6 +1100,7 @@ final class MuesliController: NSObject {
             config.meetingTranscriptionBackend = backend.backend
             config.meetingTranscriptionModel = backend.model
             config.dictationHotkey = hotkey
+            config.onboardingUseCase = onboardingUseCase.rawValue
             if let summaryBackend {
                 config.meetingSummaryBackend = summaryBackend.backend
             }
@@ -1109,21 +1115,32 @@ final class MuesliController: NSObject {
         }
         selectBackend(backend)
         hotkeyMonitor.configure(keyCode: hotkey.keyCode)
-        hotkeyMonitor.start()
         dictationTestCallback = nil
         dictationTestRecordingStarted = nil
 
-        // Start monitors that were deferred during onboarding
-        calendarMonitor.start()
-        startCalendarMonitoring()
-        meetingMonitor.start()
-
         onboardingWindowController?.close()
         onboardingWindowController = nil
-        openHistoryWindow()
+        if hasRequiredStartupPermissions(for: onboardingUseCase) {
+            if onboardingUseCase.includesDictation {
+                hotkeyMonitor.start()
+            }
+            // Start monitors that were deferred during onboarding
+            calendarMonitor.start()
+            startCalendarMonitoring()
+            meetingMonitor.start()
+            TelemetryDeck.signal("onboarding.completed", parameters: [
+                "use_case": onboardingUseCase.rawValue,
+                "dictation_selected": onboardingUseCase.includesDictation ? "true" : "false",
+                "meetings_selected": onboardingUseCase.includesMeetings ? "true" : "false",
+            ])
+            openHistoryWindow()
+        } else {
+            showOnboarding(resumeFrom: onboardingProgressForPermissionRepair())
+        }
     }
 
     @objc func openHistoryWindow() {
+        guard ensureBasicDictationPermissionsBeforeDashboard() else { return }
         showActiveMeetingDocumentIfNeeded()
         presentHistoryWindow()
     }
@@ -1135,11 +1152,54 @@ final class MuesliController: NSObject {
     }
 
     func openHistoryWindow(tab: DashboardTab) {
+        guard ensureBasicDictationPermissionsBeforeDashboard() else { return }
         appState.selectedTab = tab
         syncAppState()
         DispatchQueue.main.async { [weak self] in
             self?.historyWindowController?.show()
         }
+    }
+
+    private func hasRequiredStartupPermissions(for useCase: OnboardingUseCase) -> Bool {
+        if !useCase.includesDictation {
+            return AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        }
+        return OnboardingPermissionGate.hasRequiredDictationPermissions(
+            OnboardingPermissionSnapshot(
+                microphone: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
+                accessibility: AXIsProcessTrusted(),
+                inputMonitoring: CGPreflightListenEventAccess(),
+                systemAudio: false,
+                screenRecording: false
+            )
+        )
+    }
+
+    private func ensureBasicDictationPermissionsBeforeDashboard() -> Bool {
+        guard hasRequiredStartupPermissions(for: config.resolvedOnboardingUseCase) else {
+            historyWindowController?.close()
+            if let progress = OnboardingProgress.load() {
+                showOnboarding(resumeFrom: progress)
+            } else {
+                showOnboarding(resumeFrom: onboardingProgressForPermissionRepair())
+            }
+            return false
+        }
+        return true
+    }
+
+    private func onboardingProgressForPermissionRepair() -> OnboardingProgress {
+        OnboardingProgress(
+            currentStep: 3,
+            userName: config.userName,
+            selectedBackendKey: config.sttBackend,
+            selectedModelKey: config.sttModel,
+            selectedCohereLanguageCode: config.cohereLanguage,
+            hotkeyKeyCode: config.dictationHotkey.keyCode,
+            hotkeyLabel: config.dictationHotkey.label,
+            systemAudioRequested: false,
+            onboardingUseCaseRawValue: config.onboardingUseCase
+        )
     }
 
     func showMeetingsHome(folderID: Int64? = nil) {
@@ -2669,7 +2729,10 @@ final class MuesliController: NSObject {
             try recorder.start()
             dictationStartedAt = Date()
             capturedDictationContext = nil
-            if config.enableScreenContext && config.enablePostProcessor && !isDictationTestMode {
+            if config.enableScreenContext
+                && CGPreflightScreenCaptureAccess()
+                && config.enablePostProcessor
+                && !isDictationTestMode {
                 capturedDictationContext = DictationContextCapture.capture()
             }
             if !isDictationTestMode {
@@ -2760,7 +2823,10 @@ final class MuesliController: NSObject {
             try recorder.start()
             dictationStartedAt = Date()
             capturedDictationContext = nil
-            if config.enableScreenContext && config.enablePostProcessor && !isDictationTestMode {
+            if config.enableScreenContext
+                && CGPreflightScreenCaptureAccess()
+                && config.enablePostProcessor
+                && !isDictationTestMode {
                 capturedDictationContext = DictationContextCapture.capture()
             }
             indicator.powerProvider = { [weak self] in
