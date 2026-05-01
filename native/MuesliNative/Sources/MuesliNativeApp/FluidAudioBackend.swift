@@ -25,10 +25,31 @@ actor FluidAudioTranscriber {
         if loadedVersion == version, asrManager != nil { return }
 
         fputs("[fluidaudio] downloading/loading models (version: \(version))...\n", stderr)
+        let estimatedTotalBytes: Int64 = 450 * 1_000_000
+        let rateEstimator = DownloadRateEstimator()
+        let totalText = Self.formatMegabytes(estimatedTotalBytes)
         let models = try await AsrModels.downloadAndLoad(version: version) { downloadProgress in
             let fraction = downloadProgress.fractionCompleted
+            let estimatedDownloadFraction = min(max(fraction / 0.5, 0), 1)
+            let estimatedBytes = Int64(Double(estimatedTotalBytes) * estimatedDownloadFraction)
+            let bytesPerSecond = rateEstimator.bytesPerSecond(for: estimatedBytes)
+            let status: String
+            switch downloadProgress.phase {
+            case .listing:
+                status = "0 MB of \(totalText)"
+            case .downloading(_, _):
+                let completedText = Self.formatMegabytes(estimatedBytes)
+                if bytesPerSecond > 0 {
+                    let rateText = Self.formatMegabytes(Int64(bytesPerSecond))
+                    status = "\(completedText) of \(totalText) • \(rateText)/s"
+                } else {
+                    status = "\(completedText) of \(totalText)"
+                }
+            case .compiling(_):
+                status = "Compiling model..."
+            }
             DispatchQueue.main.async {
-                progress?(fraction, "Downloading Parakeet model...")
+                progress?(fraction, status)
             }
         }
         let manager = AsrManager(config: .default)
@@ -36,6 +57,14 @@ actor FluidAudioTranscriber {
         self.asrManager = manager
         self.loadedVersion = version
         fputs("[fluidaudio] models ready\n", stderr)
+    }
+
+    private static func formatMegabytes(_ bytes: Int64) -> String {
+        let megabytes = Double(bytes) / 1_000_000
+        if megabytes >= 100 {
+            return "\(Int(megabytes.rounded())) MB"
+        }
+        return String(format: "%.1f MB", megabytes)
     }
 
     /// Transcribe a WAV file URL directly.
@@ -47,5 +76,24 @@ actor FluidAudioTranscriber {
     func shutdown() {
         asrManager = nil
         loadedVersion = nil
+    }
+}
+
+private final class DownloadRateEstimator: @unchecked Sendable {
+    private let lock = NSLock()
+    private var downloadStartedAt: Date?
+
+    func bytesPerSecond(for estimatedBytes: Int64) -> Double {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard estimatedBytes > 0 else { return 0 }
+        let now = Date()
+        if downloadStartedAt == nil {
+            downloadStartedAt = now
+            return 0
+        }
+        let elapsed = max(now.timeIntervalSince(downloadStartedAt ?? now), 1.0)
+        return Double(estimatedBytes) / elapsed
     }
 }

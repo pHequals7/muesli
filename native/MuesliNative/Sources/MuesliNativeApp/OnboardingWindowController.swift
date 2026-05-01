@@ -17,6 +17,10 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     func show() {
         if window == nil { buildWindow() }
         window?.center()
+        bringToFront()
+    }
+
+    func bringToFront() {
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
@@ -59,7 +63,9 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
                 initialCohereLanguage: cohereLanguage,
                 initialHotkey: hotkey,
                 initialSystemAudioRequested: progress.systemAudioRequested,
-                initialUseCase: OnboardingUseCase.resolved(progress.onboardingUseCaseRawValue)
+                initialUseCase: OnboardingUseCase.resolved(progress.onboardingUseCaseRawValue),
+                initialModelDownloadProgress: progress.modelDownloadProgress,
+                initialModelDownloadStatus: progress.modelDownloadStatus
             )
         } else {
             rootView = OnboardingView(

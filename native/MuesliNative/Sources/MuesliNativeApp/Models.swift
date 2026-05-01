@@ -36,6 +36,15 @@ struct BackendOption: Equatable {
         recommended: false
     )
 
+    static let whisperTinyEnglish = BackendOption(
+        backend: "whisper",
+        model: "tiny.en",
+        label: "Whisper Tiny English",
+        sizeLabel: "~153 MB",
+        description: "Smallest English WhisperKit CoreML model. Quickest local setup.",
+        recommended: false
+    )
+
     static let whisperMedium = BackendOption(
         backend: "whisper",
         model: "medium.en",
@@ -89,7 +98,7 @@ struct BackendOption: Equatable {
     ]
 
     static let whisperFamily: [BackendOption] = [
-        .whisperSmall, .whisperMedium, .whisperLargeTurbo,
+        .whisperTinyEnglish, .whisperSmall, .whisperMedium, .whisperLargeTurbo,
     ]
 
     static let qwen3Asr = BackendOption(

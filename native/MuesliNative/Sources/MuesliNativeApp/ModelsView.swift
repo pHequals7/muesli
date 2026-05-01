@@ -913,7 +913,10 @@ struct ModelsView: View {
 
         let startTime = Date()
         let task = Task {
-            await controller.transcriptionCoordinator.preload(backend: option) { progress, _ in
+            await controller.transcriptionCoordinator.preload(
+                backend: option,
+                includeMeetingHelpers: controller.config.resolvedOnboardingUseCase.includesMeetings
+            ) { progress, _ in
                 DispatchQueue.main.async {
                     downloadProgress[option.model] = max(progress, 0.05)
                 }

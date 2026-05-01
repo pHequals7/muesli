@@ -41,11 +41,15 @@ struct OnboardingView: View {
     @State private var dictationTestResult: String?
     @State private var dictationTestError: String?
     @State private var isModelStillDownloading = false
+    @State private var modelReadyBackend: BackendOption?
     @State private var modelDownloadBackend: BackendOption?
     @State private var modelDownloadTask: Task<Void, Never>?
     @State private var modelDownloadProgress: Double?
+    @State private var isModelPreparingAfterDownload = false
     @State private var modelDownloadStatus: String?
     @State private var modelDownloadError: String?
+    @State private var modelReadyIndicatorBackend: BackendOption?
+    @State private var modelReadyIndicatorTask: Task<Void, Never>?
 
     // Google Calendar
     @State private var isSigningInGoogleCal = false
@@ -76,6 +80,14 @@ struct OnboardingView: View {
         orderedSteps.count
     }
 
+    private var onboardingAlternativeModels: [BackendOption] {
+        var options: [BackendOption] = [.whisperTinyEnglish, .whisperSmall]
+        if selectedBackend != .parakeetMultilingual, !options.contains(selectedBackend) {
+            options.insert(selectedBackend, at: 0)
+        }
+        return options
+    }
+
     private static func orderedSteps(for useCase: OnboardingUseCase) -> [Int] {
         var steps = [Step.welcome.rawValue, Step.model.rawValue]
         if useCase.includesDictation {
@@ -104,7 +116,9 @@ struct OnboardingView: View {
         initialCohereLanguage: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage,
         initialHotkey: HotkeyConfig = .default,
         initialSystemAudioRequested: Bool = false,
-        initialUseCase: OnboardingUseCase = .dictation
+        initialUseCase: OnboardingUseCase = .dictation,
+        initialModelDownloadProgress: Double? = nil,
+        initialModelDownloadStatus: String? = nil
     ) {
         self.controller = controller
         self.appState = appState
@@ -137,6 +151,8 @@ struct OnboardingView: View {
         _selectedBackend = State(initialValue: initialBackend)
         _selectedCohereLanguage = State(initialValue: initialCohereLanguage)
         _selectedHotkey = State(initialValue: initialHotkey)
+        _modelDownloadProgress = State(initialValue: initialModelDownloadProgress)
+        _modelDownloadStatus = State(initialValue: initialModelDownloadStatus)
         _micGranted = State(initialValue: initialMicGranted)
         _accessibilityGranted = State(initialValue: initialAccessibilityGranted)
         _inputMonitoringGranted = State(initialValue: initialInputMonitoringGranted)
@@ -165,7 +181,7 @@ struct OnboardingView: View {
             // Bottom bar
             HStack {
                 HStack(spacing: 6) {
-                    ForEach(Array(orderedSteps.enumerated()), id: \.offset) { index, step in
+                    ForEach(Array(orderedSteps.enumerated()), id: \.offset) { _, step in
                         Circle()
                             .fill(step == currentStep ? MuesliTheme.accent : MuesliTheme.textTertiary)
                             .frame(width: 7, height: 7)
@@ -175,7 +191,7 @@ struct OnboardingView: View {
                 Spacer()
 
                 HStack(spacing: MuesliTheme.spacing12) {
-                    if currentStepIndex > 0 {
+                    if canGoBack {
                         Button("Back") {
                             goToPreviousStep()
                         }
@@ -222,6 +238,19 @@ struct OnboardingView: View {
         .onChange(of: selectedCohereLanguage) { _, _ in
             saveProgress(atStep: currentStep)
         }
+        .onChange(of: modelReadyBackend) { _, _ in
+            startDictationTestMonitorIfReady()
+        }
+        .onChange(of: isModelStillDownloading) { _, _ in
+            startDictationTestMonitorIfReady()
+        }
+        .overlay(alignment: .topTrailing) {
+            if shouldShowModelDownloadIndicator {
+                modelDownloadIndicator
+                    .padding(.top, MuesliTheme.spacing16)
+                    .padding(.trailing, MuesliTheme.spacing16)
+            }
+        }
     }
 
     // MARK: - Primary Button
@@ -250,19 +279,29 @@ struct OnboardingView: View {
                 }
             }
         case 4:
-            HStack(spacing: MuesliTheme.spacing12) {
-                skipButton {
+            if dictationTestResult != nil {
+                onboardingButton(selectedUseCase.includesMeetings ? "Continue" : "Finish", enabled: true) {
                     if selectedUseCase.includesMeetings {
                         goToNextStep()
                     } else {
                         finishOnboarding(withKey: false)
                     }
                 }
-                onboardingButton(selectedUseCase.includesMeetings ? "Continue" : "Finish", enabled: dictationTestResult != nil) {
-                    if selectedUseCase.includesMeetings {
-                        goToNextStep()
-                    } else {
-                        finishOnboarding(withKey: false)
+            } else {
+                HStack(spacing: MuesliTheme.spacing12) {
+                    skipButton {
+                        if selectedUseCase.includesMeetings {
+                            goToNextStep()
+                        } else {
+                            finishOnboarding(withKey: false)
+                        }
+                    }
+                    onboardingButton(selectedUseCase.includesMeetings ? "Continue" : "Finish", enabled: false) {
+                        if selectedUseCase.includesMeetings {
+                            goToNextStep()
+                        } else {
+                            finishOnboarding(withKey: false)
+                        }
                     }
                 }
             }
@@ -328,6 +367,131 @@ struct OnboardingView: View {
                 RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
                     .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
             )
+    }
+
+    private var shouldShowModelDownloadIndicator: Bool {
+        isModelStillDownloading || modelDownloadError != nil || isShowingModelReadyIndicator
+    }
+
+    private var isShowingModelReadyIndicator: Bool {
+        modelReadyIndicatorBackend == selectedBackend && !isModelStillDownloading && modelDownloadError == nil
+    }
+
+    private var isSelectedModelReadyForDictationTest: Bool {
+        modelReadyBackend == selectedBackend && !isModelStillDownloading && modelDownloadError == nil
+    }
+
+    private var canGoBack: Bool {
+        guard currentStepIndex > 0 else { return false }
+        return !(currentStep == Self.dictationTestStep && dictationTestResult != nil)
+    }
+
+    private var modelDownloadIndicator: some View {
+        let progress = modelDownloadProgress.map { min(max($0, 0), 1) }
+        return HStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(MuesliTheme.surfaceBorder)
+                    .frame(width: 24, height: 24)
+
+                if isModelPreparingAfterDownload {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 24, height: 24)
+                } else if let progress {
+                    ModelDownloadProgressShape(progress: progress)
+                        .fill(MuesliTheme.accent)
+                        .frame(width: 24, height: 24)
+
+                    Circle()
+                        .stroke(MuesliTheme.accent.opacity(0.7), lineWidth: 1)
+                        .frame(width: 24, height: 24)
+                } else {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .frame(width: 24, height: 24)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(modelDownloadIndicatorTitle)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(modelDownloadError == nil ? MuesliTheme.textSecondary : MuesliTheme.recording)
+                    .lineLimit(1)
+                Text(modelDownloadIndicatorDetail(progress: progress))
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(MuesliTheme.backgroundRaised.opacity(0.94))
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 6)
+        .frame(width: 260, alignment: .leading)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .animation(.easeInOut(duration: 0.2), value: shouldShowModelDownloadIndicator)
+    }
+
+    private var modelDownloadIndicatorTitle: String {
+        if modelDownloadError != nil {
+            return "Download paused"
+        }
+        if isShowingModelReadyIndicator {
+            return "\(selectedBackend.label) ready"
+        }
+        return "Preparing \(selectedBackend.label)"
+    }
+
+    private func modelDownloadIndicatorDetail(progress: Double?) -> String {
+        if let modelDownloadError {
+            return modelDownloadError
+        }
+        if isShowingModelReadyIndicator {
+            return "Ready to test"
+        }
+        if let modelDownloadStatus {
+            return modelDownloadStatus
+        }
+        if let progress {
+            return "\(Int((progress * 100).rounded()))% complete"
+        }
+        return "Downloading..."
+    }
+
+    private var dictationTestSubtitle: AttributedString {
+        let markdown = isSelectedModelReadyForDictationTest
+            ? "Hold **\(selectedHotkey.label)** and say something, then release.\nYour words should appear below."
+            : dictationTestPreparationSubtitleMarkdown
+        return (try? AttributedString(markdown: markdown)) ?? AttributedString(markdown.replacingOccurrences(of: "**", with: ""))
+    }
+
+    private var dictationTestPreparationSubtitleMarkdown: String {
+        if isModelPreparingAfterDownload {
+            return "Optimizing **\(selectedBackend.label)** for this Mac.\nDictation will unlock when it is ready."
+        }
+        return "Preparing **\(selectedBackend.label)** for your first test.\nDictation will unlock when the model is ready."
+    }
+
+    private var modelPreparationHints: [String] {
+        if selectedBackend.backend == "whisper" {
+            return [
+                "Compiling CoreML files for the Neural Engine",
+                "Preparing the first dictation test",
+                "Future launches will skip most of this",
+                "We'll bring Muesli forward when ready",
+            ]
+        }
+        return [
+            "Preparing the first dictation test",
+            "Future launches will skip most of this",
+            "We'll bring Muesli forward when ready",
+        ]
     }
 
     // MARK: - Step 1: Welcome
@@ -448,7 +612,7 @@ struct OnboardingView: View {
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
-                Text("We recommend Parakeet v3 for the best experience.\nYou can download more models later.")
+                Text("Start with a fast local model.\nLarger models are available after setup.")
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -476,9 +640,16 @@ struct OnboardingView: View {
                     .padding(.top, MuesliTheme.spacing4)
 
                     if showMoreModels {
-                        ForEach(BackendOption.all.filter { !$0.recommended }, id: \.model) { option in
+                        ForEach(onboardingAlternativeModels, id: \.model) { option in
                             modelCard(option: option)
                         }
+
+                        Text("More models are available after onboarding.")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, MuesliTheme.spacing4)
                     }
 
                     if selectedBackend.backend == BackendOption.cohereTranscribe.backend {
@@ -874,7 +1045,9 @@ struct OnboardingView: View {
             hotkeyKeyCode: selectedHotkey.keyCode,
             hotkeyLabel: selectedHotkey.label,
             systemAudioRequested: systemAudioGranted,
-            onboardingUseCaseRawValue: selectedUseCase.rawValue
+            onboardingUseCaseRawValue: selectedUseCase.rawValue,
+            modelDownloadProgress: modelDownloadProgress,
+            modelDownloadStatus: modelDownloadStatus
         )
         OnboardingProgress.save(progress)
     }
@@ -989,30 +1162,46 @@ struct OnboardingView: View {
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
-                Text("Hold **\(selectedHotkey.label)** and say something, then release.\nYour words should appear below.")
+                Text(dictationTestSubtitle)
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
                     .multilineTextAlignment(.center)
 
-                Text("Try saying: \"testing this one out\"")
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(MuesliTheme.accent)
-                    .padding(.top, 2)
+                if isSelectedModelReadyForDictationTest {
+                    Text("Try saying: \"testing this one out\"")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(MuesliTheme.accent)
+                        .padding(.top, 2)
+                }
             }
 
-            if isModelStillDownloading {
+            if !isSelectedModelReadyForDictationTest {
                 VStack(spacing: MuesliTheme.spacing8) {
-                    if let modelDownloadProgress {
+                    if isModelPreparingAfterDownload {
+                        IndeterminatePreparationBar()
+                            .frame(width: 260, height: 7)
+                        Text(modelDownloadStatus ?? "Preparing \(selectedBackend.label)...")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                        Text("This usually takes 20-60 seconds the first time.")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                        RotatingPreparationHint(messages: modelPreparationHints)
+                            .padding(.top, 2)
+                    } else if let modelDownloadProgress {
                         ProgressView(value: modelDownloadProgress, total: 1.0)
                             .frame(width: 260)
-                        Text("\(Int((modelDownloadProgress * 100).rounded()))%")
+                        Text(modelDownloadStatus ?? "\(Int((modelDownloadProgress * 100).rounded()))% complete")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(MuesliTheme.textTertiary)
                     } else {
                         ProgressView()
                             .controlSize(.regular)
+                        Text(modelDownloadStatus ?? "Preparing \(selectedBackend.label)...")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(MuesliTheme.textTertiary)
                     }
-                    Text(modelDownloadStatus ?? "Downloading \(selectedBackend.label)...")
+                    Text("The dictation test is disabled until download and warmup complete.")
                         .font(MuesliTheme.caption())
                         .foregroundStyle(MuesliTheme.textTertiary)
                         .multilineTextAlignment(.center)
@@ -1089,7 +1278,8 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity)
         .onAppear {
             ensureModelDownloadStarted()
-            controller.startHotkeyMonitor()
+            controller.dictationTestBackend = selectedBackend
+            controller.dictationTestCohereLanguage = selectedCohereLanguage
             controller.dictationTestRecordingStarted = {
                 withAnimation { isDictationTesting = true }
                 dictationTestError = nil
@@ -1099,16 +1289,25 @@ struct OnboardingView: View {
                     dictationTestError = "No speech detected. Try again."
                 } else {
                     withAnimation { dictationTestResult = text }
+                    advanceAfterSuccessfulDictationTest(text: text)
                 }
                 isDictationTesting = false
             }
+            controller.dictationTestFailureCallback = { message in
+                dictationTestError = message
+                isDictationTesting = false
+            }
+            startDictationTestMonitorIfReady()
         }
         .onDisappear {
             // Cancel any in-flight recording before clearing callbacks to prevent
             // the transcription Task from falling through to the production paste path
             controller.cancelTestDictation()
             controller.dictationTestCallback = nil
+            controller.dictationTestFailureCallback = nil
             controller.dictationTestRecordingStarted = nil
+            controller.dictationTestBackend = nil
+            controller.dictationTestCohereLanguage = nil
             // Stop hotkey monitor when leaving dictation test to prevent real dictation
             controller.stopHotkeyMonitor()
         }
@@ -1267,12 +1466,38 @@ struct OnboardingView: View {
         goToNextStep()
     }
 
+    private func startDictationTestMonitorIfReady() {
+        guard currentStep == Self.dictationTestStep else { return }
+        guard isSelectedModelReadyForDictationTest else {
+            if isDictationTesting {
+                controller.cancelTestDictation()
+                isDictationTesting = false
+            }
+            controller.stopHotkeyMonitor()
+            return
+        }
+
+        dictationTestError = nil
+        controller.dictationTestBackend = selectedBackend
+        controller.dictationTestCohereLanguage = selectedCohereLanguage
+        controller.startHotkeyMonitor(keyCode: selectedHotkey.keyCode)
+    }
+
+    private func advanceAfterSuccessfulDictationTest(text: String) {
+        guard selectedUseCase.includesMeetings else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(900))
+            guard currentStep == Self.dictationTestStep, dictationTestResult == text else { return }
+            goToNextStep()
+        }
+    }
+
     private func ensureModelDownloadStarted() {
-        if selectedBackend.isDownloaded {
+        if modelReadyBackend == selectedBackend {
             isModelStillDownloading = false
-            modelDownloadBackend = nil
             modelDownloadProgress = 1.0
-            modelDownloadStatus = "Download complete"
+            isModelPreparingAfterDownload = false
+            modelDownloadStatus = "\(selectedBackend.label) ready"
             modelDownloadError = nil
             return
         }
@@ -1288,10 +1513,15 @@ struct OnboardingView: View {
         }
 
         let backend = selectedBackend
+        let useCase = selectedUseCase
+        let alreadyDownloaded = backend.isDownloaded
         modelDownloadBackend = backend
         isModelStillDownloading = true
-        modelDownloadProgress = 0.02
-        modelDownloadStatus = "Starting \(backend.label) download..."
+        modelDownloadProgress = alreadyDownloaded ? nil : (modelDownloadProgress ?? 0.02)
+        isModelPreparingAfterDownload = alreadyDownloaded
+        modelDownloadStatus = alreadyDownloaded
+            ? "Warming up \(backend.label)..."
+            : (modelDownloadStatus ?? initialDownloadStatus(for: backend))
         modelDownloadError = nil
 
         modelDownloadTask = Task {
@@ -1304,21 +1534,23 @@ struct OnboardingView: View {
                 }
             }
             do {
-                try await controller.downloadModelForOnboarding(backend) { progress, status in
+                try await controller.downloadModelForOnboarding(backend, onboardingUseCase: useCase) { progress, status in
                     Task { @MainActor in
                         guard selectedBackend == backend else { return }
-                        modelDownloadProgress = max(progress, 0.02)
-                        modelDownloadStatus = status ?? "Downloading \(backend.label)..."
-                        modelDownloadError = nil
-                        isModelStillDownloading = true
+                        applyModelPreparationProgress(progress, status: status, backend: backend)
                     }
                 }
                 await MainActor.run {
                     guard selectedBackend == backend else { return }
+                    modelReadyBackend = backend
                     modelDownloadProgress = 1.0
-                    modelDownloadStatus = "Download complete"
+                    isModelPreparingAfterDownload = false
+                    modelDownloadStatus = "\(backend.label) ready"
                     modelDownloadError = nil
                     withAnimation { isModelStillDownloading = false }
+                    showModelReadyIndicator(for: backend)
+                    controller.notifyOnboardingModelReady()
+                    saveProgress(atStep: currentStep)
                 }
             } catch is CancellationError {
                 // Backend changes cancel the old task; the new selection owns the download UI.
@@ -1328,6 +1560,7 @@ struct OnboardingView: View {
                     modelDownloadError = "Download failed. Check your connection and retry."
                     modelDownloadStatus = "Download paused"
                     modelDownloadProgress = nil
+                    isModelPreparingAfterDownload = false
                     isModelStillDownloading = true
                 }
                 fputs("[muesli-native] onboarding model download failed: \(error)\n", stderr)
@@ -1335,14 +1568,67 @@ struct OnboardingView: View {
         }
     }
 
+    private func applyModelPreparationProgress(_ progress: Double, status: String?, backend: BackendOption) {
+        let detail = status ?? "Preparing \(backend.label)..."
+        let lowercasedDetail = detail.lowercased()
+        let isPreparing = lowercasedDetail.contains("compiling")
+            || lowercasedDetail.contains("warming")
+            || lowercasedDetail.contains("readying")
+
+        modelDownloadError = nil
+        isModelStillDownloading = true
+
+        if isPreparing {
+            isModelPreparingAfterDownload = true
+            modelDownloadStatus = "Optimizing \(backend.label) for this Mac..."
+            saveProgress(atStep: currentStep)
+            return
+        }
+
+        isModelPreparingAfterDownload = false
+        let clampedProgress = min(max(progress, 0), 1)
+        let currentProgress = modelDownloadProgress ?? 0
+        let isZeroRelist = clampedProgress <= 0.001 && currentProgress > 0.03
+
+        guard !isZeroRelist else { return }
+        modelDownloadProgress = max(currentProgress, max(clampedProgress, 0.02))
+        modelDownloadStatus = detail
+        saveProgress(atStep: currentStep)
+    }
+
     private func resetModelDownloadForBackendChange() {
         modelDownloadTask?.cancel()
         modelDownloadTask = nil
+        modelReadyIndicatorTask?.cancel()
+        modelReadyIndicatorTask = nil
+        modelReadyBackend = nil
+        modelReadyIndicatorBackend = nil
         modelDownloadBackend = nil
-        modelDownloadProgress = selectedBackend.isDownloaded ? 1.0 : nil
-        modelDownloadStatus = selectedBackend.isDownloaded ? "Download complete" : nil
+        modelDownloadProgress = nil
+        isModelPreparingAfterDownload = false
+        modelDownloadStatus = nil
         modelDownloadError = nil
         isModelStillDownloading = false
+    }
+
+    private func initialDownloadStatus(for backend: BackendOption) -> String {
+        if backend.backend == "fluidaudio", backend.model.contains("parakeet") {
+            return "0 MB of 450 MB"
+        }
+        return "Starting \(backend.label) download..."
+    }
+
+    private func showModelReadyIndicator(for backend: BackendOption) {
+        modelReadyIndicatorTask?.cancel()
+        modelReadyIndicatorBackend = backend
+        modelReadyIndicatorTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            guard modelReadyIndicatorBackend == backend else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                modelReadyIndicatorBackend = nil
+            }
+            modelReadyIndicatorTask = nil
+        }
     }
 
     private var googleCalendarStep: some View {
@@ -1452,6 +1738,86 @@ struct OnboardingView: View {
             summaryBackend: summaryBackend,
             apiKey: withKey ? apiKey : nil
         )
+    }
+}
+
+private struct ModelDownloadProgressShape: Shape {
+    var progress: Double
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let clampedProgress = min(max(progress, 0), 1)
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = min(rect.width, rect.height) / 2
+        var path = Path()
+
+        guard clampedProgress > 0 else { return path }
+        path.move(to: center)
+        path.addArc(
+            center: center,
+            radius: radius,
+            startAngle: .degrees(-90),
+            endAngle: .degrees(-90 + (360 * clampedProgress)),
+            clockwise: false
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct IndeterminatePreparationBar: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        GeometryReader { geometry in
+            let trackWidth = geometry.size.width
+            let segmentWidth = max(trackWidth * 0.32, 64)
+            let travel = max(trackWidth - segmentWidth, 0)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(MuesliTheme.surfaceBorder)
+
+                Capsule()
+                    .fill(MuesliTheme.textSecondary.opacity(0.9))
+                    .frame(width: segmentWidth)
+                    .offset(x: isAnimating ? travel : 0)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                isAnimating = true
+            }
+        }
+    }
+}
+
+private struct RotatingPreparationHint: View {
+    let messages: [String]
+    @State private var index = 0
+    private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Text(messages.isEmpty ? "" : messages[index % messages.count])
+            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .foregroundStyle(MuesliTheme.textTertiary)
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .id(index)
+            .transition(.opacity)
+            .onReceive(timer) { _ in
+                guard messages.count > 1 else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    index = (index + 1) % messages.count
+                }
+            }
+            .onChange(of: messages) { _, _ in
+                index = 0
+            }
     }
 }
 

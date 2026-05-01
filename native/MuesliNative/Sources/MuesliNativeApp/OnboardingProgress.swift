@@ -26,7 +26,7 @@ enum OnboardingPermissionGate {
 }
 
 struct OnboardingProgress: Codable {
-    static let currentSchemaVersion = 3
+    static let currentSchemaVersion = 4
 
     var schemaVersion: Int = currentSchemaVersion
     var currentStep: Int
@@ -38,6 +38,8 @@ struct OnboardingProgress: Codable {
     var hotkeyLabel: String
     var systemAudioRequested: Bool = false
     var onboardingUseCaseRawValue: String = OnboardingUseCase.dictation.rawValue
+    var modelDownloadProgress: Double?
+    var modelDownloadStatus: String?
 
     init(
         schemaVersion: Int = currentSchemaVersion,
@@ -49,7 +51,9 @@ struct OnboardingProgress: Codable {
         hotkeyKeyCode: UInt16,
         hotkeyLabel: String,
         systemAudioRequested: Bool = false,
-        onboardingUseCaseRawValue: String = OnboardingUseCase.dictation.rawValue
+        onboardingUseCaseRawValue: String = OnboardingUseCase.dictation.rawValue,
+        modelDownloadProgress: Double? = nil,
+        modelDownloadStatus: String? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.currentStep = currentStep
@@ -61,6 +65,8 @@ struct OnboardingProgress: Codable {
         self.hotkeyLabel = hotkeyLabel
         self.systemAudioRequested = systemAudioRequested
         self.onboardingUseCaseRawValue = OnboardingUseCase.resolved(onboardingUseCaseRawValue).rawValue
+        self.modelDownloadProgress = modelDownloadProgress
+        self.modelDownloadStatus = modelDownloadStatus
     }
 
     init(from decoder: Decoder) throws {
@@ -79,6 +85,8 @@ struct OnboardingProgress: Codable {
         onboardingUseCaseRawValue = OnboardingUseCase.resolved(
             try c.decodeIfPresent(String.self, forKey: .onboardingUseCaseRawValue)
         ).rawValue
+        modelDownloadProgress = try c.decodeIfPresent(Double.self, forKey: .modelDownloadProgress)
+        modelDownloadStatus = try c.decodeIfPresent(String.self, forKey: .modelDownloadStatus)
     }
 
     private static var fileURL: URL {

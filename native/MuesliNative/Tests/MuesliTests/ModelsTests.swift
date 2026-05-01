@@ -80,6 +80,7 @@ struct BackendOptionTests {
     @Test("Whisper models use WhisperKit CoreML identifiers")
     func whisperKitModels() {
         // WhisperKit models use short variant names, not ggml- prefixed binaries
+        #expect(BackendOption.whisperTinyEnglish.model == "tiny.en")
         #expect(BackendOption.whisperSmall.model == "small.en")
         #expect(BackendOption.whisperMedium.model == "medium.en")
         #expect(BackendOption.whisperLargeTurbo.model.contains("large"))

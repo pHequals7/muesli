@@ -14,6 +14,11 @@ enum SoundController {
         NSSound(named: .init("Purr"))?.play()
     }
 
+    static func playModelReady(enabled: Bool) {
+        guard enabled else { return }
+        NSSound(named: .init("Glass"))?.play()
+    }
+
     // MARK: - Marauder's Map
 
     /// Bundled preset clips (shipped with the app).

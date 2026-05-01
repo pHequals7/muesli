@@ -25,19 +25,68 @@ actor WhisperKitTranscriber {
 
         fputs("[whisperkit] loading model: \(modelName)...\n", stderr)
         progress?(0.1, "Preparing \(modelName)...")
+        let modelFolder: URL?
+
+        if Self.isModelDownloaded(modelName) {
+            modelFolder = nil
+        } else {
+            let estimatedTotalBytes = Self.estimatedDownloadBytes(for: modelName)
+            let totalText = Self.formatMegabytes(estimatedTotalBytes)
+            progress?(0.02, "0 MB of \(totalText)")
+            modelFolder = try await WhisperKit.download(variant: modelName) { downloadProgress in
+                let fraction = min(max(downloadProgress.fractionCompleted, 0), 1)
+                let estimatedBytes = Int64(Double(estimatedTotalBytes) * fraction)
+                let completedText = Self.formatMegabytes(estimatedBytes)
+                let throughput = downloadProgress.userInfo[.throughputKey] as? Double ?? 0
+                let status: String
+                if throughput > 0 {
+                    status = "\(completedText) of \(totalText) • \(Self.formatMegabytes(Int64(throughput)))/s"
+                } else {
+                    status = "\(completedText) of \(totalText)"
+                }
+                progress?(max(fraction, 0.02), status)
+            }
+            progress?(1.0, "Warming up model...")
+        }
 
         let config = WhisperKitConfig(
-            model: modelName,
+            model: modelFolder == nil ? modelName : nil,
+            modelFolder: modelFolder?.path,
             computeOptions: ModelComputeOptions(
                 audioEncoderCompute: .cpuAndNeuralEngine,
                 textDecoderCompute: .cpuAndNeuralEngine
             )
         )
 
-        progress?(0.5, "Downloading \(modelName) (may take a few minutes)...")
         whisperKit = try await WhisperKit(config)
         loadedModel = modelName
         fputs("[whisperkit] model ready: \(modelName)\n", stderr)
+    }
+
+    private static func estimatedDownloadBytes(for modelName: String) -> Int64 {
+        switch modelName {
+        case "tiny.en":
+            return 153 * 1_000_000
+        case "small.en":
+            return 250 * 1_000_000
+        case "medium.en":
+            return 1_500 * 1_000_000
+        case "large-v3-v20240930_626MB":
+            return 626 * 1_000_000
+        default:
+            return 250 * 1_000_000
+        }
+    }
+
+    private static func formatMegabytes(_ bytes: Int64) -> String {
+        let megabytes = Double(bytes) / 1_000_000
+        if megabytes >= 1_000 {
+            return String(format: "%.1f GB", megabytes / 1_000)
+        }
+        if megabytes >= 100 {
+            return "\(Int(megabytes.rounded())) MB"
+        }
+        return String(format: "%.1f MB", megabytes)
     }
 
     /// Transcribe a 16kHz mono WAV file.

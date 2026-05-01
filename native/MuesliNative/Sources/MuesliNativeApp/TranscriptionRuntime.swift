@@ -129,101 +129,107 @@ actor TranscriptionCoordinator {
     func preload(
         backend: BackendOption,
         enablePostProcessor: Bool = false,
+        includeMeetingHelpers: Bool = true,
         progress: ((Double, String?) -> Void)? = nil
     ) async {
+        do {
+            try await preloadRequired(
+                backend: backend,
+                enablePostProcessor: enablePostProcessor,
+                includeMeetingHelpers: includeMeetingHelpers,
+                progress: progress
+            )
+        } catch {
+            fputs("[muesli-native] preload failed for \(backend.backend)/\(backend.model): \(error)\n", stderr)
+        }
+    }
+
+    func preloadRequired(
+        backend: BackendOption,
+        enablePostProcessor: Bool = false,
+        includeMeetingHelpers: Bool = true,
+        progress: ((Double, String?) -> Void)? = nil
+    ) async throws {
         activeBackend = backend.backend
 
-        // Initialize Silero VAD for meeting chunk silence detection
-        if vadManager == nil {
-            do {
-                vadManager = try await VadManager()
-                fputs("[muesli-native] Silero VAD loaded\n", stderr)
-            } catch {
-                fputs("[muesli-native] VAD load failed (non-critical): \(error)\n", stderr)
+        if includeMeetingHelpers {
+            // Meeting helpers are intentionally skipped for dictation-only onboarding.
+            if vadManager == nil {
+                do {
+                    vadManager = try await VadManager()
+                    fputs("[muesli-native] Silero VAD loaded\n", stderr)
+                } catch {
+                    fputs("[muesli-native] VAD load failed (non-critical): \(error)\n", stderr)
+                }
             }
-        }
 
-        // Initialize speaker diarization (lazy — model downloads on first use)
-        if diarizerManager == nil {
-            do {
-                let diarizer = DiarizerManager()
-                let models = try await DiarizerModels.download()
-                diarizer.initialize(models: models)
-                diarizerManager = diarizer
-                fputs("[muesli-native] Speaker diarization loaded\n", stderr)
-            } catch {
-                fputs("[muesli-native] Diarization load failed (non-critical): \(error)\n", stderr)
+            if diarizerManager == nil {
+                do {
+                    let diarizer = DiarizerManager()
+                    let models = try await DiarizerModels.download()
+                    diarizer.initialize(models: models)
+                    diarizerManager = diarizer
+                    fputs("[muesli-native] Speaker diarization loaded\n", stderr)
+                } catch {
+                    fputs("[muesli-native] Diarization load failed (non-critical): \(error)\n", stderr)
+                }
             }
         }
 
         switch backend.backend {
         case "fluidaudio":
             let version: AsrModelVersion = backend.model.contains("v2") ? .v2 : .v3
-            do {
-                try await fluidTranscriber.loadModels(version: version, progress: progress)
-            } catch {
-                fputs("[muesli-native] FluidAudio preload failed: \(error)\n", stderr)
-            }
+            try await fluidTranscriber.loadModels(version: version, progress: progress)
         case "whisper":
-            do {
-                try await whisperTranscriber.loadModel(modelName: backend.model, progress: progress)
-                // Warmup ANE/GPU so first dictation doesn't pay CoreML compilation cost
-                fputs("[muesli-native] WhisperKit warmup: running silent audio for CoreML compilation...\n", stderr)
-                progress?(0.9, "Warming up model...")
-                try await whisperTranscriber.warmup()
-                fputs("[muesli-native] WhisperKit warmup complete\n", stderr)
-                progress?(1.0, nil)
-            } catch {
-                fputs("[muesli-native] WhisperKit preload failed: \(error)\n", stderr)
-            }
+            try await whisperTranscriber.loadModel(modelName: backend.model, progress: progress)
+            // Warmup ANE/GPU so first dictation doesn't pay CoreML compilation cost
+            fputs("[muesli-native] WhisperKit warmup: running silent audio for CoreML compilation...\n", stderr)
+            progress?(0.9, "Warming up model...")
+            try await whisperTranscriber.warmup()
+            fputs("[muesli-native] WhisperKit warmup complete\n", stderr)
+            progress?(1.0, nil)
         case "nemotron":
             if #available(macOS 15, *) {
-                do {
-                    try await nemotronTranscriber.loadModels(progress: progress)
-                    // Warmup ANE so first dictation starts instantly
-                    fputs("[muesli-native] Nemotron warmup: running silent chunk for ANE compilation...\n", stderr)
-                    var state = try await nemotronTranscriber.makeStreamState()
-                    let silence = [Float](repeating: 0, count: 8960)
-                    _ = try? await nemotronTranscriber.transcribeChunk(samples: silence, state: &state)
-                    fputs("[muesli-native] Nemotron warmup complete\n", stderr)
-                } catch {
-                    fputs("[muesli-native] Nemotron preload failed: \(error)\n", stderr)
-                }
+                try await nemotronTranscriber.loadModels(progress: progress)
+                // Warmup ANE so first dictation starts instantly
+                fputs("[muesli-native] Nemotron warmup: running silent chunk for ANE compilation...\n", stderr)
+                var state = try await nemotronTranscriber.makeStreamState()
+                let silence = [Float](repeating: 0, count: 8960)
+                _ = try? await nemotronTranscriber.transcribeChunk(samples: silence, state: &state)
+                fputs("[muesli-native] Nemotron warmup complete\n", stderr)
             } else {
-                fputs("[muesli-native] Nemotron requires macOS 15+\n", stderr)
+                throw NSError(domain: "MuesliTranscriptionRuntime", code: 1, userInfo: [
+                    NSLocalizedDescriptionKey: "Nemotron requires macOS 15 or later.",
+                ])
             }
         case "qwen":
             if #available(macOS 15, *) {
-                do {
-                    try await qwen3Transcriber.loadModels(progress: progress)
-                } catch {
-                    fputs("[muesli-native] Qwen3 ASR preload failed: \(error)\n", stderr)
-                }
+                try await qwen3Transcriber.loadModels(progress: progress)
             } else {
-                fputs("[muesli-native] Qwen3 ASR requires macOS 15+\n", stderr)
+                throw NSError(domain: "MuesliTranscriptionRuntime", code: 2, userInfo: [
+                    NSLocalizedDescriptionKey: "Qwen3 ASR requires macOS 15 or later.",
+                ])
             }
         case "canary":
             if #available(macOS 15, *) {
-                do {
-                    try await canaryQwenTranscriber.prepare(progress: progress)
-                } catch {
-                    fputs("[muesli-native] Canary Qwen preload failed: \(error)\n", stderr)
-                }
+                try await canaryQwenTranscriber.prepare(progress: progress)
             } else {
-                fputs("[muesli-native] Canary Qwen requires macOS 15+\n", stderr)
+                throw NSError(domain: "MuesliTranscriptionRuntime", code: 3, userInfo: [
+                    NSLocalizedDescriptionKey: "Canary Qwen requires macOS 15 or later.",
+                ])
             }
         case "cohere":
             if #available(macOS 15, *) {
-                do {
-                    try await cohereTranscriber.prepare(progress: progress)
-                } catch {
-                    fputs("[muesli-native] Cohere Transcribe preload failed: \(error)\n", stderr)
-                }
+                try await cohereTranscriber.prepare(progress: progress)
             } else {
-                fputs("[muesli-native] Cohere Transcribe requires macOS 15+\n", stderr)
+                throw NSError(domain: "MuesliTranscriptionRuntime", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "Cohere Transcribe requires macOS 15 or later.",
+                ])
             }
         default:
-            fputs("[muesli-native] unknown backend: \(backend.backend)\n", stderr)
+            throw NSError(domain: "MuesliTranscriptionRuntime", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Unknown transcription backend: \(backend.backend)",
+            ])
         }
 
         await preloadPostProcessorIfNeeded(enabled: enablePostProcessor)
