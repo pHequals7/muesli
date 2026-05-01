@@ -2,6 +2,14 @@ import AVFoundation
 import SwiftUI
 import MuesliCore
 
+private struct MeetingDetectionAppOption: Identifiable {
+    let bundleID: String
+    let name: String
+    let icon: String
+
+    var id: String { bundleID }
+}
+
 struct SettingsView: View {
     private enum PendingDataDestruction {
         case dictations
@@ -79,6 +87,18 @@ struct SettingsView: View {
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
     private let meetingControlWidth: CGFloat = 275
+    private let meetingDetectionAppOptions: [MeetingDetectionAppOption] = [
+        MeetingDetectionAppOption(bundleID: "com.google.Chrome", name: "Chrome", icon: "globe"),
+        MeetingDetectionAppOption(bundleID: "company.thebrowser.Browser", name: "Arc", icon: "globe"),
+        MeetingDetectionAppOption(bundleID: "com.apple.Safari", name: "Safari", icon: "globe"),
+        MeetingDetectionAppOption(bundleID: "com.microsoft.edgemac", name: "Edge", icon: "globe"),
+        MeetingDetectionAppOption(bundleID: "com.brave.Browser", name: "Brave", icon: "globe"),
+        MeetingDetectionAppOption(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", icon: "message.fill"),
+        MeetingDetectionAppOption(bundleID: "us.zoom.xos", name: "Zoom", icon: "video.fill"),
+        MeetingDetectionAppOption(bundleID: "com.microsoft.teams2", name: "Teams", icon: "person.2.fill"),
+        MeetingDetectionAppOption(bundleID: "com.apple.FaceTime", name: "FaceTime", icon: "video.fill"),
+        MeetingDetectionAppOption(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", icon: "phone.fill"),
+    ]
 
     private var dictationBackendOptions: [BackendOption] {
         backendOptions(including: appState.selectedBackend)
@@ -441,12 +461,6 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Notify when meeting detected") {
-                    settingsSwitch(isOn: appState.config.showMeetingDetectionNotification) { newValue in
-                        controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
-                    }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
                 settingsRow("Save meeting recording") {
                     settingsMenu(
                         selection: recordingSaveLabel(for: appState.config.meetingRecordingSavePolicy),
@@ -455,6 +469,29 @@ struct SettingsView: View {
                         guard let policy = recordingSavePolicy(for: label) else { return }
                         controller.updateConfig { $0.meetingRecordingSavePolicy = policy }
                     }
+                }
+            }
+
+            settingsSection("Meeting Notifications") {
+                settingsRow("Scheduled meetings") {
+                    settingsSwitch(isOn: appState.config.showScheduledMeetingNotifications) { newValue in
+                        controller.updateConfig { $0.showScheduledMeetingNotifications = newValue }
+                    }
+                }
+                settingsDescription("Show notifications before meetings start based on your calendar.")
+
+                Divider().background(MuesliTheme.surfaceBorder)
+
+                settingsRow("Auto-detected meetings") {
+                    settingsSwitch(isOn: appState.config.showMeetingDetectionNotification) { newValue in
+                        controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
+                    }
+                }
+                settingsDescription("Show notifications when a call is detected from browser, camera, microphone, or app audio activity.")
+
+                if appState.config.showMeetingDetectionNotification {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    mutedMeetingDetectionAppsControl
                 }
             }
 
@@ -1095,6 +1132,15 @@ struct SettingsView: View {
         .frame(minHeight: 32)
     }
 
+    private func settingsDescription(_ text: String) -> some View {
+        Text(text)
+            .font(MuesliTheme.caption())
+            .foregroundStyle(MuesliTheme.textTertiary)
+            .padding(.horizontal, MuesliTheme.spacing16)
+            .padding(.top, -4)
+            .padding(.bottom, MuesliTheme.spacing8)
+    }
+
     // MARK: - Controls
 
     @ViewBuilder
@@ -1112,6 +1158,73 @@ struct SettingsView: View {
     private func settingsMenu(selection: String, options: [String], onChange: @escaping (String) -> Void) -> some View {
         FixedWidthPopUp(selection: selection, options: options, onChange: onChange)
             .frame(height: 24)
+    }
+
+    private var mutedMeetingDetectionAppsControl: some View {
+        let muted = Set(appState.config.mutedMeetingDetectionAppBundleIDs)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Don't notify me when a call is detected in these apps:")
+                .font(MuesliTheme.body())
+                .foregroundStyle(MuesliTheme.textPrimary)
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+            ], alignment: .leading, spacing: 8) {
+                ForEach(meetingDetectionAppOptions) { app in
+                    mutedDetectionAppButton(app, isMuted: muted.contains(app.bundleID))
+                }
+            }
+        }
+        .padding(.leading, MuesliTheme.spacing16)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(MuesliTheme.surfaceBorder)
+                .frame(width: 2)
+        }
+    }
+
+    private func mutedDetectionAppButton(_ app: MeetingDetectionAppOption, isMuted: Bool) -> some View {
+        Button {
+            updateMutedMeetingDetectionApp(app.bundleID, isMuted: !isMuted)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isMuted ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isMuted ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 16)
+                Image(systemName: app.icon)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(width: 14)
+                Text(app.name)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(isMuted ? MuesliTheme.accentSubtle : MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(isMuted ? MuesliTheme.accent.opacity(0.35) : MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func updateMutedMeetingDetectionApp(_ bundleID: String, isMuted: Bool) {
+        controller.updateConfig { config in
+            var muted = Set(config.mutedMeetingDetectionAppBundleIDs)
+            if isMuted {
+                muted.insert(bundleID)
+            } else {
+                muted.remove(bundleID)
+            }
+            config.mutedMeetingDetectionAppBundleIDs = muted.sorted()
+        }
     }
 
     @ViewBuilder

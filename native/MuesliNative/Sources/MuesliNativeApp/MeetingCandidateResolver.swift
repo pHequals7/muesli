@@ -71,7 +71,7 @@ struct MeetingCandidate: Equatable {
     }
 
     var subtitle: String {
-        meetingTitle ?? platform.displayName
+        meetingTitle ?? (platform == .unknown ? appName : platform.displayName)
     }
 
     static func == (lhs: MeetingCandidate, rhs: MeetingCandidate) -> Bool {
@@ -171,7 +171,7 @@ enum MeetingURLNormalizer {
 
         if host == "meet.google.com" {
             guard let code = path.split(separator: "/").first.map(String.init),
-                  !code.isEmpty else { return nil }
+                  isGoogleMeetCode(code) else { return nil }
             let identity = "meet.google.com/\(code.lowercased())"
             return NormalizedMeetingURL(
                 id: "googleMeet:\(identity)",
@@ -205,6 +205,19 @@ enum MeetingURLNormalizer {
         }
 
         return nil
+    }
+
+    private static func isGoogleMeetCode(_ value: String) -> Bool {
+        let parts = value.lowercased().split(separator: "-")
+        guard parts.count == 3,
+              parts[0].count == 3,
+              parts[1].count == 4,
+              parts[2].count == 3 else {
+            return false
+        }
+        return parts.allSatisfy { part in
+            part.allSatisfy { $0 >= "a" && $0 <= "z" }
+        }
     }
 
     private static func zoomMeetingID(from path: String) -> String? {
@@ -275,6 +288,11 @@ final class MeetingCandidateResolver {
 
         if let browserMeeting,
            let inputProcess = activeInputProcess(for: browserMeeting.bundleID, in: snapshot) {
+            let suppressionID = appAudioSessionID(
+                forBundleID: browserMeeting.bundleID,
+                prefix: "browser",
+                now: snapshot.now
+            )
             return candidate(
                 id: browserMeeting.normalizedID,
                 platform: browserMeeting.platform,
@@ -282,14 +300,15 @@ final class MeetingCandidateResolver {
                 url: browserMeeting.url,
                 title: snapshot.calendarEvent?.title,
                 evidence: browserEvidence(from: snapshot, context: browserMeeting, inputProcess: inputProcess),
-                sourceBundleID: inputProcess.bundleID,
-                sourcePID: inputProcess.pid,
+                sourceBundleID: browserMeeting.bundleID,
+                sourcePID: validSourcePID(inputProcess.pid),
+                suppressionID: suppressionID,
                 now: snapshot.now
             )
         }
 
         if let browserMeeting,
-           snapshot.micActive || snapshot.cameraActive || browserMeeting.isFocused {
+           browserMeeting.isFocused {
             return candidate(
                 id: browserMeeting.normalizedID,
                 platform: browserMeeting.platform,
@@ -308,6 +327,11 @@ final class MeetingCandidateResolver {
         if let calendarEvent = snapshot.calendarEvent {
             if let browserMeeting {
                 let inputProcess = activeInputProcess(for: browserMeeting.bundleID, in: snapshot)
+                let suppressionID = inputProcess == nil ? nil : appAudioSessionID(
+                    forBundleID: browserMeeting.bundleID,
+                    prefix: "browser",
+                    now: snapshot.now
+                )
                 return candidate(
                     id: "cal:\(calendarEvent.id):\(browserMeeting.normalizedID)",
                     platform: browserMeeting.platform,
@@ -315,8 +339,9 @@ final class MeetingCandidateResolver {
                     url: browserMeeting.url,
                     title: calendarEvent.title,
                     evidence: browserEvidence(from: snapshot, context: browserMeeting, inputProcess: inputProcess).union([.calendarEvent]),
-                    sourceBundleID: inputProcess?.bundleID ?? browserMeeting.bundleID,
-                    sourcePID: inputProcess?.pid ?? browserMeeting.pid,
+                    sourceBundleID: browserMeeting.bundleID,
+                    sourcePID: inputProcess.flatMap { validSourcePID($0.pid) } ?? browserMeeting.pid,
+                    suppressionID: suppressionID,
                     now: snapshot.now
                 )
             }
@@ -331,8 +356,28 @@ final class MeetingCandidateResolver {
                     title: calendarEvent.title,
                     evidence: mediaEvidence(from: snapshot).union([.calendarEvent, .audioInputProcess]),
                     sourceBundleID: audioApp.bundleID,
-                    sourcePID: audioApp.pid,
+                    sourcePID: validSourcePID(audioApp.pid),
                     suppressionID: appSessionID,
+                    now: snapshot.now
+                )
+            }
+
+            if let browserAudio = bestBrowserAudioProcess(from: snapshot.audioInputProcesses) {
+                let sessionID = appAudioSessionID(
+                    forBundleID: browserAudio.bundleID,
+                    prefix: "browser",
+                    now: snapshot.now
+                )
+                return candidate(
+                    id: "cal:\(calendarEvent.id)",
+                    platform: .unknown,
+                    appName: browserAudio.appName,
+                    url: nil,
+                    title: calendarEvent.title,
+                    evidence: browserMediaEvidence(from: snapshot, browserBundleID: browserAudio.bundleID).union([.calendarEvent]),
+                    sourceBundleID: browserAudio.bundleID,
+                    sourcePID: validSourcePID(browserAudio.process.pid),
+                    suppressionID: sessionID,
                     now: snapshot.now
                 )
             }
@@ -351,6 +396,26 @@ final class MeetingCandidateResolver {
             )
         }
 
+        if let browserAudio = bestBrowserAudioProcess(from: snapshot.audioInputProcesses) {
+            let sessionID = appAudioSessionID(
+                forBundleID: browserAudio.bundleID,
+                prefix: "browser",
+                now: snapshot.now
+            )
+            return candidate(
+                id: sessionID,
+                platform: .unknown,
+                appName: browserAudio.appName,
+                url: nil,
+                title: nil,
+                evidence: browserMediaEvidence(from: snapshot, browserBundleID: browserAudio.bundleID),
+                sourceBundleID: browserAudio.bundleID,
+                sourcePID: validSourcePID(browserAudio.process.pid),
+                suppressionID: sessionID,
+                now: snapshot.now
+            )
+        }
+
         if let audioApp = bestMeetingAudioProcess(from: snapshot.audioInputProcesses, includeWeakApps: true) {
             let platform = platform(for: audioApp.bundleID) ?? .unknown
             let appSessionID = appAudioSessionID(for: audioApp, now: snapshot.now)
@@ -362,7 +427,7 @@ final class MeetingCandidateResolver {
                 title: nil,
                 evidence: mediaEvidence(from: snapshot).union([.audioInputProcess, .dedicatedApp]),
                 sourceBundleID: audioApp.bundleID,
-                sourcePID: audioApp.pid,
+                sourcePID: validSourcePID(audioApp.pid),
                 suppressionID: appSessionID,
                 now: snapshot.now
             )
@@ -447,6 +512,34 @@ final class MeetingCandidateResolver {
         }.first
     }
 
+    private func bestBrowserAudioProcess(
+        from processes: [AudioProcessActivity]
+    ) -> (process: AudioProcessActivity, bundleID: String, appName: String)? {
+        let candidates = processes.compactMap { process -> (process: AudioProcessActivity, bundleID: String, appName: String)? in
+            guard process.bundleID != selfBundleID,
+                  let browserBundleID = browserBundleID(for: process.bundleID),
+                  let appName = Self.browserApps[browserBundleID] else {
+                return nil
+            }
+            return (process, browserBundleID, appName)
+        }
+
+        return candidates.sorted { lhs, rhs in
+            if lhs.bundleID != rhs.bundleID { return lhs.appName < rhs.appName }
+            let lhsExact = lhs.process.bundleID == lhs.bundleID
+            let rhsExact = rhs.process.bundleID == rhs.bundleID
+            if lhsExact != rhsExact { return lhsExact && !rhsExact }
+            return lhs.process.appName < rhs.process.appName
+        }.first
+    }
+
+    private func browserBundleID(for processBundleID: String) -> String? {
+        if Self.browserApps[processBundleID] != nil { return processBundleID }
+        return Self.browserApps.keys.first { browserBundleID in
+            isHelperBundleID(processBundleID, for: browserBundleID)
+        }
+    }
+
     private func browserEvidence(
         from snapshot: MeetingSignalSnapshot,
         context: BrowserMeetingContext,
@@ -456,6 +549,18 @@ final class MeetingCandidateResolver {
         evidence.insert(.browserURL)
         if context.isFocused { evidence.insert(.foregroundApp) }
         if inputProcess != nil { evidence.insert(.audioInputProcess) }
+        return evidence
+    }
+
+    private func browserMediaEvidence(
+        from snapshot: MeetingSignalSnapshot,
+        browserBundleID: String
+    ) -> Set<MeetingCandidate.Evidence> {
+        var evidence = mediaEvidence(from: snapshot)
+        evidence.insert(.audioInputProcess)
+        if snapshot.foregroundBundleID == browserBundleID {
+            evidence.insert(.foregroundApp)
+        }
         return evidence
     }
 
@@ -474,15 +579,28 @@ final class MeetingCandidateResolver {
         for bundleID: String,
         in snapshot: MeetingSignalSnapshot
     ) -> AudioProcessActivity? {
-        snapshot.audioInputProcesses.first { $0.bundleID == bundleID }
+        snapshot.audioInputProcesses.first {
+            $0.bundleID == bundleID || isHelperBundleID($0.bundleID, for: bundleID)
+        }
+    }
+
+    private func isHelperBundleID(_ helperBundleID: String, for parentBundleID: String) -> Bool {
+        helperBundleID.lowercased().hasPrefix("\(parentBundleID.lowercased()).")
     }
 
     private func platform(for bundleID: String) -> MeetingCandidate.Platform? {
         Self.dedicatedApps[bundleID]?.platform
     }
 
+    private func validSourcePID(_ pid: pid_t) -> pid_t? {
+        pid > 0 ? pid : nil
+    }
+
     private func appAudioSessionID(for process: AudioProcessActivity, now: Date) -> String {
-        let key = process.bundleID
+        appAudioSessionID(forBundleID: process.bundleID, prefix: "app", now: now)
+    }
+
+    private func appAudioSessionID(forBundleID key: String, prefix: String, now: Date) -> String {
         if var session = appAudioSessions[key],
            now.timeIntervalSince(session.lastSeenAt) <= appAudioSessionIdleTimeout {
             session.lastSeenAt = now
@@ -492,7 +610,7 @@ final class MeetingCandidateResolver {
 
         let sessionStartedAt = Int(now.timeIntervalSince1970)
         let session = AppAudioSession(
-            id: "app:\(process.bundleID):session:\(sessionStartedAt)",
+            id: "\(prefix):\(key):session:\(sessionStartedAt)",
             lastSeenAt: now
         )
         appAudioSessions[key] = session

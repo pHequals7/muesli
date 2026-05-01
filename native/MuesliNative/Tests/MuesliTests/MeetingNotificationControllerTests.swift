@@ -14,4 +14,23 @@ struct MeetingNotificationControllerTests {
         #expect(MeetingPlatform(.whatsApp) == nil)
         #expect(MeetingPlatform(.unknown) == nil)
     }
+
+    @Test("Auto-dismiss without a dedicated handler still fires close cleanup")
+    @MainActor
+    func autoDismissWithoutHandlerFiresCloseCleanup() {
+        #expect(MeetingNotificationController.suppressesCloseCallbackDuringAutoDismiss(hasAutoDismissHandler: false) == false)
+    }
+
+    @Test("Detection auto-dismiss owns its cleanup path")
+    @MainActor
+    func detectionAutoDismissOwnsCleanupPath() {
+        #expect(MeetingNotificationController.suppressesCloseCallbackDuringAutoDismiss(hasAutoDismissHandler: true))
+    }
+
+    @Test("Auto-dismiss callback is skipped when hover pauses during fade-out")
+    @MainActor
+    func autoDismissCallbackSkippedWhenPausedDuringFadeOut() {
+        #expect(MeetingNotificationController.firesAutoDismissCallbackAfterFade(wasDismissPaused: false))
+        #expect(!MeetingNotificationController.firesAutoDismissCallbackAfterFade(wasDismissPaused: true))
+    }
 }

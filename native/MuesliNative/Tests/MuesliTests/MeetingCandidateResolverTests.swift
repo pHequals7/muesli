@@ -98,6 +98,208 @@ struct MeetingCandidateResolverTests {
         #expect(candidate?.evidence.contains(.audioInputProcess) == true)
     }
 
+    @Test("Chrome Meet audio input resolves after transient foreground loss")
+    func chromeMeetAudioInputResolvesAfterForegroundLoss() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+                RunningAppInfo(bundleID: "com.granola.app", isActive: true),
+            ],
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/pwm-txwq-txy",
+                    normalizedID: "googleMeet:meet.google.com/pwm-txwq-txy",
+                    platform: .googleMeet,
+                    isFocused: false
+                ),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.granola.app"
+        ))
+
+        #expect(candidate?.id == "googleMeet:meet.google.com/pwm-txwq-txy")
+        #expect(candidate?.platform == .googleMeet)
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.sourcePID == 9876)
+        #expect(candidate?.evidence.contains(.audioInputProcess) == true)
+        #expect(candidate?.evidence.contains(.foregroundApp) == false)
+    }
+
+    @Test("Chrome URL and media fallback share suppression session")
+    func chromeURLAndMediaFallbackShareSuppressionSession() {
+        let resolver = resolver()
+        let urlCandidate = resolver.resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/pwm-txwq-txy",
+                    normalizedID: "googleMeet:meet.google.com/pwm-txwq-txy",
+                    platform: .googleMeet,
+                    isFocused: true
+                ),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.google.Chrome",
+            now: now
+        ))
+
+        let mediaCandidate = resolver.resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.google.Chrome",
+            now: now.addingTimeInterval(5)
+        ))
+
+        #expect(urlCandidate?.id == "googleMeet:meet.google.com/pwm-txwq-txy")
+        #expect(mediaCandidate?.id == "browser:com.google.Chrome:session:1800000000")
+        #expect(urlCandidate?.suppressionID == "browser:com.google.Chrome:session:1800000000")
+        #expect(mediaCandidate?.suppressionID == urlCandidate?.suppressionID)
+    }
+
+    @Test("Chrome audio input resolves without URL after foreground loss")
+    func chromeAudioInputResolvesWithoutURLAfterForegroundLoss() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+                RunningAppInfo(bundleID: "com.granola.app", isActive: true),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.granola.app"
+        ))
+
+        #expect(candidate?.id == "browser:com.google.Chrome:session:1800000000")
+        #expect(candidate?.suppressionID == candidate?.id)
+        #expect(candidate?.platform == .unknown)
+        #expect(candidate?.subtitle == "Chrome")
+        #expect(candidate?.appName == "Chrome")
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.sourcePID == 9876)
+        #expect(candidate?.evidence.contains(.audioInputProcess) == true)
+        #expect(candidate?.evidence.contains(.foregroundApp) == false)
+    }
+
+    @Test("Chrome audio input without URL beats background WhatsApp")
+    func chromeAudioInputWithoutURLBeatsBackgroundWhatsApp() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "net.whatsapp.WhatsApp", isActive: false),
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: true),
+            ],
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 9876,
+                    bundleID: "com.google.Chrome.helper",
+                    appName: "Google Chrome Helper",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.google.Chrome"
+        ))
+
+        #expect(candidate?.id == "browser:com.google.Chrome:session:1800000000")
+        #expect(candidate?.platform == .unknown)
+        #expect(candidate?.subtitle == "Chrome")
+        #expect(candidate?.appName == "Chrome")
+        #expect(candidate?.sourceBundleID == "com.google.Chrome")
+        #expect(candidate?.evidence.contains(.foregroundApp) == true)
+    }
+
+    @Test("synthetic browser audio PID is not exposed as source PID")
+    func syntheticBrowserAudioPIDIsNotExposedAsSourcePID() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 0,
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    isRunningInput: true,
+                    isRunningOutput: false
+                ),
+            ],
+            foregroundBundleID: "com.google.Chrome"
+        ))
+
+        #expect(candidate?.id == "browser:com.google.Chrome:session:1800000000")
+        #expect(candidate?.sourcePID == nil)
+    }
+
+    @Test("background Meet URL without browser audio does not steal foreground app detection")
+    func backgroundMeetURLWithoutBrowserAudioDoesNotStealForegroundAppDetection() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: true,
+            cameraActive: true,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+                RunningAppInfo(bundleID: "us.zoom.xos", isActive: true),
+            ],
+            browserMeetings: [
+                BrowserMeetingContext(
+                    bundleID: "com.google.Chrome",
+                    appName: "Chrome",
+                    pid: 1234,
+                    url: "meet.google.com/pwm-txwq-txy",
+                    normalizedID: "googleMeet:meet.google.com/pwm-txwq-txy",
+                    platform: .googleMeet,
+                    isFocused: false
+                ),
+            ],
+            foregroundBundleID: "us.zoom.xos"
+        ))
+
+        #expect(candidate?.id == "app:us.zoom.xos")
+        #expect(candidate?.platform == .zoom)
+        #expect(candidate?.appName == "Zoom")
+    }
+
     @Test("focused Meet URL is eligible before mic flips")
     func focusedMeetURLIsEligibleBeforeMicFlips() {
         let candidate = resolver().resolve(snapshot(
@@ -382,5 +584,11 @@ struct MeetingCandidateResolverTests {
         #expect(normalized?.id == "googleMeet:meet.google.com/pwm-txwq-txy")
         #expect(normalized?.url == "meet.google.com/pwm-txwq-txy")
         #expect(normalized?.platform == .googleMeet)
+    }
+
+    @Test("URL normalizer rejects Google Meet landing pages")
+    func googleMeetURLNormalizationRejectsLandingPages() {
+        #expect(MeetingURLNormalizer.normalize("https://meet.google.com/landing") == nil)
+        #expect(MeetingURLNormalizer.normalize("https://meet.google.com/") == nil)
     }
 }

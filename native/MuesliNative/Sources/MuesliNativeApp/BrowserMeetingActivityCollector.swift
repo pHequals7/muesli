@@ -5,16 +5,27 @@ import Foundation
 @MainActor
 final class BrowserMeetingActivityCollector {
     private let browserBundleIDs = Set(MeetingCandidateResolver.browserApps.keys)
+    private let cachedMeetingTTL: TimeInterval = 8
+    private var cachedMeetings: [String: CachedBrowserMeeting] = [:]
 
     func collect() -> [BrowserMeetingContext] {
-        NSWorkspace.shared.runningApplications.compactMap { app in
-            guard let bundleID = app.bundleIdentifier,
-                  browserBundleIDs.contains(bundleID),
-                  let normalized = normalizedFocusedURL(for: app) else {
+        let now = Date()
+        let browserApps = NSWorkspace.shared.runningApplications.filter { app in
+            guard let bundleID = app.bundleIdentifier else { return false }
+            return browserBundleIDs.contains(bundleID)
+        }
+        let runningBrowserIDs = Set(browserApps.compactMap(\.bundleIdentifier))
+
+        let liveMeetings: [BrowserMeetingContext] = browserApps.compactMap { app in
+            guard let bundleID = app.bundleIdentifier else { return nil }
+            guard let normalized = normalizedFocusedURL(for: app) else {
+                if app.isActive {
+                    cachedMeetings.removeValue(forKey: bundleID)
+                }
                 return nil
             }
 
-            return BrowserMeetingContext(
+            let context = BrowserMeetingContext(
                 bundleID: bundleID,
                 appName: app.localizedName ?? MeetingCandidateResolver.browserApps[bundleID] ?? bundleID,
                 pid: app.processIdentifier,
@@ -23,7 +34,30 @@ final class BrowserMeetingActivityCollector {
                 platform: normalized.platform,
                 isFocused: app.isActive
             )
+            cachedMeetings[bundleID] = CachedBrowserMeeting(context: context, observedAt: now)
+            return context
         }
+
+        let liveBundleIDs = Set(liveMeetings.map(\.bundleID))
+        cachedMeetings = cachedMeetings.filter { bundleID, cached in
+            runningBrowserIDs.contains(bundleID) && now.timeIntervalSince(cached.observedAt) <= cachedMeetingTTL
+        }
+
+        let cachedOnlyMeetings = cachedMeetings.values
+            .filter { !liveBundleIDs.contains($0.context.bundleID) }
+            .map { cached in
+                BrowserMeetingContext(
+                    bundleID: cached.context.bundleID,
+                    appName: cached.context.appName,
+                    pid: cached.context.pid,
+                    url: cached.context.url,
+                    normalizedID: cached.context.normalizedID,
+                    platform: cached.context.platform,
+                    isFocused: false
+                )
+            }
+
+        return liveMeetings + cachedOnlyMeetings
     }
 
     private func normalizedFocusedURL(for app: NSRunningApplication) -> NormalizedMeetingURL? {
@@ -31,8 +65,10 @@ final class BrowserMeetingActivityCollector {
             return normalized
         }
 
-        guard app.isActive,
-              let bundleID = app.bundleIdentifier,
+        // Query the browser's active tab even after another app/overlay becomes
+        // frontmost. Strict URL normalization plus resolver media checks keep
+        // background meeting tabs from prompting by themselves.
+        guard let bundleID = app.bundleIdentifier,
               let url = activeBrowserURLViaAppleScript(bundleID: bundleID) else {
             return nil
         }
@@ -86,4 +122,9 @@ final class BrowserMeetingActivityCollector {
         }
         return output
     }
+}
+
+private struct CachedBrowserMeeting {
+    let context: BrowserMeetingContext
+    let observedAt: Date
 }

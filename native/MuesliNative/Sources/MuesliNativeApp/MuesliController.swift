@@ -257,6 +257,9 @@ final class MuesliController: NSObject {
         meetingMonitor.detectionEnabledProvider = { [weak self] in
             self?.config.showMeetingDetectionNotification ?? false
         }
+        meetingMonitor.mutedDetectionBundleIDsProvider = { [weak self] in
+            Set(self?.config.mutedMeetingDetectionAppBundleIDs ?? [])
+        }
         meetingMonitor.isRecordingProvider = { [weak self] in
             guard let self else { return false }
             return self.isMeetingRecording() || self.isDictationActivityInProgress
@@ -479,7 +482,8 @@ final class MuesliController: NSObject {
     }
 
     func recoverStaleLiveMeetings() {
-        guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
+        guard !isMeetingRecording(),
+              !isStartingMeetingRecording else { return }
         let meetings: [MeetingRecord]
         do {
             meetings = try dictationStore.staleLiveMeetings()
@@ -948,7 +952,9 @@ final class MuesliController: NSObject {
 
     /// Show a "Meeting starting now" notification — independent of Marauder's Map.
     private func showMeetingStartingNowNotification(title: String, calendarEventID: String?, meetingURL: URL?, endDate: Date?) {
-        guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
+        guard config.showScheduledMeetingNotifications,
+              !isMeetingRecording(),
+              !isStartingMeetingRecording else { return }
         isShowingCalendarNotification = true
 
         meetingNotification.show(
@@ -2566,10 +2572,10 @@ final class MuesliController: NSObject {
             return
         }
 
-        let title = candidate.meetingTitle ?? candidate.platform.displayName
+        let title = candidate.subtitle
         presentedMeetingCandidate = candidate
         let preferredScreen = meetingSourceWindowLocator.screen(for: candidate)
-        meetingNotification.show(
+        let didShow = meetingNotification.show(
             promptID: candidate.id,
             title: "Meeting detected",
             subtitle: title,
@@ -2601,7 +2607,11 @@ final class MuesliController: NSObject {
                 self.meetingMonitor.markPromptClosed(candidate)
             }
         )
-        meetingMonitor.markPromptShown(candidate)
+        if didShow {
+            meetingMonitor.markPromptShown(candidate)
+        } else if presentedMeetingCandidate == candidate {
+            presentedMeetingCandidate = nil
+        }
     }
 
     @MainActor
@@ -3000,7 +3010,7 @@ final class MuesliController: NSObject {
         }
 
         // Show notification panel for calendar events (if not auto-recording)
-        guard config.showMeetingDetectionNotification,
+        guard config.showScheduledMeetingNotifications,
               !isMeetingRecording(),
               !isStartingMeetingRecording else {
             return
