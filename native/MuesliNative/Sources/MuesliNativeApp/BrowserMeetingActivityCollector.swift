@@ -65,8 +65,10 @@ final class BrowserMeetingActivityCollector {
             return normalized
         }
 
-        guard app.isActive,
-              let bundleID = app.bundleIdentifier,
+        // Query the browser's active tab even after another app/overlay becomes
+        // frontmost. Strict URL normalization plus resolver media checks keep
+        // background meeting tabs from prompting by themselves.
+        guard let bundleID = app.bundleIdentifier,
               let url = activeBrowserURLViaAppleScript(bundleID: bundleID) else {
             return nil
         }

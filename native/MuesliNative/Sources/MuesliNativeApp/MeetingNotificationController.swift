@@ -71,7 +71,7 @@ final class MeetingNotificationController {
             backing: .buffered,
             defer: false
         )
-        panel.level = .init(rawValue: Int(CGShieldingWindowLevel()) + 1)
+        panel.level = .statusBar
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -192,14 +192,9 @@ final class MeetingNotificationController {
         }
 
         panel.contentView = contentView
-        panel.alphaValue = 0
+        panel.alphaValue = 1
         panel.orderFrontRegardless()
 
-        // Fade in
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.25
-            panel.animator().alphaValue = 1
-        }
         self.panel = panel
         isVisible = true
         currentPromptID = promptID
