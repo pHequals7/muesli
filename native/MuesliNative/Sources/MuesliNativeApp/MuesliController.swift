@@ -1036,6 +1036,11 @@ final class MuesliController: NSObject {
     }
 
     @MainActor
+    func yieldOnboardingFocusToSystemSettings() {
+        onboardingWindowController?.yieldFocusToSystemSettings()
+    }
+
+    @MainActor
     func notifyOnboardingModelReady() {
         SoundController.playModelReady(enabled: config.soundEnabled)
         bringOnboardingToFront()

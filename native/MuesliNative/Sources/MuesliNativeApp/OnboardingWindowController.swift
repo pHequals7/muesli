@@ -21,9 +21,16 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     func bringToFront() {
+        window?.level = .floating
         window?.makeKeyAndOrderFront(nil)
         window?.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    func yieldFocusToSystemSettings() {
+        guard let window else { return }
+        window.level = .normal
+        window.orderBack(nil)
     }
 
     func close() {

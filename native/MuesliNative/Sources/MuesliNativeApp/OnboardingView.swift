@@ -820,7 +820,7 @@ struct OnboardingView: View {
 
                 Button {
                     if grantingPermissionName == step.name && !isConfirmingGrant {
-                        openSystemSettings(systemSettingsPane(for: displayIndex))
+                        openSystemSettingsForPermission(at: displayIndex)
                     } else {
                         grantingPermissionName = step.name
                         recentlyGrantedPermissionName = nil
@@ -860,7 +860,7 @@ struct OnboardingView: View {
                 }
 
                 Button {
-                    openSystemSettings(systemSettingsPane(for: displayIndex))
+                    openSystemSettingsForPermission(at: displayIndex)
                 } label: {
                     Text("Not seeing a prompt? Open System Settings")
                         .font(.system(size: 11))
@@ -1026,7 +1026,7 @@ struct OnboardingView: View {
         grantingPermissionName = nil
         recentlyGrantedPermissionName = permissionName
         saveProgress(atStep: currentStep)
-        NSApp.activate(ignoringOtherApps: true)
+        controller.bringOnboardingToFront()
 
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(850))
@@ -1060,8 +1060,19 @@ struct OnboardingView: View {
         controller.relaunchApp()
     }
 
+    private func openSystemSettingsForPermission(at permissionIndex: Int) {
+        let steps = permissionSteps
+        if permissionIndex < steps.count {
+            grantingPermissionName = steps[permissionIndex].name
+            recentlyGrantedPermissionName = nil
+            saveProgress(atStep: currentStep)
+        }
+        openSystemSettings(systemSettingsPane(for: permissionIndex))
+    }
+
     private func openSystemSettings(_ pane: String) {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") {
+            controller.yieldOnboardingFocusToSystemSettings()
             NSWorkspace.shared.open(url)
         }
     }
