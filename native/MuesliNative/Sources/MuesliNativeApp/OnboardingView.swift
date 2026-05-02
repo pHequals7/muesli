@@ -56,25 +56,15 @@ struct OnboardingView: View {
     @State private var googleCalSignInDone = false
     @State private var googleCalSignInError: String?
 
-    static let permissionsStep = Step.permissions.rawValue
-    static let dictationTestStep = Step.dictationTest.rawValue
-
-    private enum Step: Int {
-        case welcome = 0
-        case model = 1
-        case hotkey = 2
-        case permissions = 3
-        case dictationTest = 4
-        case meetingSummary = 5
-        case googleCalendar = 6
-    }
+    static let permissionsStep = OnboardingFlow.Step.permissions.rawValue
+    static let dictationTestStep = OnboardingFlow.Step.dictationTest.rawValue
 
     private var orderedSteps: [Int] {
-        Self.orderedSteps(for: selectedUseCase)
+        OnboardingFlow.orderedSteps(for: selectedUseCase)
     }
 
     private var currentStepIndex: Int {
-        orderedSteps.firstIndex(of: currentStep) ?? 0
+        OnboardingFlow.stepIndex(currentStep, for: selectedUseCase)
     }
 
     private var totalSteps: Int {
@@ -87,25 +77,6 @@ struct OnboardingView: View {
             options.insert(selectedBackend, at: 0)
         }
         return options
-    }
-
-    private static func orderedSteps(for useCase: OnboardingUseCase) -> [Int] {
-        var steps = [Step.welcome.rawValue, Step.model.rawValue]
-        if useCase.includesDictation {
-            steps += [Step.hotkey.rawValue, Step.permissions.rawValue, Step.dictationTest.rawValue]
-        } else if useCase.includesMeetings {
-            steps += [Step.permissions.rawValue]
-        }
-        if useCase.includesMeetings {
-            steps += [Step.meetingSummary.rawValue, Step.googleCalendar.rawValue]
-        }
-        return steps
-    }
-
-    private static func normalizedStep(_ step: Int, for useCase: OnboardingUseCase) -> Int {
-        let steps = orderedSteps(for: useCase)
-        if steps.contains(step) { return step }
-        return steps.first { $0 > step } ?? steps.last ?? Step.welcome.rawValue
     }
 
     init(
@@ -145,7 +116,7 @@ struct OnboardingView: View {
                 dictationTestStep: Self.dictationTestStep
             )
             : initialStep
-        let effectiveInitialStep = Self.normalizedStep(permissionGatedInitialStep, for: initialUseCase)
+        let effectiveInitialStep = OnboardingFlow.normalizedStep(permissionGatedInitialStep, for: initialUseCase)
 
         _currentStep = State(initialValue: effectiveInitialStep)
         _userName = State(initialValue: initialUserName)
@@ -230,7 +201,7 @@ struct OnboardingView: View {
         }
         .onChange(of: selectedUseCase) { _, _ in
             if !orderedSteps.contains(currentStep) {
-                currentStep = Self.normalizedStep(currentStep, for: selectedUseCase)
+                currentStep = OnboardingFlow.normalizedStep(currentStep, for: selectedUseCase)
             }
             resetModelDownloadForBackendChange()
             saveProgress(atStep: currentStep)
@@ -386,8 +357,11 @@ struct OnboardingView: View {
     }
 
     private var canGoBack: Bool {
-        guard currentStepIndex > 0 else { return false }
-        return !(currentStep == Self.dictationTestStep && dictationTestResult != nil)
+        OnboardingFlow.canGoBack(
+            from: currentStep,
+            useCase: selectedUseCase,
+            dictationTestSucceeded: dictationTestResult != nil
+        )
     }
 
     private var modelDownloadIndicator: some View {

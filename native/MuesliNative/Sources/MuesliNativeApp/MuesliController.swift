@@ -1196,8 +1196,9 @@ final class MuesliController: NSObject {
                 "dictation_selected": onboardingUseCase.includesDictation ? "true" : "false",
                 "meetings_selected": onboardingUseCase.includesMeetings ? "true" : "false",
             ])
-            if onboardingUseCase == .meetings {
-                openHistoryWindow(tab: .meetings)
+            let completionTab = OnboardingFlow.completionTab(for: onboardingUseCase)
+            if completionTab == .meetings {
+                openHistoryWindow(tab: completionTab)
             } else {
                 openHistoryWindow()
             }

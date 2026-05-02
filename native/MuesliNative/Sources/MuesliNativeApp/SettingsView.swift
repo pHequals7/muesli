@@ -78,6 +78,7 @@ struct SettingsView: View {
     @State private var accessibilityGranted = false
     @State private var inputMonitoringGranted = false
     @State private var screenRecordingGranted = false
+    @State private var pendingScreenContextEnable = false
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
     @State private var openRouterFreeModels: [SummaryModelPreset] = []
@@ -1089,15 +1090,18 @@ struct SettingsView: View {
 
     private func handleScreenContextToggle(_ enabled: Bool) {
         guard enabled else {
+            pendingScreenContextEnable = false
             controller.updateConfig { $0.enableScreenContext = false }
             return
         }
 
         guard CGPreflightScreenCaptureAccess() else {
             controller.updateConfig { $0.enableScreenContext = false }
+            pendingScreenContextEnable = true
             let granted = CGRequestScreenCaptureAccess()
             screenRecordingGranted = CGPreflightScreenCaptureAccess()
             if granted || screenRecordingGranted {
+                pendingScreenContextEnable = false
                 controller.updateConfig { $0.enableScreenContext = true }
             }
             return
@@ -1127,7 +1131,12 @@ struct SettingsView: View {
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
+        if screenRecordingGranted && pendingScreenContextEnable {
+            pendingScreenContextEnable = false
+            controller.updateConfig { $0.enableScreenContext = true }
+        }
         if !screenRecordingGranted && appState.config.enableScreenContext {
+            pendingScreenContextEnable = false
             controller.updateConfig { $0.enableScreenContext = false }
         }
         refreshSystemAudioPermissionIfNeeded()
