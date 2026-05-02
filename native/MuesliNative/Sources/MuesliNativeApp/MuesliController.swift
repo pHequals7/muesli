@@ -199,7 +199,6 @@ final class MuesliController: NSObject {
             hotkeyMonitor.targetKeyCode = config.dictationHotkey.keyCode
             hotkeyMonitor.start()
         }
-        indicator.hotkeyLabel = config.dictationHotkey.label
         indicator.onStopMeeting = { [weak self] in self?.stopMeetingRecording() }
         indicator.onDiscardMeeting = { [weak self] in self?.discardMeetingWithConfirmation() }
         indicator.onToggleMeetingPause = { [weak self] in self?.toggleMeetingRecordingPause() }
@@ -1019,7 +1018,6 @@ final class MuesliController: NSObject {
     func updateDictationHotkey(_ hotkey: HotkeyConfig) {
         updateConfig { $0.dictationHotkey = hotkey }
         hotkeyMonitor.configure(keyCode: hotkey.keyCode)
-        indicator.hotkeyLabel = hotkey.label
     }
 
     // MARK: - Onboarding

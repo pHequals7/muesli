@@ -102,7 +102,6 @@ final class FloatingIndicatorController: NSObject {
     private var transcribingTitle = "Transcribing"
     private var loadingSpinner: NSProgressIndicator?
     private var isShowingLoading = false
-    var hotkeyLabel: String = "Left Cmd"
 
     init(configStore: ConfigStore) {
         self.configStore = configStore
@@ -150,7 +149,7 @@ final class FloatingIndicatorController: NSObject {
         isHovered = false
 
         let config = configStore.load()
-        let style = styleForState(.idle)
+        let style = styleForState(.idle, config: config)
         let targetFrame = frameForState(.idle, config: config)
 
         // Instant resize — no animation
@@ -243,7 +242,7 @@ final class FloatingIndicatorController: NSObject {
 
         }
 
-        let style = styleForState(state)
+        let style = styleForState(state, config: config)
         let targetFrame = frameForState(state, config: config)
 
         let duration = transitionDuration(
@@ -896,14 +895,14 @@ final class FloatingIndicatorController: NSObject {
         return NSRect(x: x, y: y, width: size.width, height: size.height)
     }
 
-    private func styleForState(_ state: DictationState) -> (background: NSColor, border: NSColor, icon: String, title: String, iconColor: NSColor, textColor: NSColor, alpha: CGFloat) {
+    private func styleForState(_ state: DictationState, config: AppConfig) -> (background: NSColor, border: NSColor, icon: String, title: String, iconColor: NSColor, textColor: NSColor, alpha: CGFloat) {
         switch state {
         case .idle:
             return (
                 .clear,
                 .colorWith(hex: 0xFFFFFF, alpha: isHovered ? 0.14 : 0.22),
                 "",
-                isHovered ? "Hold \(hotkeyLabel) to dictate" : "",
+                isHovered ? "Hold \(config.dictationHotkey.label) to dictate" : "",
                 .colorWith(hex: 0xFFFFFF, alpha: 0.75),
                 .colorWith(hex: 0xFFFFFF, alpha: 0.75),
                 isHovered ? 1.0 : 0.85
