@@ -1975,7 +1975,7 @@ final class MuesliController: NSObject {
 
     func startForegroundMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil) {
         startMeetingRecording(title: title, calendarEventID: calendarEventID, openDocument: true)
-        presentHistoryWindow()
+        openHistoryWindow(tab: .meetings)
     }
 
     func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false) {

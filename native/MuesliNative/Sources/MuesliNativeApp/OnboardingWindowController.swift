@@ -41,7 +41,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     private func buildWindow() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
