@@ -67,6 +67,11 @@ final class AppState {
     var hiddenCalendarEventIDs: Set<String> = []
     var sparkleUpdateStatus: SparkleUpdateStatus = .idle
     var sparkleLastCheckedAt: Date?
+    var modelPreparationTitle: String?
+    var modelPreparationDetail: String?
+    var modelPreparationProgress: Double?
+    var isModelPreparingAfterDownload: Bool = false
+    var modelPreparationIsComplete: Bool = false
 
     // Dictation pagination & filtering
     var dictationPageSize: Int = 50

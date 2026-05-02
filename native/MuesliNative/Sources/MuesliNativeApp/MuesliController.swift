@@ -1042,6 +1042,7 @@ final class MuesliController: NSObject {
 
     @MainActor
     func notifyOnboardingModelReady() {
+        guard onboardingWindowController != nil else { return }
         SoundController.playModelReady(enabled: config.soundEnabled)
         bringOnboardingToFront()
     }
@@ -1195,7 +1196,11 @@ final class MuesliController: NSObject {
                 "dictation_selected": onboardingUseCase.includesDictation ? "true" : "false",
                 "meetings_selected": onboardingUseCase.includesMeetings ? "true" : "false",
             ])
-            openHistoryWindow()
+            if onboardingUseCase == .meetings {
+                openHistoryWindow(tab: .meetings)
+            } else {
+                openHistoryWindow()
+            }
         } else {
             showOnboarding(resumeFrom: onboardingProgressForPermissionRepair())
         }

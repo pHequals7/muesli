@@ -108,6 +108,7 @@ struct SidebarView: View {
 
             Spacer()
 
+            modelPreparationStatus
             sidebarItem(tab: .settings, icon: "gearshape", label: "Settings")
             sidebarItem(tab: .about, icon: "info.circle", label: "About", updateCTA: pendingUpdateCTA)
             darkModeToggle
@@ -329,6 +330,58 @@ struct SidebarView: View {
                 }
                 .padding(.horizontal, sidebarRowOuterPadding)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var modelPreparationStatus: some View {
+        if let title = appState.modelPreparationTitle {
+            HStack(spacing: MuesliTheme.spacing8) {
+                Group {
+                    if appState.modelPreparationIsComplete {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(MuesliTheme.success)
+                    } else if appState.isModelPreparingAfterDownload || appState.modelPreparationProgress == nil {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        ProgressView(value: appState.modelPreparationProgress ?? 0, total: 1)
+                            .progressViewStyle(.circular)
+                            .controlSize(.small)
+                            .frame(width: 16, height: 16)
+                    }
+                }
+                .frame(width: sidebarIconColumnWidth, height: sidebarIconColumnWidth)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                        .lineLimit(1)
+                    if let detail = appState.modelPreparationDetail, !detail.isEmpty {
+                        Text(detail)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, sidebarRowHorizontalPadding)
+            .padding(.vertical, MuesliTheme.spacing8)
+            .background(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .fill(MuesliTheme.backgroundRaised)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+            .padding(.horizontal, sidebarRowOuterPadding)
+            .padding(.bottom, MuesliTheme.spacing4)
         }
     }
 

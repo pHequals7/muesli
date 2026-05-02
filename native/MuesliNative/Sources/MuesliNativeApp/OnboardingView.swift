@@ -232,6 +232,7 @@ struct OnboardingView: View {
             if !orderedSteps.contains(currentStep) {
                 currentStep = Self.normalizedStep(currentStep, for: selectedUseCase)
             }
+            resetModelDownloadForBackendChange()
             saveProgress(atStep: currentStep)
         }
         .onChange(of: selectedBackend) { _, _ in
@@ -1513,6 +1514,13 @@ struct OnboardingView: View {
             isModelPreparingAfterDownload = false
             modelDownloadStatus = "\(selectedBackend.label) ready"
             modelDownloadError = nil
+            publishModelPreparationStatus(
+                title: "\(selectedBackend.label) ready",
+                detail: "Ready for transcription",
+                progress: 1.0,
+                isPreparing: false,
+                isComplete: true
+            )
             return
         }
 
@@ -1537,6 +1545,13 @@ struct OnboardingView: View {
             ? "Warming up \(backend.label)..."
             : (modelDownloadStatus ?? initialDownloadStatus(for: backend))
         modelDownloadError = nil
+        publishModelPreparationStatus(
+            title: "Preparing \(backend.label)",
+            detail: modelDownloadStatus,
+            progress: modelDownloadProgress,
+            isPreparing: isModelPreparingAfterDownload,
+            isComplete: false
+        )
 
         modelDownloadTask = Task {
             defer {
@@ -1562,6 +1577,13 @@ struct OnboardingView: View {
                     modelDownloadStatus = "\(backend.label) ready"
                     modelDownloadError = nil
                     withAnimation { isModelStillDownloading = false }
+                    publishModelPreparationStatus(
+                        title: "\(backend.label) ready",
+                        detail: "Ready for transcription",
+                        progress: 1.0,
+                        isPreparing: false,
+                        isComplete: true
+                    )
                     showModelReadyIndicator(for: backend)
                     controller.notifyOnboardingModelReady()
                     saveProgress(atStep: currentStep)
@@ -1576,6 +1598,13 @@ struct OnboardingView: View {
                     modelDownloadProgress = nil
                     isModelPreparingAfterDownload = false
                     isModelStillDownloading = false
+                    publishModelPreparationStatus(
+                        title: "Download paused",
+                        detail: "Check your connection and retry",
+                        progress: nil,
+                        isPreparing: false,
+                        isComplete: false
+                    )
                 }
                 fputs("[muesli-native] onboarding model download failed: \(error)\n", stderr)
             }
@@ -1595,6 +1624,13 @@ struct OnboardingView: View {
         if isPreparing {
             isModelPreparingAfterDownload = true
             modelDownloadStatus = "Optimizing \(backend.label) for this Mac..."
+            publishModelPreparationStatus(
+                title: "Preparing \(backend.label)",
+                detail: modelDownloadStatus,
+                progress: nil,
+                isPreparing: true,
+                isComplete: false
+            )
             saveProgress(atStep: currentStep)
             return
         }
@@ -1607,6 +1643,13 @@ struct OnboardingView: View {
         guard !isZeroRelist else { return }
         modelDownloadProgress = max(currentProgress, max(clampedProgress, 0.02))
         modelDownloadStatus = detail
+        publishModelPreparationStatus(
+            title: "Preparing \(backend.label)",
+            detail: detail,
+            progress: modelDownloadProgress,
+            isPreparing: false,
+            isComplete: false
+        )
         saveProgress(atStep: currentStep)
     }
 
@@ -1626,10 +1669,27 @@ struct OnboardingView: View {
     }
 
     private func initialDownloadStatus(for backend: BackendOption) -> String {
-        if backend.backend == "fluidaudio", backend.model.contains("parakeet") {
-            return "0 MB of 450 MB"
+        let size = backend.sizeLabel
+            .replacingOccurrences(of: "~", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !size.isEmpty {
+            return "0 MB of \(size)"
         }
         return "Starting \(backend.label) download..."
+    }
+
+    private func publishModelPreparationStatus(
+        title: String,
+        detail: String?,
+        progress: Double?,
+        isPreparing: Bool,
+        isComplete: Bool
+    ) {
+        appState.modelPreparationTitle = title
+        appState.modelPreparationDetail = detail
+        appState.modelPreparationProgress = progress.map { min(max($0, 0), 1) }
+        appState.isModelPreparingAfterDownload = isPreparing
+        appState.modelPreparationIsComplete = isComplete
     }
 
     private func showModelReadyIndicator(for backend: BackendOption) {
@@ -1743,6 +1803,15 @@ struct OnboardingView: View {
 
     private func finishOnboarding(withKey: Bool) {
         OnboardingProgress.clear()
+        if isModelStillDownloading || modelReadyBackend == selectedBackend {
+            publishModelPreparationStatus(
+                title: modelReadyBackend == selectedBackend ? "\(selectedBackend.label) ready" : "Preparing \(selectedBackend.label)",
+                detail: modelReadyBackend == selectedBackend ? "Ready for transcription" : modelDownloadStatus,
+                progress: modelReadyBackend == selectedBackend ? 1.0 : modelDownloadProgress,
+                isPreparing: isModelPreparingAfterDownload,
+                isComplete: modelReadyBackend == selectedBackend
+            )
+        }
         controller.completeOnboarding(
             userName: userName.trimmingCharacters(in: .whitespaces),
             backend: selectedBackend,
