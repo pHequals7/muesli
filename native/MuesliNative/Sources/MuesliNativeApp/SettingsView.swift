@@ -1099,8 +1099,6 @@ struct SettingsView: View {
             screenRecordingGranted = CGPreflightScreenCaptureAccess()
             if granted || screenRecordingGranted {
                 controller.updateConfig { $0.enableScreenContext = true }
-            } else {
-                openPrivacyPane("Privacy_ScreenCapture")
             }
             return
         }

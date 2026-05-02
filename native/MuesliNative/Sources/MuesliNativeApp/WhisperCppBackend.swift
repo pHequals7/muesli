@@ -46,7 +46,6 @@ actor WhisperKitTranscriber {
                 }
                 progress?(max(fraction, 0.02), status)
             }
-            progress?(1.0, "Warming up model...")
         }
 
         let config = WhisperKitConfig(

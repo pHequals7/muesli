@@ -1242,7 +1242,7 @@ final class MuesliController: NSObject {
 
     private func onboardingProgressForPermissionRepair() -> OnboardingProgress {
         OnboardingProgress(
-            currentStep: OnboardingView.dictationTestStep - 1,
+            currentStep: OnboardingView.permissionsStep,
             userName: config.userName,
             selectedBackendKey: config.sttBackend,
             selectedModelKey: config.sttModel,

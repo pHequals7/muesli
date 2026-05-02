@@ -56,7 +56,8 @@ struct OnboardingView: View {
     @State private var googleCalSignInDone = false
     @State private var googleCalSignInError: String?
 
-    static let dictationTestStep = 4
+    static let permissionsStep = Step.permissions.rawValue
+    static let dictationTestStep = Step.dictationTest.rawValue
 
     private enum Step: Int {
         case welcome = 0
@@ -523,7 +524,7 @@ struct OnboardingView: View {
 
                 OnboardingTextField(text: $userName, placeholder: "Enter your name", onSubmit: {
                     if !userName.trimmingCharacters(in: .whitespaces).isEmpty {
-                        withAnimation(.easeInOut(duration: 0.2)) { currentStep = 1 }
+                        goToNextStep()
                     }
                 })
                     .frame(width: 280, height: 32)
@@ -1563,7 +1564,7 @@ struct OnboardingView: View {
                     modelDownloadStatus = "Download paused"
                     modelDownloadProgress = nil
                     isModelPreparingAfterDownload = false
-                    isModelStillDownloading = true
+                    isModelStillDownloading = false
                 }
                 fputs("[muesli-native] onboarding model download failed: \(error)\n", stderr)
             }
@@ -1801,7 +1802,7 @@ private struct IndeterminatePreparationBar: View {
 private struct RotatingPreparationHint: View {
     let messages: [String]
     @State private var index = 0
-    private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+    private static let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Text(messages.isEmpty ? "" : messages[index % messages.count])
@@ -1811,7 +1812,7 @@ private struct RotatingPreparationHint: View {
             .lineLimit(1)
             .id(index)
             .transition(.opacity)
-            .onReceive(timer) { _ in
+            .onReceive(Self.timer) { _ in
                 guard messages.count > 1 else { return }
                 withAnimation(.easeInOut(duration: 0.2)) {
                     index = (index + 1) % messages.count
