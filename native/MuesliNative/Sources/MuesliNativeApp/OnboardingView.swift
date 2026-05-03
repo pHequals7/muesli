@@ -1871,7 +1871,7 @@ private struct IndeterminatePreparationBar: View {
 private struct RotatingPreparationHint: View {
     let messages: [String]
     @State private var index = 0
-    private static let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
+    private let timer = Timer.publish(every: 6, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Text(messages.isEmpty ? "" : messages[index % messages.count])
@@ -1881,7 +1881,7 @@ private struct RotatingPreparationHint: View {
             .lineLimit(1)
             .id(index)
             .transition(.opacity)
-            .onReceive(Self.timer) { _ in
+            .onReceive(timer) { _ in
                 guard messages.count > 1 else { return }
                 withAnimation(.easeInOut(duration: 0.2)) {
                     index = (index + 1) % messages.count
