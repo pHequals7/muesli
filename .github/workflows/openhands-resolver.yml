@@ -97,8 +97,7 @@ jobs:
               /p0\s*(?:\/|and|&|\+)?\s*p1/i.test(commentBody) ||
               /p1\s*(?:\/|and|&|\+)?\s*p0/i.test(commentBody) ||
               /p0p1/i.test(commentBody) ||
-              /\b(?:fix|address|resolve|handle|review|triage)\b.{0,80}\bp[01]s?\b/is.test(commentBody) ||
-              /\bp[01]s?\b.{0,80}\b(?:issue|issues|finding|findings|bug|bugs|blocker|blockers|review|reviews|claude|greptile)\b/is.test(commentBody)
+              /\b(?:fix|address|resolve|handle|review|triage)\b.{0,80}\bp[01]s?\b/is.test(commentBody)
             );
 
             const defaultMaxIterations = process.env.OPENHANDS_MAX_ITER || '20';
@@ -191,6 +190,7 @@ jobs:
             ].filter((item) => botAuthorPattern.test(item.author));
 
             function hasBlockingFinding(body) {
+              // Greptile uses severity badge images on inline findings; preserve that signal before stripping HTML.
               const bodyWithBadges = body.replace(/<img[^>]*badges\/(p[01])\.svg[^>]*>/gi, ' $1-badge ');
               const lines = bodyWithBadges
                 .replace(/<[^>]*>/g, ' ')
