@@ -78,7 +78,7 @@ struct SettingsView: View {
     @State private var accessibilityGranted = false
     @State private var inputMonitoringGranted = false
     @State private var screenRecordingGranted = false
-    @State private var pendingScreenContextEnable = false
+    @AppStorage("settings.pendingScreenContextEnable") private var pendingScreenContextEnable = false
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
     @State private var openRouterFreeModels: [SummaryModelPreset] = []
