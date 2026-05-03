@@ -96,7 +96,8 @@ jobs:
             const requestedBlockingReviewFix = issueType === 'pr' && (
               /p0\s*(?:\/|and|&|\+)?\s*p1/i.test(commentBody) ||
               /p1\s*(?:\/|and|&|\+)?\s*p0/i.test(commentBody) ||
-              /p0p1/i.test(commentBody)
+              /p0p1/i.test(commentBody) ||
+              /\bp[01]s?\b/i.test(commentBody)
             );
 
             const defaultMaxIterations = process.env.OPENHANDS_MAX_ITER || '20';
@@ -159,7 +160,7 @@ jobs:
             const issueNumber = Number('${{ steps.context.outputs.issue_number }}');
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const botAuthorPattern = /(claude|greptile)/i;
+            const botAuthorPattern = /^(claude|greptile)(?:$|-|\[bot\])/i;
 
             const issueComments = await github.paginate(github.rest.issues.listComments, {
               owner,
@@ -424,7 +425,7 @@ jobs:
           exit 1
 
       - name: Comment on resolver result
-        if: always() && steps.context.outputs.smoke_only != 'true' && steps.review_gate.outputs.should_skip != 'true'
+        if: always() && steps.context.outputs.smoke_only != 'true' && steps.context.outputs.max_iterations_error == '' && steps.review_gate.outputs.should_skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
