@@ -1686,6 +1686,16 @@ struct OnboardingView: View {
                 appState.isModelPreparingAfterDownload = false
                 appState.modelPreparationIsComplete = false
             }
+        } else if !isPreparing && progress == nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(12))
+                guard appState.modelPreparationTitle == title,
+                      appState.modelPreparationProgress == nil,
+                      !appState.isModelPreparingAfterDownload,
+                      !appState.modelPreparationIsComplete else { return }
+                appState.modelPreparationTitle = nil
+                appState.modelPreparationDetail = nil
+            }
         }
     }
 

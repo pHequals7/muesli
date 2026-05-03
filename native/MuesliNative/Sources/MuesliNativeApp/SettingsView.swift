@@ -79,6 +79,7 @@ struct SettingsView: View {
     @State private var inputMonitoringGranted = false
     @State private var screenRecordingGranted = false
     @AppStorage("settings.pendingScreenContextEnable") private var pendingScreenContextEnable = false
+    @AppStorage("settings.pendingScreenContextRequestedAt") private var pendingScreenContextRequestedAt = 0.0
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
     @State private var openRouterFreeModels: [SummaryModelPreset] = []
@@ -88,6 +89,7 @@ struct SettingsView: View {
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
     private let meetingControlWidth: CGFloat = 275
+    private let screenContextGrantIntentTimeout: TimeInterval = 15 * 60
     private let meetingDetectionAppOptions: [MeetingDetectionAppOption] = [
         MeetingDetectionAppOption(bundleID: "com.google.Chrome", name: "Chrome", icon: "globe"),
         MeetingDetectionAppOption(bundleID: "company.thebrowser.Browser", name: "Arc", icon: "globe"),
@@ -1090,7 +1092,7 @@ struct SettingsView: View {
 
     private func handleScreenContextToggle(_ enabled: Bool) {
         guard enabled else {
-            pendingScreenContextEnable = false
+            clearPendingScreenContextEnable()
             controller.updateConfig { $0.enableScreenContext = false }
             return
         }
@@ -1098,16 +1100,18 @@ struct SettingsView: View {
         guard CGPreflightScreenCaptureAccess() else {
             controller.updateConfig { $0.enableScreenContext = false }
             pendingScreenContextEnable = true
+            pendingScreenContextRequestedAt = Date().timeIntervalSince1970
             let granted = CGRequestScreenCaptureAccess()
             screenRecordingGranted = CGPreflightScreenCaptureAccess()
             if granted || screenRecordingGranted {
-                pendingScreenContextEnable = false
+                clearPendingScreenContextEnable()
                 controller.updateConfig { $0.enableScreenContext = true }
             }
             return
         }
 
         screenRecordingGranted = true
+        clearPendingScreenContextEnable()
         controller.updateConfig { $0.enableScreenContext = true }
     }
 
@@ -1132,17 +1136,28 @@ struct SettingsView: View {
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
         if screenRecordingGranted && pendingScreenContextEnable {
-            pendingScreenContextEnable = false
+            clearPendingScreenContextEnable()
             controller.updateConfig { $0.enableScreenContext = true }
         }
-        if !screenRecordingGranted && pendingScreenContextEnable {
-            pendingScreenContextEnable = false
+        if !screenRecordingGranted && isPendingScreenContextGrantExpired {
+            clearPendingScreenContextEnable()
         }
         if !screenRecordingGranted && appState.config.enableScreenContext {
-            pendingScreenContextEnable = false
+            clearPendingScreenContextEnable()
             controller.updateConfig { $0.enableScreenContext = false }
         }
         refreshSystemAudioPermissionIfNeeded()
+    }
+
+    private var isPendingScreenContextGrantExpired: Bool {
+        guard pendingScreenContextEnable else { return false }
+        guard pendingScreenContextRequestedAt > 0 else { return true }
+        return Date().timeIntervalSince1970 - pendingScreenContextRequestedAt > screenContextGrantIntentTimeout
+    }
+
+    private func clearPendingScreenContextEnable() {
+        pendingScreenContextEnable = false
+        pendingScreenContextRequestedAt = 0
     }
 
     private func refreshSystemAudioPermissionIfNeeded() {

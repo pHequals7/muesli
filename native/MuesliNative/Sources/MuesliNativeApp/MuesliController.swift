@@ -1255,6 +1255,16 @@ final class MuesliController: NSObject {
                 appState.isModelPreparingAfterDownload = false
                 appState.modelPreparationIsComplete = false
             }
+        } else if !isPreparing && progress == nil {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(12))
+                guard appState.modelPreparationTitle == title,
+                      appState.modelPreparationProgress == nil,
+                      !appState.isModelPreparingAfterDownload,
+                      !appState.modelPreparationIsComplete else { return }
+                appState.modelPreparationTitle = nil
+                appState.modelPreparationDetail = nil
+            }
         }
     }
 
@@ -1339,6 +1349,10 @@ final class MuesliController: NSObject {
 
     func openHistoryWindow(tab: DashboardTab) {
         guard ensureBasicDictationPermissionsBeforeDashboard() else { return }
+        presentHistoryWindow(tab: tab)
+    }
+
+    private func presentHistoryWindow(tab: DashboardTab) {
         appState.selectedTab = tab
         syncAppState()
         DispatchQueue.main.async { [weak self] in
@@ -2096,7 +2110,7 @@ final class MuesliController: NSObject {
     func startForegroundMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil) {
         guard ensureBasicDictationPermissionsBeforeDashboard() else { return }
         startMeetingRecording(title: title, calendarEventID: calendarEventID, openDocument: true)
-        openHistoryWindow(tab: .meetings)
+        presentHistoryWindow(tab: .meetings)
     }
 
     func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false) {

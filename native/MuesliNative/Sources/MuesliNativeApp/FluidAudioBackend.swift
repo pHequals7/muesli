@@ -79,14 +79,10 @@ actor FluidAudioTranscriber {
     }
 }
 
-private final class DownloadRateEstimator: @unchecked Sendable {
-    private let lock = NSLock()
+private final class DownloadRateEstimator {
     private var downloadStartedAt: Date?
 
     func bytesPerSecond(for estimatedBytes: Int64) -> Double {
-        lock.lock()
-        defer { lock.unlock() }
-
         guard estimatedBytes > 0 else { return 0 }
         let now = Date()
         if downloadStartedAt == nil {
