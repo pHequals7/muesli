@@ -155,9 +155,11 @@ jobs:
         id: review_gate
         if: steps.context.outputs.smoke_only != 'true' && steps.context.outputs.requested_blocking_review_fix == 'true'
         uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
         with:
           script: |
-            const issueNumber = Number('${{ steps.context.outputs.issue_number }}');
+            const issueNumber = Number(process.env.ISSUE_NUMBER);
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const botAuthorPattern = /^(claude|greptile)(?:$|-|\[bot\])/i;
