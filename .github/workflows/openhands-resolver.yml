@@ -190,7 +190,8 @@ jobs:
             ].filter((item) => botAuthorPattern.test(item.author));
 
             function hasBlockingFinding(body) {
-              return body
+              const bodyWithBadges = body.replace(/<img[^>]*badges\/(p[01])\.svg[^>]*>/gi, ' $1-badge ');
+              return bodyWithBadges
                 .replace(/<[^>]*>/g, ' ')
                 .split(/\r?\n/)
                 .some((line) => {
