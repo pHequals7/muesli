@@ -8,6 +8,7 @@ You are working on Muesli, a Swift/SwiftUI macOS app.
 - P0/P1 findings are blocking if they still apply to the current HEAD.
 - P2 findings are optional unless they are low-risk and clearly correct.
 - Greptile findings may be stale. Verify each finding against current code before changing anything.
+- If the trigger asks specifically for P0/P1 fixes and there are no current code-backed P0/P1 findings, do not fix P2/minor items unless the trigger explicitly asks for them.
 
 ## Hard Rules
 
@@ -32,6 +33,7 @@ You are working on Muesli, a Swift/SwiftUI macOS app.
 - Classify each review item as current blocking, stale, optional, or out-of-scope.
 - For stale findings, cite the current file/function evidence that makes the finding obsolete.
 - Fix all current code-backed P0/P1 findings.
+- Do not spend time on P2/minor findings when the request is scoped to P0/P1 only.
 - Keep changes narrow and consistent with existing SwiftUI/AppKit patterns.
 - Commit fixes directly to the PR branch.
 - Stop when there are no current code-backed P0/P1 findings and summarize what remains for local MuesliDev QA.
