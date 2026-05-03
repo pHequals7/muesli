@@ -1299,8 +1299,11 @@ struct OnboardingView: View {
             controller.dictationTestRecordingStarted = nil
             controller.dictationTestBackend = nil
             controller.dictationTestCohereLanguage = nil
-            // Stop hotkey monitor when leaving dictation test to prevent real dictation
-            controller.stopHotkeyMonitor()
+            // Stop the test monitor while moving through onboarding, but leave the
+            // production monitor running when finishing from the dictation test.
+            if !hasFinishedOnboarding {
+                controller.stopHotkeyMonitor()
+            }
         }
     }
 
