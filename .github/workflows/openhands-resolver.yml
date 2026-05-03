@@ -203,7 +203,8 @@ jobs:
                   if (
                     /\b(?:no|zero)\s+(?:new\s+)?p0\s*(?:\/|or|and|,)?\s*p1\b/.test(lower) ||
                     /\bp0\s*(?:\/|or|and|,)?\s*p1\s*(?:issues|findings)?\s*(?:found)?\s*[:=-]?\s*(?:0|none|—|-)\b/.test(lower) ||
-                    /\|\s*p0\s*\/\s*p1\s*\|\s*0\s*\|/.test(lower)
+                    /\|\s*p0\s*\/\s*p1\s*\|\s*0\s*\|/.test(lower) ||
+                    /\bp[01]\s*(?:\*{1,2})?\s*(?::|=|—|-)\s*(?:(?:0|none|n\/a)\b|[—-](?:\s|$))/i.test(lower)
                   ) {
                     return false;
                   }
@@ -312,7 +313,7 @@ jobs:
           PY
 
       - name: Smoke test
-        if: steps.context.outputs.smoke_only == 'true' && steps.review_gate.outputs.should_skip != 'true'
+        if: steps.context.outputs.smoke_only == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
