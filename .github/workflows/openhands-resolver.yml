@@ -141,7 +141,7 @@ jobs:
             -f content="eyes" || true
 
       - name: Reject invalid trigger options
-        if: steps.context.outputs.max_iterations_error != ''
+        if: steps.context.outputs.smoke_only != 'true' && steps.context.outputs.max_iterations_error != ''
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
