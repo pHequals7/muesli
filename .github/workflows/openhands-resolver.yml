@@ -97,7 +97,7 @@ jobs:
               /p0\s*(?:\/|and|&|\+)?\s*p1/i.test(commentBody) ||
               /p1\s*(?:\/|and|&|\+)?\s*p0/i.test(commentBody) ||
               /p0p1/i.test(commentBody) ||
-              /\b(?:fix|address|resolve|handle|review|triage)\b.{0,80}\bp[01]s?\b/is.test(commentBody)
+              /\b(?:fix|address|resolve|handle)\b.{0,80}\bp[01]s?\b/is.test(commentBody)
             );
 
             const defaultMaxIterations = process.env.OPENHANDS_MAX_ITER || '20';
@@ -154,6 +154,7 @@ jobs:
       - name: Check PR blocking review findings
         id: review_gate
         if: steps.context.outputs.smoke_only != 'true' && steps.context.outputs.requested_blocking_review_fix == 'true'
+        continue-on-error: true
         uses: actions/github-script@v7
         env:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
@@ -245,6 +246,16 @@ jobs:
               }
             }
 
+      - name: Comment on PR review gate failure
+        if: steps.review_gate.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/comments" \
+            -f body="OpenHands did not run because the PR review gate failed while reading Claude/Greptile review comments. Check the workflow logs, then retry the trigger comment. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          exit 1
+
       - name: Comment on skipped PR review request
         if: steps.review_gate.outputs.should_skip == 'true'
         env:
@@ -255,7 +266,7 @@ jobs:
             -f body="OpenHands did not run because no current P0/P1 findings were found in Claude/Greptile PR review comments. Re-trigger with a specific P2/minor request if you want optional findings handled. Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Check required configuration
-        if: steps.review_gate.outputs.should_skip != 'true'
+        if: steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         run: |
           required_vars=(LLM_MODEL LLM_API_KEY PAT_TOKEN PAT_USERNAME)
           for var in "${required_vars[@]}"; do
@@ -266,11 +277,11 @@ jobs:
           done
 
       - name: Check out repository
-        if: steps.review_gate.outputs.should_skip != 'true'
+        if: steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         uses: actions/checkout@v4
 
       - name: Preflight PAT publishing credentials
-        if: steps.review_gate.outputs.should_skip != 'true'
+        if: steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         run: |
           pat_login="$(GH_TOKEN="${PAT_TOKEN}" gh api user --jq .login)"
           if [ "${pat_login}" = "${PAT_USERNAME}" ]; then
@@ -301,20 +312,20 @@ jobs:
           echo "PAT HTTPS git push dry run succeeded."
 
       - name: Set up Python
-        if: steps.review_gate.outputs.should_skip != 'true'
+        if: steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Cache pip dependencies
-        if: steps.review_gate.outputs.should_skip != 'true'
+        if: steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         uses: actions/cache@v4
         with:
           path: ${{ env.pythonLocation }}/lib/python3.12/site-packages
           key: ${{ runner.os }}-pip-openhands-ai-1.6.0
 
       - name: Install OpenHands resolver runtime
-        if: steps.review_gate.outputs.should_skip != 'true'
+        if: steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         run: |
           python -m pip install --upgrade pip
           python -m pip install "openhands-ai==1.6.0"
@@ -355,7 +366,7 @@ jobs:
 
       - name: Resolve issue or PR
         id: resolve
-        if: steps.context.outputs.smoke_only != 'true' && steps.review_gate.outputs.should_skip != 'true'
+        if: steps.context.outputs.smoke_only != 'true' && steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         continue-on-error: true
         env:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
@@ -393,7 +404,7 @@ jobs:
 
       - name: Check resolver result
         id: result
-        if: steps.context.outputs.smoke_only != 'true' && steps.review_gate.outputs.should_skip != 'true' && hashFiles('output/output.jsonl') != ''
+        if: steps.context.outputs.smoke_only != 'true' && steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true' && hashFiles('output/output.jsonl') != ''
         run: |
           if grep -qE '"success"[[:space:]]*:[[:space:]]*true' output/output.jsonl; then
             echo "success=true" >> "$GITHUB_OUTPUT"
@@ -403,7 +414,7 @@ jobs:
 
       - name: Publish resolver changes
         id: publish
-        if: steps.context.outputs.smoke_only != 'true' && steps.review_gate.outputs.should_skip != 'true' && hashFiles('output/output.jsonl') != ''
+        if: steps.context.outputs.smoke_only != 'true' && steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true' && hashFiles('output/output.jsonl') != ''
         continue-on-error: true
         env:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
@@ -447,7 +458,7 @@ jobs:
           exit 1
 
       - name: Comment on resolver result
-        if: always() && steps.context.outputs.smoke_only != 'true' && steps.context.outputs.max_iterations_error == '' && steps.review_gate.outputs.should_skip != 'true'
+        if: always() && steps.context.outputs.smoke_only != 'true' && steps.context.outputs.max_iterations_error == '' && steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
@@ -468,7 +479,7 @@ jobs:
             -f body="${status} Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Upload resolver output
-        if: always() && steps.context.outputs.smoke_only != 'true' && steps.review_gate.outputs.should_skip != 'true'
+        if: always() && steps.context.outputs.smoke_only != 'true' && steps.review_gate.outcome != 'failure' && steps.review_gate.outputs.should_skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: resolver-output
