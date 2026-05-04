@@ -213,7 +213,7 @@ jobs:
                   /\b(?:no|zero)\s+(?:new\s+)?p0\s*(?:\/|or|and|,)?\s*p1\b/.test(lower) ||
                   /\bp0\s*(?:\/|or|and|,)?\s*p1\s*(?:issues|findings)?\s*(?:found)?\s*[:=-]?\s*(?:0|none|—|-)\b/.test(lower) ||
                   /\|\s*p0\s*\/\s*p1\s*\|\s*0\s*\|/.test(lower) ||
-                  /\bp[01]\s*(?:\*{1,2})?\s*(?::|=|—|-)\s*(?:(?:0|none|n\/a)\b|[—-](?:\s|$))/i.test(lower)
+                  /\bp[01]\s*(?:\*{1,2})?\s*(?::|=|—|–|-)\s*(?:(?:0|none|n\/a)\b|[—–-](?:\s|$))/i.test(lower)
                 ) {
                   continue;
                 }
