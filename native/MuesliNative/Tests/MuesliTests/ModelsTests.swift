@@ -313,22 +313,25 @@ struct MeetingSummaryBackendTests {
 
     @Test("all options listed")
     func allOptions() {
-        #expect(MeetingSummaryBackendOption.all.count == 3)
+        #expect(MeetingSummaryBackendOption.all.count == 4)
         #expect(MeetingSummaryBackendOption.all.contains(.openAI))
         #expect(MeetingSummaryBackendOption.all.contains(.openRouter))
         #expect(MeetingSummaryBackendOption.all.contains(.chatGPT))
+        #expect(MeetingSummaryBackendOption.all.contains(.ollama))
     }
 
     @Test("backend strings are lowercase")
     func backendStrings() {
         #expect(MeetingSummaryBackendOption.openAI.backend == "openai")
         #expect(MeetingSummaryBackendOption.openRouter.backend == "openrouter")
+        #expect(MeetingSummaryBackendOption.ollama.backend == "ollama")
     }
 
     @Test("configured values resolve with OpenAI fallback")
     func resolvedValues() {
         #expect(MeetingSummaryBackendOption.resolved("chatgpt") == .chatGPT)
         #expect(MeetingSummaryBackendOption.resolved("openrouter") == .openRouter)
+        #expect(MeetingSummaryBackendOption.resolved("ollama") == .ollama)
         #expect(MeetingSummaryBackendOption.resolved("unknown") == .openAI)
         #expect(MeetingSummaryBackendOption.resolved(nil) == .openAI)
     }
@@ -353,6 +356,8 @@ struct AppConfigTests {
         #expect(config.mutedMeetingDetectionAppBundleIDs.isEmpty)
         #expect(config.openAIAPIKey.isEmpty)
         #expect(config.openRouterAPIKey.isEmpty)
+        #expect(config.ollamaURL == "http://localhost:11434")
+        #expect(config.ollamaModel.isEmpty)
         #expect(config.dictationHotkey == .default)
         #expect(config.showFloatingIndicator == true)
         #expect(config.indicatorAnchor == .midTrailing)

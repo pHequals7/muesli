@@ -435,6 +435,22 @@ struct SettingsView: View {
                         ) { val in controller.updateConfig { $0.openAIModel = val } }
                     }
                     keyStatusRow(key: appState.config.openAIAPIKey)
+                } else if appState.selectedMeetingSummaryBackend == .ollama {
+                    settingsRow("Ollama URL", controlWidth: meetingControlWidth) {
+                        PastableSecureField(
+                            text: appState.config.ollamaURL,
+                            placeholder: "http://localhost:11434",
+                            onChange: { val in controller.updateConfig { $0.ollamaURL = val } }
+                        )
+                        .frame(height: 22)
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Model", controlWidth: meetingControlWidth) {
+                        settingsModelTextField(
+                            currentModel: appState.config.ollamaModel,
+                            placeholder: "llama3.2"
+                        ) { val in controller.updateConfig { $0.ollamaModel = val } }
+                    }
                 } else {
                     settingsRow("API Key", controlWidth: meetingControlWidth) {
                         PastableSecureField(

@@ -1337,6 +1337,10 @@ struct OnboardingView: View {
                     summaryBackend = .openRouter
                     apiKey = ""
                 }
+                providerTab("Ollama", selected: summaryBackend == .ollama) {
+                    summaryBackend = .ollama
+                    apiKey = ""
+                }
             }
             .background(MuesliTheme.backgroundRaised)
             .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
@@ -1405,6 +1409,26 @@ struct OnboardingView: View {
                             .lineLimit(2)
                     }
                 }
+            } else if summaryBackend == .ollama {
+                Text("Run AI models locally on your device with Ollama.\nNo API key needed — just install Ollama and pull a model.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+
+                VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                    Text("Ollama is served by default at http://localhost:11434")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(MuesliTheme.success)
+                            .frame(width: 6, height: 6)
+                        Text("No authentication required")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuesliTheme.success)
+                    }
+                }
             } else {
                 if summaryBackend == .openRouter {
                     Text("OpenRouter supports many model providers through one API key.")
@@ -1443,9 +1467,9 @@ struct OnboardingView: View {
     private func providerTab(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: selected ? .semibold : .regular))
+                .font(.system(size: 12, weight: selected ? .semibold : .regular))
                 .foregroundStyle(selected ? MuesliTheme.textPrimary : MuesliTheme.textSecondary)
-                .frame(width: 106)
+                .frame(width: 80)
                 .padding(.vertical, MuesliTheme.spacing8)
                 .background(selected ? MuesliTheme.surfacePrimary : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
