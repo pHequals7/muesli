@@ -504,7 +504,7 @@ final class MeetingSession {
         onProgress?(.generatingTitle)
         if let liveTitle = await userEditedLiveTitle() {
             generatedTitle = liveTitle
-        } else if calendarEventID != nil {
+        } else if calendarEventID != nil, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             generatedTitle = title
         } else if let autoTitle = await MeetingSummaryClient.generateTitle(transcript: rawTranscript, config: config),
            !autoTitle.isEmpty {
