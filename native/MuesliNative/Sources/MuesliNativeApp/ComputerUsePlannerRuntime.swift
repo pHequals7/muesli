@@ -315,8 +315,8 @@ final class ComputerUsePlannerRuntime {
         ].joined(separator: "|")
         let count = (repeatedToolCounts[key] ?? 0) + 1
         repeatedToolCounts[key] = count
-        guard count >= 3 else { return nil }
-        return "CUA stopped after repeating \(toolCall.summary) without an observed change."
+        guard count > 2 else { return nil }
+        return "CUA stopped after one retry of \(toolCall.summary) without an observed change."
     }
 
     private func shouldTrackForRepetition(_ tool: ComputerUseToolName) -> Bool {

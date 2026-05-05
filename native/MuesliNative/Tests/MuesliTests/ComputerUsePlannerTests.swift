@@ -164,7 +164,7 @@ struct ComputerUsePlannerRuntimeTests {
         #expect(result.message == "CUA reached its step limit")
     }
 
-    @Test("stops repeated no-op tool calls")
+    @Test("stops after one repeated no-op tool call")
     @MainActor
     func stopsRepeatedNoOpToolCalls() async {
         var executionCount = 0
@@ -187,7 +187,7 @@ struct ComputerUsePlannerRuntimeTests {
         let result = await runtime.run(command: "search in chrome")
 
         #expect(result.status == .failed)
-        #expect(result.message.contains("repeating click Address and search bar"))
+        #expect(result.message.contains("one retry of click Address and search bar"))
         #expect(executionCount == 2)
         #expect(result.traceEvents.contains { $0.title == "Repeated action stopped" })
     }
