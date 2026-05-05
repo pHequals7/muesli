@@ -82,6 +82,7 @@ final class ComputerUsePlannerRuntime {
 
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         var priorResults: [ComputerUseToolResult] = []
+        var repeatedToolCounts: [String: Int] = [:]
 
         onStatus("Observing")
         var observation = observe(registry, false)
@@ -150,6 +151,14 @@ final class ComputerUsePlannerRuntime {
                     step: step
                 ))
                 return await runParserFallback(command: command, fallbackReason: PlannerMismatchError(message: mismatch), traceEvents: traceEvents)
+            }
+            if let repeatedActionMessage = repeatedActionMessage(
+                toolCall: toolCall,
+                observation: observation,
+                repeatedToolCounts: &repeatedToolCounts
+            ) {
+                traceEvents.append(traceEvent(kind: "failed", title: "Repeated action stopped", body: repeatedActionMessage, status: "failed", step: step))
+                return .init(status: .failed, message: repeatedActionMessage, traceEvents: traceEvents)
             }
             if toolCall.requiresConfirmation {
                 let message = "Confirm: \(toolCall.summary)"
@@ -286,6 +295,47 @@ final class ComputerUsePlannerRuntime {
 
     private func stepLimitSuffix(_ maxSteps: Int?) -> String {
         maxSteps.map { " of \($0)" } ?? ""
+    }
+
+    private func repeatedActionMessage(
+        toolCall: ComputerUseToolCall,
+        observation: ComputerUseObservation,
+        repeatedToolCounts: inout [String: Int]
+    ) -> String? {
+        guard shouldTrackForRepetition(toolCall.tool) else { return nil }
+        let key = [
+            toolCall.tool.rawValue,
+            toolCall.elementID ?? "",
+            toolCall.appName ?? "",
+            toolCall.label ?? "",
+            toolCall.key ?? "",
+            toolCall.text ?? "",
+            toolCall.direction?.rawValue ?? "",
+            observationSignature(observation),
+        ].joined(separator: "|")
+        let count = (repeatedToolCounts[key] ?? 0) + 1
+        repeatedToolCounts[key] = count
+        guard count >= 3 else { return nil }
+        return "CUA stopped after repeating \(toolCall.summary) without an observed change."
+    }
+
+    private func shouldTrackForRepetition(_ tool: ComputerUseToolName) -> Bool {
+        switch tool {
+        case .clickElement, .clickPoint, .moveCursor, .drag, .pressKey, .typeText, .pasteText, .scroll:
+            return true
+        case .observe, .observeScreen, .openApp, .focusApp, .getCursorPosition, .finish:
+            return false
+        }
+    }
+
+    private func observationSignature(_ observation: ComputerUseObservation) -> String {
+        [
+            observation.bundleID,
+            observation.appName,
+            observation.windowTitle,
+            "\(observation.elements.count)",
+            observation.screenshot?.screenshotID ?? "",
+        ].joined(separator: "|")
     }
 
     private func formatToolCall(_ toolCall: ComputerUseToolCall) -> String {

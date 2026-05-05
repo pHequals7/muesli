@@ -1,4 +1,5 @@
 import Foundation
+import MuesliCore
 import Testing
 @testable import MuesliNativeApp
 
@@ -95,6 +96,18 @@ struct ComputerUseObservationTests {
     }
 }
 
+@Suite("Computer Use trace formatting")
+struct ComputerUseTraceFormatterTests {
+    @Test("hides redundant lifecycle statuses")
+    func hidesRedundantLifecycleStatuses() {
+        let planning = ComputerUseTraceEvent(kind: "planning", title: "Planning", body: "Step 1", status: "planning", step: 1)
+        let result = ComputerUseTraceEvent(kind: "tool_result", title: "Tool result", body: "Clicked", status: "executed", step: 1)
+
+        #expect(ComputerUseTraceFormatter.displayStatus(for: planning) == nil)
+        #expect(ComputerUseTraceFormatter.displayStatus(for: result) == "executed")
+    }
+}
+
 @Suite("Computer Use planner runtime")
 struct ComputerUsePlannerRuntimeTests {
     @Test("finishes after finish tool")
@@ -149,6 +162,34 @@ struct ComputerUsePlannerRuntimeTests {
 
         #expect(result.status == .failed)
         #expect(result.message == "CUA reached its step limit")
+    }
+
+    @Test("stops repeated no-op tool calls")
+    @MainActor
+    func stopsRepeatedNoOpToolCalls() async {
+        var executionCount = 0
+        let runtime = ComputerUsePlannerRuntime(
+            config: AppConfig(),
+            observe: { _, _ in Self.observation() },
+            plan: { _ in
+                ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(
+                    tool: .clickElement,
+                    elementID: "e1",
+                    label: "Address and search bar"
+                ))
+            },
+            execute: { _, _ in
+                executionCount += 1
+                return .executed("Clicked")
+            }
+        )
+
+        let result = await runtime.run(command: "search in chrome")
+
+        #expect(result.status == .failed)
+        #expect(result.message.contains("repeating click Address and search bar"))
+        #expect(executionCount == 2)
+        #expect(result.traceEvents.contains { $0.title == "Repeated action stopped" })
     }
 
     @Test("stops on confirmation-required action")

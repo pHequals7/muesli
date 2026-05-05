@@ -144,7 +144,7 @@ struct DictationRowView: View {
                                 .font(MuesliTheme.captionMedium())
                                 .foregroundStyle(MuesliTheme.textSecondary)
 
-                            if let status = event.status, !status.isEmpty {
+                            if let status = ComputerUseTraceFormatter.displayStatus(for: event) {
                                 Text(status)
                                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                                     .foregroundStyle(statusColor(status))
