@@ -158,6 +158,7 @@ final class ComputerUsePlannerRuntime {
                 return .init(status: .failed, message: repeatedActionMessage, traceEvents: traceEvents)
             }
             if toolCall.requiresConfirmation {
+                onStatus("Confirm")
                 let message = "Confirm: \(toolCall.summary)"
                 traceEvents.append(traceEvent(kind: "confirm", title: "Confirmation required", body: message, status: "confirm", step: step))
                 return .init(status: .needsConfirmation, message: message, traceEvents: traceEvents)
@@ -165,14 +166,17 @@ final class ComputerUsePlannerRuntime {
 
             switch toolCall.tool {
             case .finish:
+                onStatus("Done")
                 let message = toolCall.reason?.isEmpty == false ? toolCall.reason! : "Done"
                 traceEvents.append(traceEvent(kind: "finish", title: "Final output", body: message, status: "done", step: step))
                 return .init(status: .done, message: message, traceEvents: traceEvents)
             case .fail:
+                onStatus("Failed")
                 let message = toolCall.reason?.isEmpty == false ? toolCall.reason! : "Failed"
                 traceEvents.append(traceEvent(kind: "failed", title: "Final output", body: message, status: "failed", step: step))
                 return .init(status: .failed, message: message, traceEvents: traceEvents)
             case .getWindowState:
+                onStatus("Observing")
                 let result = await execute(toolCall, registry)
                 priorResults.append(ComputerUseToolOutcome(
                     step: step,
@@ -193,7 +197,7 @@ final class ComputerUsePlannerRuntime {
                 traceEvents.append(observationEvent(observation, step: step))
                 continue
             default:
-                onStatus("Executing")
+                onStatus(statusTitle(for: toolCall))
                 traceEvents.append(traceEvent(
                     kind: "tool_call",
                     title: "Executing",
@@ -329,6 +333,38 @@ final class ComputerUsePlannerRuntime {
             return toolCall.summary
         }
         return text
+    }
+
+    private func statusTitle(for toolCall: ComputerUseToolCall) -> String {
+        switch toolCall.tool {
+        case .launchApp:
+            let target = toolCall.appName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "Opening \(target?.isEmpty == false ? target! : "app")"
+        case .click:
+            return "Clicking"
+        case .setValue:
+            return "Setting value"
+        case .typeText:
+            return "Typing"
+        case .pressKey, .hotkey:
+            return "Pressing key"
+        case .scroll:
+            return "Scrolling"
+        case .drag:
+            return "Dragging"
+        case .navigateURL:
+            return "Navigating"
+        case .activateBrowserTab:
+            return "Switching tab"
+        case .listApps, .listWindows, .listBrowserTabs, .pageGetText, .pageQueryDOM:
+            return "Reading"
+        case .getWindowState:
+            return "Observing"
+        case .finish:
+            return "Done"
+        case .fail:
+            return "Failed"
+        }
     }
 
     private func executionTraceBody(toolCall: ComputerUseToolCall, observation: ComputerUseObservation) -> String {

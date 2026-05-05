@@ -3142,20 +3142,24 @@ final class MuesliController: NSObject {
     private func presentComputerUseRuntimeResult(_ result: ComputerUsePlannerRuntimeResult) {
         setState(.idle)
         let message: String
+        let floatingMessage: String
         let icon: String
         switch result.status {
         case .done:
             message = result.message.hasPrefix("Done") ? result.message : "Done: \(result.message)"
-            icon = ">"
+            floatingMessage = "Done"
+            icon = ""
         case .needsConfirmation:
             message = result.message.hasPrefix("Confirm") ? result.message : "Confirm: \(result.message)"
+            floatingMessage = "Confirm"
             icon = "!"
         case .failed:
             message = result.message
+            floatingMessage = "Failed"
             icon = "!"
         }
         statusBarController?.setStatus(message)
-        indicator.showWarning(message, icon: icon, duration: 3.0)
+        indicator.showWarning(floatingMessage, icon: icon, duration: 3.0)
     }
 
     private func handlePrepare() {

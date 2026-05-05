@@ -143,6 +143,36 @@ struct IndicatorFrameSizeTests {
             CGPoint(x: 700, y: 72)
         )
     }
+
+    @Test("transcribing pill widens for live CUA status labels")
+    @MainActor
+    func transcribingPillWidensForStatusText() {
+        let short = FloatingIndicatorController.transcribingPillSizeForTesting(
+            title: "Planning",
+            screenWidth: 1200
+        )
+        let long = FloatingIndicatorController.transcribingPillSizeForTesting(
+            title: "Opening Google Chrome",
+            screenWidth: 1200
+        )
+
+        #expect(short.width >= 120)
+        #expect(long.width > short.width)
+        #expect(long.width <= 360)
+        #expect(long.height == 32)
+    }
+
+    @Test("transcribing pill caps to available screen width")
+    @MainActor
+    func transcribingPillCapsToScreenWidth() {
+        let size = FloatingIndicatorController.transcribingPillSizeForTesting(
+            title: "Executing an unusually long computer use action label",
+            screenWidth: 180
+        )
+
+        #expect(size.width <= 148)
+        #expect(size.height == 32)
+    }
 }
 
 // MARK: - OpenAI Logo Shape

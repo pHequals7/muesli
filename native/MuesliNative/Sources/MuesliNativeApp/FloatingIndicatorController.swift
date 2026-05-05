@@ -381,11 +381,12 @@ final class FloatingIndicatorController: NSObject {
             contentView.layer?.borderWidth = 1.0
             contentView.layer?.borderColor = NSColor.colorWith(hex: 0xFFFFFF, alpha: 0.24).cgColor
 
-            iconLabel.isHidden = false
+            let hasIcon = !icon.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            iconLabel.isHidden = !hasIcon
             iconLabel.font = NSFont.systemFont(ofSize: 14, weight: .bold)
             iconLabel.stringValue = icon
             iconLabel.textColor = NSColor.colorWith(hex: 0x1A140D, alpha: 0.95)
-            iconLabel.animator().alphaValue = 1
+            iconLabel.animator().alphaValue = hasIcon ? 1 : 0
 
             textLabel.stringValue = message
             textLabel.font = warningFont
@@ -403,12 +404,17 @@ final class FloatingIndicatorController: NSObject {
     }
 
     private func warningPillSize(message: String, icon: String, font: NSFont, screen: NSRect) -> NSSize {
-        let horizontalPadding: CGFloat = 24
-        let iconWidth = max(24, ceil((icon as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14, weight: .bold)]).width) + 2)
+        let horizontalPadding: CGFloat = 18
+        let hasIcon = !icon.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let iconWidth = hasIcon
+            ? max(24, ceil((icon as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14, weight: .bold)]).width) + 2)
+            : 0
+        let iconGap: CGFloat = hasIcon ? 4 : 0
         let textWidth = ceil((message as NSString).size(withAttributes: [.font: font]).width) + 2
-        let preferredWidth = horizontalPadding + iconWidth + 4 + textWidth + horizontalPadding
-        let maxWidth = max(260, min(520, screen.width - 32))
-        return NSSize(width: min(max(preferredWidth, 260), maxWidth), height: 36)
+        let preferredWidth = horizontalPadding + iconWidth + iconGap + textWidth + horizontalPadding
+        let minWidth: CGFloat = hasIcon ? 180 : 88
+        let maxWidth = max(minWidth, min(640, screen.width - 32))
+        return NSSize(width: min(max(preferredWidth, minWidth), maxWidth), height: 36)
     }
 
     func showLoading(_ message: String) {
@@ -695,10 +701,13 @@ final class FloatingIndicatorController: NSObject {
             wandIconView?.isHidden = false
             if let wand = wandIconView {
                 let gap: CGFloat = 6
+                let horizontalPadding: CGFloat = 14
                 let attrs: [NSAttributedString.Key: Any] = [
                     .font: NSFont.systemFont(ofSize: 11, weight: .regular)
                 ]
-                let textW = ceil((transcribingTitle as NSString).size(withAttributes: attrs).width) + 2
+                let measuredTextW = ceil((transcribingTitle as NSString).size(withAttributes: attrs).width) + 2
+                let availableTextW = max(0, frameSize.width - iconSize.width - gap - (horizontalPadding * 2))
+                let textW = min(measuredTextW, availableTextW)
                 let totalW = iconSize.width + gap + textW
                 let startX = (frameSize.width - totalW) / 2
                 wand.frame = NSRect(x: startX, y: (frameSize.height - iconSize.height) / 2,
@@ -883,7 +892,8 @@ final class FloatingIndicatorController: NSObject {
             size = isHovered ? NSSize(width: 220, height: 36) : NSSize(width: 44, height: 28)
         case .preparing: size = NSSize(width: 44, height: 28)
         case .recording: size = NSSize(width: 76, height: 22)
-        case .transcribing: size = NSSize(width: 120, height: 32)
+        case .transcribing:
+            size = Self.transcribingPillSize(title: transcribingTitle, screenWidth: screen.width)
         }
 
         // Use the pill's current on-screen center if it exists, so state
@@ -979,10 +989,11 @@ final class FloatingIndicatorController: NSObject {
 
         let iconSize = iconLabel.attributedStringValue.size()
         let textSize = textLabel.attributedStringValue.size()
-        let gap: CGFloat = 4
+        let hasIcon = !iconLabel.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let gap: CGFloat = hasIcon ? 4 : 0
         let horizontalPadding: CGFloat = 12
 
-        let iconWidth = max(24, ceil(iconSize.width) + 2)
+        let iconWidth = hasIcon ? max(24, ceil(iconSize.width) + 2) : 0
         let iconHeight = max(18, ceil(iconSize.height))
         let availableTextWidth = max(0, size.width - (horizontalPadding * 2) - iconWidth - gap)
         let textWidth = min(ceil(textSize.width) + 2, availableTextWidth)
@@ -1004,14 +1015,31 @@ final class FloatingIndicatorController: NSObject {
             height: textHeight
         )
         if animated {
+            iconLabel.animator().alphaValue = hasIcon ? 1 : 0
             iconLabel.animator().frame = iconFrame
             textLabel.animator().alphaValue = 1
             textLabel.animator().frame = textFrame
         } else {
+            iconLabel.alphaValue = hasIcon ? 1 : 0
             iconLabel.frame = iconFrame
             textLabel.alphaValue = 1
             textLabel.frame = textFrame
         }
+    }
+
+    static func transcribingPillSizeForTesting(title: String, screenWidth: CGFloat) -> NSSize {
+        transcribingPillSize(title: title, screenWidth: screenWidth)
+    }
+
+    private static func transcribingPillSize(title: String, screenWidth: CGFloat) -> NSSize {
+        let font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        let iconWidth: CGFloat = 18
+        let gap: CGFloat = 6
+        let horizontalPadding: CGFloat = 14
+        let textWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width) + 2
+        let preferredWidth = horizontalPadding + iconWidth + gap + textWidth + horizontalPadding
+        let maxWidth = max(120, min(360, screenWidth - 32))
+        return NSSize(width: min(max(preferredWidth, 120), maxWidth), height: 32)
     }
 
     private func pointerIsInsidePanel() -> Bool {
