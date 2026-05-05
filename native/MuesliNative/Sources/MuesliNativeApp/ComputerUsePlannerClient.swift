@@ -44,6 +44,8 @@ enum ComputerUsePlannerClient {
     - For YouTube, Hacker News, and browser tasks in Chrome, prefer list_browser_tabs, activate_browser_tab, navigate_url, page_get_text, and page_query_dom before AX clicking when those tools are available.
     - Browser page tools are optional shortcuts, not the only way to use a page. If page_get_text or page_query_dom fails, is blocked by Chrome Apple Events JavaScript permission, or returns insufficient content, continue with get_window_state plus AX/screenshot actions such as click, type_text, press_key/hotkey, and scroll.
     - Do not use fail only because a browser DOM/page tool failed. Use fail only after trying the available AX/screenshot fallback path or when the requested task is unsafe or truly unsupported.
+    - After get_window_state returns a fresh state, act on the visible AX/screenshot evidence. Do not call get_window_state repeatedly unless a tool result indicates the app/window changed or a previous action needs verification.
+    - If browser page tools are blocked, use the screenshot and AX candidates to click, type, press keys, or scroll; do not loop on observation waiting for DOM access to appear.
     - navigate_url may only use http or https URLs. Never output javascript:, file:, data:, shell text, or arbitrary code.
     - max_steps is a high safety ceiling, not a target. Use as few steps as needed.
     - Use finish only when the user's command is complete. Use fail(reason) when blocked, unsafe, unsupported, or incomplete.

@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import MuesliCore
 import Testing
 @testable import MuesliNativeApp
@@ -28,6 +29,25 @@ struct ComputerUseToolRegistryTests {
         #expect(instructions.contains("Chrome Apple Events JavaScript permission"))
         #expect(instructions.contains("AX/screenshot fallback"))
         #expect(instructions.contains("Do not use fail only because a browser DOM/page tool failed"))
+        #expect(instructions.contains("Do not call get_window_state repeatedly"))
+        #expect(instructions.contains("do not loop on observation"))
+    }
+}
+
+@Suite("Computer Use observation capture")
+struct ComputerUseObservationCaptureTests {
+    @Test("uses display fallback for shallow window screenshots")
+    func usesDisplayFallbackForShallowWindowScreenshots() {
+        #expect(ComputerUseObservationCapture.shouldUseDisplayFallbackForScreenshot(
+            width: 2940,
+            height: 82,
+            frame: CGRect(x: 0, y: 0, width: 1470, height: 41)
+        ))
+        #expect(!ComputerUseObservationCapture.shouldUseDisplayFallbackForScreenshot(
+            width: 2940,
+            height: 1800,
+            frame: CGRect(x: 0, y: 0, width: 1470, height: 900)
+        ))
     }
 }
 
@@ -284,6 +304,48 @@ struct ComputerUsePlannerRuntimeTests {
 
         #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
         #expect(result.message.contains("one retry of click Address and search bar"))
+        #expect(executionCount == 2)
+        #expect(result.traceEvents.contains { $0.title == "Repeated action stopped" })
+    }
+
+    @Test("stops repeated get window state loops")
+    @MainActor
+    func stopsRepeatedGetWindowStateLoops() async {
+        var executionCount = 0
+        let runtime = ComputerUsePlannerRuntime(
+            config: AppConfig(),
+            observe: { _, _, _ in
+                Self.observation(
+                    appName: "Google Chrome",
+                    bundleID: "com.google.Chrome",
+                    windowTitle: "YouTube",
+                    screenshot: ComputerUseScreenshotObservation(
+                        screenshotID: "s\(executionCount)",
+                        width: 2940,
+                        height: 1800,
+                        windowFrame: ComputerUseRect(x: 0, y: 0, width: 1470, height: 900),
+                        scaleX: 2,
+                        scaleY: 2,
+                        imageDataURL: "data:image/jpeg;base64,abc"
+                    )
+                )
+            },
+            plan: { _ in
+                ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(
+                    tool: .getWindowState,
+                    appBundleID: "com.google.Chrome"
+                ))
+            },
+            execute: { _, _ in
+                executionCount += 1
+                return .executed("Observed")
+            }
+        )
+
+        let result = await runtime.run(command: "use the visible page")
+
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
+        #expect(result.message.contains("one retry of get window state"))
         #expect(executionCount == 2)
         #expect(result.traceEvents.contains { $0.title == "Repeated action stopped" })
     }

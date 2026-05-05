@@ -305,9 +305,9 @@ final class ComputerUsePlannerRuntime {
 
     private func shouldTrackForRepetition(_ tool: ComputerUseToolName) -> Bool {
         switch tool {
-        case .click, .drag, .pressKey, .hotkey, .typeText, .setValue, .scroll, .navigateURL, .activateBrowserTab:
+        case .click, .drag, .pressKey, .hotkey, .typeText, .setValue, .scroll, .navigateURL, .activateBrowserTab, .getWindowState:
             return true
-        case .listApps, .launchApp, .listWindows, .getWindowState, .listBrowserTabs, .pageGetText, .pageQueryDOM, .finish, .fail:
+        case .listApps, .launchApp, .listWindows, .listBrowserTabs, .pageGetText, .pageQueryDOM, .finish, .fail:
             return false
         }
     }
@@ -328,13 +328,37 @@ final class ComputerUsePlannerRuntime {
     }
 
     private func observationSignature(_ observation: ComputerUseObservation) -> String {
-        [
+        let screenshot = observation.screenshot.map { screenshot in
+            [
+                "\(screenshot.width)x\(screenshot.height)",
+                rectSignature(screenshot.windowFrame),
+            ].joined(separator: "@")
+        } ?? ""
+        let elementSignature = observation.elements.prefix(16).map { element in
+            [
+                "\(element.elementIndex)",
+                element.role,
+                element.normalizedText,
+                element.frame.map(rectSignature) ?? "",
+            ].joined(separator: ":")
+        }.joined(separator: ";")
+        return [
             observation.bundleID,
             observation.appName,
             observation.windowTitle,
             "\(observation.elements.count)",
-            observation.screenshot?.screenshotID ?? "",
+            screenshot,
+            elementSignature,
         ].joined(separator: "|")
+    }
+
+    private func rectSignature(_ rect: ComputerUseRect) -> String {
+        [
+            Int(rect.x.rounded()),
+            Int(rect.y.rounded()),
+            Int(rect.width.rounded()),
+            Int(rect.height.rounded()),
+        ].map(String.init).joined(separator: ",")
     }
 
     private func formatToolCall(_ toolCall: ComputerUseToolCall) -> String {

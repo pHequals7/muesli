@@ -415,23 +415,40 @@ enum ComputerUseObservationCapture {
     ) -> ComputerUseScreenshotObservation? {
         guard CGPreflightScreenCaptureAccess() else { return nil }
         let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[CFString: Any]] ?? []
-        guard let appWindow = windowList.first(where: { dict in
+        let appWindows = windowList.filter { dict in
             guard let ownerPID = dict[kCGWindowOwnerPID] as? Int32, ownerPID == app.processIdentifier else { return false }
             guard let layer = dict[kCGWindowLayer] as? Int, layer == 0 else { return false }
+            guard let bounds = cgWindowBounds(dict), bounds.width > 0, bounds.height > 0 else { return false }
             return true
-        }),
-              let windowID = appWindow[kCGWindowNumber] as? CGWindowID
-        else { return nil }
+        }
+        let appWindow = preferredScreenshotWindow(from: appWindows, fallbackFrame: fallbackFrame)
 
-        let frame = cgWindowBounds(appWindow) ?? fallbackFrame
-        guard let frame, frame.width > 0, frame.height > 0 else { return nil }
-        guard let image = CGWindowListCreateImage(
-            .null,
-            .optionIncludingWindow,
-            windowID,
-            [.bestResolution, .boundsIgnoreFraming]
-        ) else { return nil }
+        if let appWindow,
+           let windowID = appWindow[kCGWindowNumber] as? CGWindowID,
+           let frame = cgWindowBounds(appWindow) ?? fallbackFrame,
+           frame.width > 0,
+           frame.height > 0,
+           let image = CGWindowListCreateImage(
+               .null,
+               .optionIncludingWindow,
+               windowID,
+               [.bestResolution, .boundsIgnoreFraming]
+           ),
+           !shouldUseDisplayFallbackForScreenshot(width: image.width, height: image.height, frame: frame) {
+            return screenshotObservation(image: image, frame: frame)
+        }
 
+        guard let displayFrame = displayFrame(containing: fallbackFrame),
+              let image = CGWindowListCreateImage(
+                  displayFrame,
+                  .optionOnScreenOnly,
+                  kCGNullWindowID,
+                  [.bestResolution]
+              ) else { return nil }
+        return screenshotObservation(image: image, frame: displayFrame)
+    }
+
+    private static func screenshotObservation(image: CGImage, frame: CGRect) -> ComputerUseScreenshotObservation {
         let width = image.width
         let height = image.height
         let scaleX = Double(width) / max(Double(frame.width), 1)
@@ -445,6 +462,58 @@ enum ComputerUseObservationCapture {
             scaleY: scaleY,
             imageDataURL: imageDataURL(image)
         )
+    }
+
+    nonisolated static func shouldUseDisplayFallbackForScreenshot(width: Int, height: Int, frame: CGRect) -> Bool {
+        width < 320 || height < 240 || frame.width < 320 || frame.height < 240
+    }
+
+    private static func preferredScreenshotWindow(
+        from windows: [[CFString: Any]],
+        fallbackFrame: CGRect?
+    ) -> [CFString: Any]? {
+        guard !windows.isEmpty else { return nil }
+        if let fallbackFrame, fallbackFrame.width > 0, fallbackFrame.height > 0 {
+            let matching = windows
+                .compactMap { window -> ([CFString: Any], CGRect)? in
+                    guard let bounds = cgWindowBounds(window) else { return nil }
+                    return (window, bounds)
+                }
+                .filter { _, bounds in bounds.intersects(fallbackFrame) }
+                .sorted { lhs, rhs in
+                    lhs.1.intersection(fallbackFrame).area > rhs.1.intersection(fallbackFrame).area
+                }
+            if let usefulMatch = matching.first(where: { !shouldUseDisplayFallbackForScreenshot(width: Int($0.1.width), height: Int($0.1.height), frame: $0.1) }) {
+                return usefulMatch.0
+            }
+        }
+        if let usefulWindow = windows.first(where: { window in
+            guard let bounds = cgWindowBounds(window) else { return false }
+            return !shouldUseDisplayFallbackForScreenshot(width: Int(bounds.width), height: Int(bounds.height), frame: bounds)
+        }) {
+            return usefulWindow
+        }
+        return windows.max { lhs, rhs in
+            (cgWindowBounds(lhs)?.area ?? 0) < (cgWindowBounds(rhs)?.area ?? 0)
+        }
+    }
+
+    private static func displayFrame(containing frame: CGRect?) -> CGRect? {
+        var displayCount: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &displayCount) == .success, displayCount > 0 else {
+            return nil
+        }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        guard CGGetActiveDisplayList(displayCount, &displays, &displayCount) == .success else {
+            return nil
+        }
+        let targetPoint = frame.map { CGPoint(x: $0.midX, y: $0.midY) }
+            ?? CGEvent(source: nil)?.location
+            ?? CGPoint(x: CGDisplayBounds(CGMainDisplayID()).midX, y: CGDisplayBounds(CGMainDisplayID()).midY)
+        if let display = displays.first(where: { CGDisplayBounds($0).contains(targetPoint) }) {
+            return CGDisplayBounds(display)
+        }
+        return CGDisplayBounds(CGMainDisplayID())
     }
 
     private static func cgWindowBounds(_ windowInfo: [CFString: Any]) -> CGRect? {
@@ -479,5 +548,11 @@ enum ComputerUseObservationCapture {
             .joined(separator: " ")
             .replacingOccurrences(of: #" app$"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension CGRect {
+    var area: CGFloat {
+        max(width, 0) * max(height, 0)
     }
 }
