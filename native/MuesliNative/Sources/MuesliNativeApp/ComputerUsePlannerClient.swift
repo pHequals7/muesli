@@ -29,8 +29,8 @@ enum ComputerUsePlannerClient {
 
     Return exactly one JSON object and no markdown. Use one of these tools:
     {"tool":"observe"}
-    {"tool":"open_app","app_name":"Google Chrome"}
-    {"tool":"focus_app","app_name":"Google Chrome"}
+    {"tool":"open_app","app_name":"<requested app name>"}
+    {"tool":"focus_app","app_name":"<requested app name>"}
     {"tool":"click_element","element_id":"e12","label":"Search"}
     {"tool":"press_key","modifiers":["command"],"key":"l"}
     {"tool":"type_text","text":"hello"}
@@ -41,6 +41,8 @@ enum ComputerUsePlannerClient {
     Rules:
     - Only use element_id values present in the observation.
     - Never invent AppleScript, shell commands, code, URLs, or tools.
+    - For open_app/focus_app, app_name must be the app requested by the user command.
+    - Do not substitute another app because it is frontmost, visible, or present in examples.
     - Prefer open_app/focus_app for app navigation.
     - Use observe if the current observation is insufficient.
     - Use finish when the user's command is complete or no further safe action is needed.

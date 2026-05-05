@@ -48,6 +48,8 @@ enum ComputerUseToolExecutor {
         "slack": "com.tinyspeck.slackmacgap",
         "spotify": "com.spotify.client",
         "system settings": "com.apple.systempreferences",
+        "tail scale": "io.tailscale.ipn.macsys",
+        "tailscale": "io.tailscale.ipn.macsys",
         "terminal": "com.apple.Terminal",
         "visual studio code": "com.microsoft.VSCode",
         "vs code": "com.microsoft.VSCode",

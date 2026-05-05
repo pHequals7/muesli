@@ -135,6 +135,16 @@ final class ComputerUsePlannerRuntime {
                 traceEvents.append(traceEvent(kind: "failed", title: "Schema rejected", body: validationFailure, status: "failed", step: step))
                 return .init(status: .failed, message: validationFailure, traceEvents: traceEvents)
             }
+            if let mismatch = appNavigationMismatch(command: command, toolCall: toolCall) {
+                traceEvents.append(traceEvent(
+                    kind: "fallback",
+                    title: "Planner app mismatch",
+                    body: mismatch,
+                    status: "fallback",
+                    step: step
+                ))
+                return await runParserFallback(command: command, fallbackReason: PlannerMismatchError(message: mismatch), traceEvents: traceEvents)
+            }
             if toolCall.requiresConfirmation {
                 let message = "Confirm: \(toolCall.summary)"
                 traceEvents.append(traceEvent(kind: "confirm", title: "Confirmation required", body: message, status: "confirm", step: step))
@@ -272,6 +282,56 @@ final class ComputerUsePlannerRuntime {
         return text
     }
 
+    private func appNavigationMismatch(command: String, toolCall: ComputerUseToolCall) -> String? {
+        guard let parsed = ComputerUseIntentParser.parse(command) else { return nil }
+
+        let requestedApp: String
+        switch parsed.intent {
+        case .openApp(let name), .focusApp(let name):
+            requestedApp = name
+        default:
+            return nil
+        }
+
+        let plannedApp: String
+        switch toolCall.tool {
+        case .openApp, .focusApp:
+            plannedApp = toolCall.appName ?? ""
+        default:
+            return nil
+        }
+
+        guard !appNamesMatch(requestedApp, plannedApp) else { return nil }
+        return "Planner selected \(plannedApp.isEmpty ? "an empty app name" : plannedApp) for a command that requested \(requestedApp)."
+    }
+
+    private func appNamesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let left = canonicalAppName(lhs)
+        let right = canonicalAppName(rhs)
+        if left == right { return true }
+        if left.replacingOccurrences(of: " ", with: "") == right.replacingOccurrences(of: " ", with: "") {
+            return true
+        }
+        guard let leftBundle = ComputerUseToolExecutor.bundleIdentifierAlias(for: left),
+              let rightBundle = ComputerUseToolExecutor.bundleIdentifierAlias(for: right) else {
+            return false
+        }
+        return leftBundle == rightBundle
+    }
+
+    private func canonicalAppName(_ value: String) -> String {
+        let scalars = value.lowercased().unicodeScalars.map { scalar -> Character in
+            CharacterSet.alphanumerics.contains(scalar) || CharacterSet.whitespaces.contains(scalar)
+                ? Character(scalar)
+                : " "
+        }
+        return String(scalars)
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .replacingOccurrences(of: #" app$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func traceEvent(
         kind: String,
         title: String,
@@ -280,6 +340,14 @@ final class ComputerUsePlannerRuntime {
         step: Int?
     ) -> ComputerUseTraceEvent {
         ComputerUseTraceEvent(kind: kind, title: title, body: body, status: status, step: step)
+    }
+}
+
+private struct PlannerMismatchError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? {
+        message
     }
 }
 

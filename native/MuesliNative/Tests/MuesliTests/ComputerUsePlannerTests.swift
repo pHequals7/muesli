@@ -161,6 +161,31 @@ struct ComputerUsePlannerRuntimeTests {
         #expect(result.traceEvents.contains { $0.kind == "tool_result" })
     }
 
+    @Test("falls back to parser when planner chooses wrong app")
+    @MainActor
+    func fallsBackWhenPlannerChoosesWrongApp() async {
+        var parsedIntent: ParsedComputerUseIntent?
+        let runtime = ComputerUsePlannerRuntime(
+            config: AppConfig(),
+            observe: { _ in Self.observation() },
+            plan: { _ in
+                ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .openApp, appName: "Google Chrome"))
+            },
+            execute: { _, _ in .failed("unexpected") },
+            executeParsed: { parsed in
+                parsedIntent = parsed
+                return .executed("Opened Tailscale")
+            }
+        )
+
+        let result = await runtime.run(command: "open the tail scale app")
+
+        #expect(result.status == .done)
+        #expect(result.message == "Done: open tail scale")
+        #expect(parsedIntent?.intent == .openApp(name: "tail scale"))
+        #expect(result.traceEvents.contains { $0.title == "Planner app mismatch" })
+    }
+
     @Test("rejects non-schema planner output")
     @MainActor
     func rejectsNonSchemaPlannerOutput() async {
