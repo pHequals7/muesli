@@ -55,7 +55,11 @@ final class HotkeyMonitor {
             self?.handle(event)
         }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
-            self?.handle(event)
+            let fr = NSApp.keyWindow?.firstResponder
+            let isTextEditing = fr is NSTextView || fr is NSTextField
+            if !isTextEditing {
+                self?.handle(event)
+            }
             return event
         }
 
