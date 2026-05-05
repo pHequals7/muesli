@@ -126,7 +126,7 @@ final class MuesliController: NSObject {
     private var computerUseFloatingStatusWorkItem: DispatchWorkItem?
     private var computerUseLastFloatingStatusAt = Date.distantPast
     private var computerUseLastFloatingStatus = ""
-    private let computerUseFloatingStatusMinimumDwell: TimeInterval = 0.55
+    private let computerUseFloatingStatusMinimumDwell: TimeInterval = 0.85
     private var _streamingDictationController: Any?  // StreamingDictationController (macOS 15+)
     private var isNemotronStreaming = false
     private var previousStreamText = ""
@@ -3136,14 +3136,15 @@ final class MuesliController: NSObject {
 
         statusBarController?.setStatus(trimmed)
         guard dictationState == .transcribing else { return }
-        guard trimmed != computerUseLastFloatingStatus else { return }
+        guard let floatingStatus = computerUseFloatingStatusLabel(for: trimmed) else { return }
+        guard floatingStatus != computerUseLastFloatingStatus else { return }
 
         let now = Date()
         let elapsed = now.timeIntervalSince(computerUseLastFloatingStatusAt)
-        if shouldShowComputerUseStatusImmediately(trimmed, elapsed: elapsed) {
+        if shouldShowComputerUseStatusImmediately(floatingStatus, elapsed: elapsed) {
             computerUseFloatingStatusWorkItem?.cancel()
             computerUseFloatingStatusWorkItem = nil
-            applyComputerUseFloatingStatus(trimmed, at: now)
+            applyComputerUseFloatingStatus(floatingStatus, at: now)
             return
         }
 
@@ -3153,7 +3154,7 @@ final class MuesliController: NSObject {
             guard let self else { return }
             Task { @MainActor in
                 guard self.dictationState == .transcribing else { return }
-                self.applyComputerUseFloatingStatus(trimmed, at: Date())
+                self.applyComputerUseFloatingStatus(floatingStatus, at: Date())
                 self.computerUseFloatingStatusWorkItem = nil
             }
         }
@@ -3162,17 +3163,49 @@ final class MuesliController: NSObject {
     }
 
     @MainActor
+    private func computerUseFloatingStatusLabel(for status: String) -> String? {
+        if status.hasPrefix("Planning step") {
+            return computerUseLastFloatingStatus.isEmpty ? "Thinking..." : nil
+        }
+        if status == "Observing screen" {
+            return "Reading screen"
+        }
+        if status == "Screen fallback" {
+            return "Using screen"
+        }
+        if status == "Retrying planner" {
+            return "Retrying"
+        }
+        return status
+    }
+
+    @MainActor
     private func shouldShowComputerUseStatusImmediately(_ status: String, elapsed: TimeInterval) -> Bool {
         guard !computerUseLastFloatingStatus.isEmpty else { return true }
         if elapsed >= computerUseFloatingStatusMinimumDwell { return true }
         if status == "Done" || status == "Failed" || status == "Confirm" { return true }
-        if computerUseLastFloatingStatus.hasPrefix("Planning"), elapsed >= 0.25 {
+        if computerUseLastFloatingStatus == "Thinking...", elapsed >= 0.25 {
             return true
         }
-        if status.hasPrefix("Opening") || status == "Navigating" || status == "Typing" || status == "Clicking" {
+        if isConcreteComputerUseFloatingStatus(status) {
             return elapsed >= 0.2
         }
         return false
+    }
+
+    @MainActor
+    private func isConcreteComputerUseFloatingStatus(_ status: String) -> Bool {
+        status.hasPrefix("Opening")
+            || status.hasPrefix("Opened")
+            || status.hasPrefix("Clicked")
+            || status.hasPrefix("Typed")
+            || status.hasPrefix("Navigated")
+            || status == "Navigating"
+            || status == "Typing"
+            || status == "Clicking"
+            || status == "Scrolling"
+            || status == "Pressing key"
+            || status == "Using screen"
     }
 
     @MainActor

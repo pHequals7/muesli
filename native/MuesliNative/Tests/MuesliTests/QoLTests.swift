@@ -152,11 +152,11 @@ struct IndicatorFrameSizeTests {
             screenWidth: 1200
         )
         let long = FloatingIndicatorController.transcribingPillSizeForTesting(
-            title: "Opening Google Chrome",
+            title: "Navigating to YouTube search",
             screenWidth: 1200
         )
 
-        #expect(short.width >= 120)
+        #expect(short.width >= 190)
         #expect(long.width > short.width)
         #expect(long.width <= 360)
         #expect(long.height == 32)

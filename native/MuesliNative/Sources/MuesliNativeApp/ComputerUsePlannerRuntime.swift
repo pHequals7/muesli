@@ -34,6 +34,7 @@ final class ComputerUsePlannerRuntime {
     private let observe: ObserveHandler
     private let plan: PlanHandler
     private let execute: ExecuteHandler
+    private let maxPlannerRetries = 1
 
     init(
         config: AppConfig,
@@ -114,15 +115,7 @@ final class ComputerUsePlannerRuntime {
 
             let response: ComputerUsePlannerResponse
             do {
-                onStatus("Planning step \(step)")
-                traceEvents.append(traceEvent(
-                    kind: "planning",
-                    title: "Planning",
-                    body: "Step \(step)\(stepLimitSuffix(maxSteps)). Prior tool results: \(priorResults.count).",
-                    status: "planning",
-                    step: step
-                ))
-                response = try await plan(request)
+                response = try await planWithRetry(request, traceEvents: &traceEvents)
             } catch {
                 traceEvents.append(traceEvent(
                     kind: "failed",
@@ -228,6 +221,9 @@ final class ComputerUsePlannerRuntime {
 
                 switch result.status {
                 case .executed:
+                    if let resultTitle = resultStatusTitle(for: toolCall, result: result) {
+                        onStatus(resultTitle)
+                    }
                     if toolCall.isMutating {
                         onStatus("Observing screen")
                         observation = observe(registry, true, currentTarget)
@@ -351,6 +347,35 @@ final class ComputerUsePlannerRuntime {
         return text
     }
 
+    private func resultStatusTitle(
+        for toolCall: ComputerUseToolCall,
+        result: ComputerUseExecutionResult
+    ) -> String? {
+        guard result.status == .executed else { return nil }
+        switch toolCall.tool {
+        case .launchApp:
+            return result.message.hasPrefix("Opened") ? result.message : "Opened app"
+        case .click:
+            return result.message.hasPrefix("Clicked") ? result.message : "Clicked"
+        case .typeText:
+            return "Typed text"
+        case .navigateURL:
+            return "Navigated"
+        case .pressKey, .hotkey:
+            return "Pressed key"
+        case .scroll:
+            return "Scrolled"
+        case .setValue:
+            return "Set value"
+        case .drag:
+            return "Dragged"
+        case .activateBrowserTab:
+            return "Switched tab"
+        default:
+            return nil
+        }
+    }
+
     private func statusTitle(for toolCall: ComputerUseToolCall) -> String {
         switch toolCall.tool {
         case .launchApp:
@@ -381,6 +406,59 @@ final class ComputerUsePlannerRuntime {
         case .fail:
             return "Failed"
         }
+    }
+
+    private func planWithRetry(
+        _ request: ComputerUsePlannerRequest,
+        traceEvents: inout [ComputerUseTraceEvent]
+    ) async throws -> ComputerUsePlannerResponse {
+        var attempt = 0
+        while true {
+            onStatus("Planning step \(request.step)")
+            traceEvents.append(traceEvent(
+                kind: "planning",
+                title: "Planning",
+                body: "Step \(request.step)\(stepLimitSuffix(request.maxSteps)). Prior tool results: \(request.priorOutcomes.count).",
+                status: "planning",
+                step: request.step
+            ))
+            do {
+                return try await plan(request)
+            } catch {
+                guard attempt < maxPlannerRetries, isRecoverablePlannerError(error) else {
+                    throw error
+                }
+                attempt += 1
+                let message = "Planner request failed transiently: \(error.localizedDescription). Retrying once."
+                onStatus("Retrying planner")
+                traceEvents.append(traceEvent(
+                    kind: "planner_retry",
+                    title: "Planner retry",
+                    body: message,
+                    status: "retrying",
+                    step: request.step
+                ))
+                try? await Task.sleep(nanoseconds: 800_000_000)
+            }
+        }
+    }
+
+    private func isRecoverablePlannerError(_ error: Error) -> Bool {
+        if let plannerError = error as? ComputerUsePlannerError {
+            switch plannerError {
+            case .requestFailed:
+                return true
+            case .backendFailed(let statusCode, _):
+                return statusCode == 408 || statusCode == 429 || statusCode >= 500
+            case .notAuthenticated, .invalidResponse:
+                return false
+            }
+        }
+        let message = error.localizedDescription.lowercased()
+        return message.contains("network connection was lost")
+            || message.contains("timed out")
+            || message.contains("connection reset")
+            || message.contains("could not be reached")
     }
 
     private func recoverableFallbackMessage(

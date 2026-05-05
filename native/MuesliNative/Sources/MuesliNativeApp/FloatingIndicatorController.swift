@@ -1038,8 +1038,9 @@ final class FloatingIndicatorController: NSObject {
         let horizontalPadding: CGFloat = 14
         let textWidth = ceil((title as NSString).size(withAttributes: [.font: font]).width) + 2
         let preferredWidth = horizontalPadding + iconWidth + gap + textWidth + horizontalPadding
-        let maxWidth = max(120, min(360, screenWidth - 32))
-        return NSSize(width: min(max(preferredWidth, 120), maxWidth), height: 32)
+        let minWidth = min(CGFloat(190), max(120, screenWidth - 32))
+        let maxWidth = max(minWidth, min(420, screenWidth - 32))
+        return NSSize(width: min(max(preferredWidth, minWidth), maxWidth), height: 32)
     }
 
     private func pointerIsInsidePanel() -> Bool {
