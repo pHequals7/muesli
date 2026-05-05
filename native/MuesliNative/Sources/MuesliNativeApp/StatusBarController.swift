@@ -8,8 +8,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let runtime: RuntimePaths
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
-    private let statusLabel = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private var statusMessage: String?
     private var countdownOverride: String?
 
     init(controller: MuesliController, runtime: RuntimePaths) {
@@ -21,11 +19,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         build()
     }
 
-    func setStatus(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        statusMessage = trimmed.isEmpty || trimmed == "Idle" ? nil : trimmed
-        statusLabel.title = statusMessage ?? ""
-    }
+    func setStatus(_ text: String) {}
 
     func refresh() {
         rebuildMenu()
@@ -164,11 +158,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(actionItem(title: "Settings…", action: #selector(MuesliController.openSettingsTab)))
         menu.addItem(actionItem(title: "Check for Updates…", action: #selector(MuesliController.checkForUpdates)))
-        if let statusMessage {
-            statusLabel.title = statusMessage
-            statusLabel.isEnabled = false
-            menu.addItem(statusLabel)
-        }
         menu.addItem(.separator())
         menu.addItem(actionItem(title: "Quit", action: #selector(MuesliController.quitApp)))
     }
