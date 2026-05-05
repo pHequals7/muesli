@@ -3,23 +3,41 @@ import MuesliCore
 import Testing
 @testable import MuesliNativeApp
 
+@Suite("Computer Use tool registry")
+struct ComputerUseToolRegistryTests {
+    @Test("emits schemas and descriptions for every tool")
+    func emitsSchemasAndDescriptions() {
+        #expect(ComputerUseToolRegistry.definitions.count == ComputerUseToolName.allCases.count)
+        for definition in ComputerUseToolRegistry.definitions {
+            #expect(!definition.description.isEmpty)
+            #expect(definition.schema.type == "object")
+            #expect(definition.schema.additionalProperties == false)
+            #expect(definition.schema.required.contains("tool"))
+            #expect(definition.schema.properties["tool"]?.enumValues == [definition.name.rawValue])
+        }
+        let docs = ComputerUseToolRegistry.promptDocumentation()
+        #expect(docs.contains("Tool: get_window_state"))
+        #expect(docs.contains("Tool: page_query_dom"))
+    }
+}
+
 @Suite("Computer Use planner response")
 struct ComputerUsePlannerResponseTests {
     @Test("decodes valid top-level tool call")
     func decodesValidToolCall() throws {
-        let response = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"open_app","app_name":"Google Chrome"}"#)
+        let response = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"launch_app","app_name":"Google Chrome"}"#)
 
-        #expect(response.toolCall.tool == .openApp)
+        #expect(response.toolCall.tool == .launchApp)
         #expect(response.toolCall.appName == "Google Chrome")
     }
 
     @Test("decodes wrapped tool call")
     func decodesWrappedToolCall() throws {
         let response = try ComputerUsePlannerResponse.decodeJSON(
-            from: #"{"tool_call":{"tool":"press_key","modifiers":["command"],"key":"l"}}"#
+            from: #"{"tool_call":{"tool":"hotkey","modifiers":["command"],"key":"l"}}"#
         )
 
-        #expect(response.toolCall.tool == .pressKey)
+        #expect(response.toolCall.tool == .hotkey)
         #expect(response.toolCall.modifiers == [.command])
         #expect(response.toolCall.key == "l")
     }
@@ -27,10 +45,10 @@ struct ComputerUsePlannerResponseTests {
     @Test("decodes coordinate tool calls")
     func decodesCoordinateToolCalls() throws {
         let response = try ComputerUsePlannerResponse.decodeJSON(
-            from: #"{"tool":"click_point","screenshot_id":"s1","x":120,"y":240,"label":"Search"}"#
+            from: #"{"tool":"click","screenshot_id":"s1","x":120,"y":240,"label":"Search"}"#
         )
 
-        #expect(response.toolCall.tool == .clickPoint)
+        #expect(response.toolCall.tool == .click)
         #expect(response.toolCall.screenshotID == "s1")
         #expect(response.toolCall.x == 120)
         #expect(response.toolCall.y == 240)
@@ -50,17 +68,31 @@ struct ComputerUsePlannerResponseTests {
         }
     }
 
-    @Test("extra fields do not bypass required argument validation")
-    func extraFieldsDoNotBypassValidation() {
+    @Test("missing required fields fail safely")
+    func missingRequiredFieldsFailSafely() {
         #expect(throws: Error.self) {
-            _ = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"open_app","text":"Google Chrome"}"#)
+            _ = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"launch_app","text":"Google Chrome"}"#)
+        }
+    }
+
+    @Test("extra schema-bypass fields fail safely")
+    func extraFieldsFailSafely() {
+        #expect(throws: Error.self) {
+            _ = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"finish","reason":"done","url":"https://example.com"}"#)
+        }
+    }
+
+    @Test("unsafe URLs fail validation")
+    func unsafeURLsFailValidation() {
+        #expect(throws: Error.self) {
+            _ = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"navigate_url","app_bundle_id":"com.google.Chrome","url":"javascript:alert(1)"}"#)
         }
     }
 
     @Test("risky tool calls require confirmation")
     func riskyToolCallsRequireConfirmation() throws {
-        let click = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"click_element","element_id":"e2","label":"Send"}"#)
-        let key = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"press_key","modifiers":["command"],"key":"q"}"#)
+        let click = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"click","element_id":"e2","label":"Send"}"#)
+        let key = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"hotkey","modifiers":["command"],"key":"q"}"#)
 
         #expect(click.toolCall.requiresConfirmation)
         #expect(key.toolCall.requiresConfirmation)
@@ -79,6 +111,7 @@ struct ComputerUseObservationTests {
         )
 
         #expect(candidate.normalizedText == "search field main search")
+        #expect(candidate.elementIndex == 1)
     }
 
     @Test("disabled elements are preserved")
@@ -93,6 +126,27 @@ struct ComputerUseObservationTests {
 
         #expect(candidate.enabled == false)
         #expect(candidate.frame == ComputerUseRect(x: 1, y: 2, width: 3, height: 4))
+    }
+}
+
+@Suite("Computer Use request encoding")
+struct ComputerUsePlannerRequestTests {
+    @Test("persists screenshot metadata without image data")
+    func persistsScreenshotMetadataWithoutImageData() throws {
+        let request = ComputerUsePlannerRequest(
+            command: "click search",
+            step: 1,
+            maxSteps: 100,
+            latestWindowState: ComputerUseWindowState(observation: ComputerUsePlannerRuntimeTests.observation(screenshot: ComputerUsePlannerRuntimeTests.screenshot())),
+            priorOutcomes: []
+        )
+        let data = try JSONEncoder().encode(request)
+        let text = String(data: data, encoding: .utf8) ?? ""
+
+        #expect(text.contains("screenshot_id"))
+        #expect(text.contains("s1"))
+        #expect(!text.contains("data:image"))
+        #expect(text.contains(ComputerUseToolRegistry.catalogVersion))
     }
 }
 
@@ -122,10 +176,26 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "open chrome")
 
-        #expect(result.status == .done)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.done)
         #expect(result.message == "done")
         #expect(result.traceEvents.contains { $0.kind == "model_output" })
         #expect(result.traceEvents.contains { $0.kind == "finish" })
+    }
+
+    @Test("fail tool produces failed runtime result")
+    @MainActor
+    func failToolProducesFailedResult() async {
+        let runtime = ComputerUsePlannerRuntime(
+            config: AppConfig(),
+            observe: { _, _ in Self.observation() },
+            plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .fail, reason: "blocked")) },
+            execute: { _, _ in .executed("unexpected") }
+        )
+
+        let result = await runtime.run(command: "do impossible thing")
+
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
+        #expect(result.message == "blocked")
     }
 
     @Test("default runtime uses a high safety step cap")
@@ -136,6 +206,7 @@ struct ComputerUsePlannerRuntimeTests {
             observe: { _, _ in Self.observation() },
             plan: { request in
                 #expect(request.maxSteps == 100)
+                #expect(request.toolCatalogVersion == ComputerUseToolRegistry.catalogVersion)
                 return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish, reason: "done"))
             },
             execute: { _, _ in .executed("unexpected") }
@@ -143,7 +214,7 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "do a longer workflow")
 
-        #expect(result.status == .done)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.done)
         #expect(result.traceEvents.contains { $0.body.contains("Step 1 of 100") })
     }
 
@@ -154,13 +225,13 @@ struct ComputerUsePlannerRuntimeTests {
             config: AppConfig(),
             maxSteps: 2,
             observe: { _, _ in Self.observation() },
-            plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .observe)) },
+            plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .getWindowState)) },
             execute: { _, _ in .executed("unexpected") }
         )
 
         let result = await runtime.run(command: "look around")
 
-        #expect(result.status == .failed)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
         #expect(result.message == "CUA reached its step limit")
     }
 
@@ -170,10 +241,10 @@ struct ComputerUsePlannerRuntimeTests {
         var executionCount = 0
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _ in Self.observation(screenshot: Self.screenshot()) },
             plan: { _ in
                 ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(
-                    tool: .clickElement,
+                    tool: .click,
                     elementID: "e1",
                     label: "Address and search bar"
                 ))
@@ -186,7 +257,7 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "search in chrome")
 
-        #expect(result.status == .failed)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
         #expect(result.message.contains("one retry of click Address and search bar"))
         #expect(executionCount == 2)
         #expect(result.traceEvents.contains { $0.title == "Repeated action stopped" })
@@ -200,7 +271,7 @@ struct ComputerUsePlannerRuntimeTests {
             observe: { _, _ in Self.observation() },
             plan: { _ in
                 ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(
-                    tool: .clickElement,
+                    tool: .click,
                     elementID: "e1",
                     label: "Send"
                 ))
@@ -210,7 +281,7 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "send it")
 
-        #expect(result.status == .needsConfirmation)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.needsConfirmation)
         #expect(result.message == "Confirm: click Send")
     }
 
@@ -226,7 +297,7 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "open Google Chrome")
 
-        #expect(result.status == .failed)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
         #expect(result.message == ComputerUsePlannerError.notAuthenticated.localizedDescription)
         #expect(!result.traceEvents.contains { $0.kind == "fallback" })
         #expect(!result.traceEvents.contains { $0.title == "Rule parser" })
@@ -241,7 +312,7 @@ struct ComputerUsePlannerRuntimeTests {
             observe: { _, _ in Self.observation() },
             plan: { request in
                 if request.step == 1 {
-                    return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .openApp, appName: "Google Chrome"))
+                    return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .launchApp, appName: "Google Chrome"))
                 }
                 return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish, reason: "done"))
             },
@@ -253,9 +324,9 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "open the tail scale app")
 
-        #expect(result.status == .done)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.done)
         #expect(result.message == "done")
-        #expect(executedTools.map(\.tool) == [.openApp])
+        #expect(executedTools.map(\.tool) == [.launchApp])
         #expect(executedTools.first?.appName == "Google Chrome")
         #expect(!result.traceEvents.contains { $0.kind == "fallback" })
         #expect(!result.traceEvents.contains { $0.title == "Planner app mismatch" })
@@ -275,7 +346,7 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "open Google Chrome")
 
-        #expect(result.status == .failed)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
         #expect(result.message == "CUA planner is disabled.")
         #expect(!result.traceEvents.contains { $0.kind == "fallback" })
     }
@@ -287,7 +358,7 @@ struct ComputerUsePlannerRuntimeTests {
             config: AppConfig(),
             observe: { _, _ in Self.observation() },
             plan: { _ in
-                _ = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"open_app","text":"Google Chrome"}"#)
+                _ = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"launch_app","text":"Google Chrome"}"#)
                 return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish))
             },
             execute: { _, _ in .executed("unexpected") }
@@ -295,13 +366,12 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "something unsupported by parser")
 
-        #expect(result.status == .failed)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
     }
 
-    @Test("observes screen before coordinate action")
+    @Test("initial and mutating observations include screenshots")
     @MainActor
-    func observesScreenBeforeCoordinateAction() async {
-        var planCount = 0
+    func initialAndMutatingObservationsIncludeScreenshots() async {
         var includeScreenshotValues: [Bool] = []
         var executedTool: ComputerUseToolName?
         let runtime = ComputerUsePlannerRuntime(
@@ -311,36 +381,27 @@ struct ComputerUsePlannerRuntimeTests {
                 return Self.observation(screenshot: includeScreenshot ? Self.screenshot() : nil)
             },
             plan: { request in
-                planCount += 1
-                if request.observation.screenshot == nil {
-                    return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .observeScreen))
-                }
-                if planCount == 2 {
-                    return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(
-                        tool: .clickPoint,
-                        screenshotID: "s1",
-                        label: "Search",
-                        x: 40,
-                        y: 50
-                    ))
+                if request.step == 1 {
+                    #expect(request.latestWindowState.screenshot?.screenshotID == "s1")
+                    return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .click, elementID: "e1", label: "Search"))
                 }
                 return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish, reason: "done"))
             },
             execute: { toolCall, _ in
                 executedTool = toolCall.tool
-                return .executed("Clicked point")
+                return .executed("Clicked")
             }
         )
 
         let result = await runtime.run(command: "click the search field")
 
-        #expect(result.status == .done)
-        #expect(includeScreenshotValues == [false, true, true])
-        #expect(executedTool == .clickPoint)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.done)
+        #expect(includeScreenshotValues == [true, true])
+        #expect(executedTool == .click)
         #expect(result.traceEvents.contains { $0.body.contains("screenshot s1") })
     }
 
-    private static func observation(screenshot: ComputerUseScreenshotObservation? = nil) -> ComputerUseObservation {
+    static func observation(screenshot: ComputerUseScreenshotObservation? = nil) -> ComputerUseObservation {
         ComputerUseObservation(
             appName: "Test",
             bundleID: "com.example.Test",
@@ -359,7 +420,7 @@ struct ComputerUsePlannerRuntimeTests {
         )
     }
 
-    private static func screenshot() -> ComputerUseScreenshotObservation {
+    static func screenshot() -> ComputerUseScreenshotObservation {
         ComputerUseScreenshotObservation(
             screenshotID: "s1",
             width: 100,
@@ -367,7 +428,7 @@ struct ComputerUsePlannerRuntimeTests {
             windowFrame: ComputerUseRect(x: 0, y: 0, width: 100, height: 80),
             scaleX: 1,
             scaleY: 1,
-            imageDataURL: "data:image/jpeg;base64,"
+            imageDataURL: "data:image/jpeg;base64,abc"
         )
     }
 }

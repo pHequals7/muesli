@@ -25,6 +25,7 @@ struct ComputerUseRect: Codable, Equatable {
 
 struct ComputerUseElementCandidate: Codable, Equatable {
     let elementID: String
+    let elementIndex: Int
     let role: String
     let title: String
     let label: String
@@ -36,6 +37,7 @@ struct ComputerUseElementCandidate: Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case elementID = "element_id"
+        case elementIndex = "element_index"
         case role
         case title
         case label
@@ -127,19 +129,26 @@ struct ComputerUseObservation: Codable, Equatable {
 @MainActor
 final class ComputerUseElementRegistry {
     private var elements: [String: AXUIElement] = [:]
+    private var indexedElements: [Int: AXUIElement] = [:]
     private var screenshot: ComputerUseScreenshotObservation?
 
     func clear() {
         elements.removeAll()
+        indexedElements.removeAll()
         screenshot = nil
     }
 
-    func register(_ element: AXUIElement, id: String) {
+    func register(_ element: AXUIElement, id: String, index: Int) {
         elements[id] = element
+        indexedElements[index] = element
     }
 
     func element(for id: String) -> AXUIElement? {
         elements[id]
+    }
+
+    func element(for index: Int) -> AXUIElement? {
+        indexedElements[index]
     }
 
     func registerScreenshot(_ screenshot: ComputerUseScreenshotObservation?) {
@@ -217,6 +226,7 @@ enum ComputerUseObservationCapture {
 
     nonisolated static func candidateForTests(
         elementID: String,
+        elementIndex: Int? = nil,
         role: String,
         title: String,
         label: String = "",
@@ -228,6 +238,7 @@ enum ComputerUseObservationCapture {
     ) -> ComputerUseElementCandidate {
         ComputerUseElementCandidate(
             elementID: elementID,
+            elementIndex: elementIndex ?? Self.elementIndex(from: elementID),
             role: role,
             title: title,
             label: label,
@@ -252,8 +263,9 @@ enum ComputerUseObservationCapture {
         guard depth <= maxDepth, candidates.count < maxCandidates, !visited.contains(element) else { return }
         visited.insert(element)
 
-        if let candidate = candidate(from: element, id: "e\(candidates.count + 1)", path: path) {
-            registry.register(element, id: candidate.elementID)
+        let nextIndex = candidates.count + 1
+        if let candidate = candidate(from: element, id: "e\(nextIndex)", index: nextIndex, path: path) {
+            registry.register(element, id: candidate.elementID, index: candidate.elementIndex)
             candidates.append(candidate)
         }
 
@@ -272,7 +284,7 @@ enum ComputerUseObservationCapture {
         }
     }
 
-    private static func candidate(from element: AXUIElement, id: String, path: String) -> ComputerUseElementCandidate? {
+    private static func candidate(from element: AXUIElement, id: String, index: Int, path: String) -> ComputerUseElementCandidate? {
         let role = axString(element, kAXRoleAttribute)
         let title = axString(element, kAXTitleAttribute)
         let label = axString(element, kAXDescriptionAttribute)
@@ -286,6 +298,7 @@ enum ComputerUseObservationCapture {
 
         return ComputerUseElementCandidate(
             elementID: id,
+            elementIndex: index,
             role: role,
             title: truncate(title, limit: 80),
             label: truncate(label, limit: 80),
@@ -295,6 +308,11 @@ enum ComputerUseObservationCapture {
             frame: frame,
             path: path
         )
+    }
+
+    nonisolated private static func elementIndex(from elementID: String) -> Int {
+        let digits = elementID.drop { !$0.isNumber }
+        return Int(digits) ?? 0
     }
 
     private static func focusedWindow(in axApp: AXUIElement) -> AXUIElement? {

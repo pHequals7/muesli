@@ -77,11 +77,11 @@ final class ComputerUsePlannerRuntime {
         }
 
         let deadline = Date().addingTimeInterval(timeoutSeconds)
-        var priorResults: [ComputerUseToolResult] = []
+        var priorResults: [ComputerUseToolOutcome] = []
         var repeatedToolCounts: [String: Int] = [:]
 
         onStatus("Observing")
-        var observation = observe(registry, false)
+        var observation = observe(registry, true)
         traceEvents.append(observationEvent(observation, step: nil))
 
         var step = 1
@@ -100,8 +100,8 @@ final class ComputerUsePlannerRuntime {
                 command: command,
                 step: step,
                 maxSteps: maxSteps,
-                observation: observation,
-                priorResults: priorResults
+                latestWindowState: ComputerUseWindowState(observation: observation),
+                priorOutcomes: priorResults
             )
 
             let response: ComputerUsePlannerResponse
@@ -157,34 +157,49 @@ final class ComputerUsePlannerRuntime {
                 let message = toolCall.reason?.isEmpty == false ? toolCall.reason! : "Done"
                 traceEvents.append(traceEvent(kind: "finish", title: "Final output", body: message, status: "done", step: step))
                 return .init(status: .done, message: message, traceEvents: traceEvents)
-            case .observe, .observeScreen:
-                let includeScreenshot = toolCall.tool == .observeScreen || observation.screenshot != nil
-                priorResults.append(ComputerUseToolResult(
+            case .fail:
+                let message = toolCall.reason?.isEmpty == false ? toolCall.reason! : "Failed"
+                traceEvents.append(traceEvent(kind: "failed", title: "Final output", body: message, status: "failed", step: step))
+                return .init(status: .failed, message: message, traceEvents: traceEvents)
+            case .getWindowState:
+                let result = await execute(toolCall, registry)
+                priorResults.append(ComputerUseToolOutcome(
                     step: step,
                     tool: toolCall.tool,
-                    status: "executed",
-                    message: includeScreenshot ? "Observed screen" : "Observed"
+                    status: "\(result.status)",
+                    message: result.message,
+                    appName: observation.appName,
+                    bundleID: observation.bundleID,
+                    windowTitle: observation.windowTitle,
+                    snapshotID: observation.screenshot?.screenshotID
                 ))
+                if result.status == .failed || result.status == .unsupported {
+                    traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: result.message, status: "failed", step: step))
+                    return .init(status: .failed, message: result.message, traceEvents: traceEvents)
+                }
                 onStatus("Observing")
-                observation = observe(registry, includeScreenshot)
+                observation = observe(registry, true)
                 traceEvents.append(observationEvent(observation, step: step))
                 continue
             default:
-                let shouldRefreshScreenshot = observation.screenshot != nil
                 onStatus("Executing")
                 traceEvents.append(traceEvent(
                     kind: "tool_call",
                     title: "Executing",
-                    body: toolCall.summary,
+                    body: executionTraceBody(toolCall: toolCall, observation: observation),
                     status: "executing",
                     step: step
                 ))
                 let result = await execute(toolCall, registry)
-                priorResults.append(ComputerUseToolResult(
+                priorResults.append(ComputerUseToolOutcome(
                     step: step,
                     tool: toolCall.tool,
                     status: "\(result.status)",
-                    message: result.message
+                    message: result.message,
+                    appName: observation.appName,
+                    bundleID: observation.bundleID,
+                    windowTitle: observation.windowTitle,
+                    snapshotID: observation.screenshot?.screenshotID
                 ))
                 traceEvents.append(traceEvent(
                     kind: "tool_result",
@@ -196,9 +211,11 @@ final class ComputerUsePlannerRuntime {
 
                 switch result.status {
                 case .executed:
-                    onStatus("Observing")
-                    observation = observe(registry, shouldRefreshScreenshot)
-                    traceEvents.append(observationEvent(observation, step: step))
+                    if toolCall.isMutating {
+                        onStatus("Observing")
+                        observation = observe(registry, true)
+                        traceEvents.append(observationEvent(observation, step: step))
+                    }
                 case .needsConfirmation:
                     traceEvents.append(traceEvent(kind: "confirm", title: "Confirmation required", body: result.message, status: "confirm", step: step))
                     return .init(status: .needsConfirmation, message: result.message, traceEvents: traceEvents)
@@ -242,10 +259,14 @@ final class ComputerUsePlannerRuntime {
         let key = [
             toolCall.tool.rawValue,
             toolCall.elementID ?? "",
+            toolCall.elementIndex.map(String.init) ?? "",
             toolCall.appName ?? "",
+            toolCall.canonicalBundleID,
             toolCall.label ?? "",
             toolCall.key ?? "",
             toolCall.text ?? "",
+            toolCall.value ?? "",
+            toolCall.url ?? "",
             toolCall.direction?.rawValue ?? "",
             observationSignature(observation),
         ].joined(separator: "|")
@@ -257,9 +278,9 @@ final class ComputerUsePlannerRuntime {
 
     private func shouldTrackForRepetition(_ tool: ComputerUseToolName) -> Bool {
         switch tool {
-        case .clickElement, .clickPoint, .moveCursor, .drag, .pressKey, .typeText, .pasteText, .scroll:
+        case .click, .drag, .pressKey, .hotkey, .typeText, .setValue, .scroll, .navigateURL, .activateBrowserTab:
             return true
-        case .observe, .observeScreen, .openApp, .focusApp, .getCursorPosition, .finish:
+        case .listApps, .launchApp, .listWindows, .getWindowState, .listBrowserTabs, .pageGetText, .pageQueryDOM, .finish, .fail:
             return false
         }
     }
@@ -282,6 +303,18 @@ final class ComputerUsePlannerRuntime {
             return toolCall.summary
         }
         return text
+    }
+
+    private func executionTraceBody(toolCall: ComputerUseToolCall, observation: ComputerUseObservation) -> String {
+        let target = [
+            observation.appName,
+            observation.bundleID,
+            observation.windowTitle,
+            observation.screenshot?.screenshotID ?? "",
+        ]
+        .filter { !$0.isEmpty }
+        .joined(separator: " - ")
+        return "\(toolCall.summary)\nTarget: \(target.isEmpty ? "unknown" : target)\nArguments:\n\(formatToolCall(toolCall))"
     }
 
     private func traceEvent(

@@ -83,31 +83,24 @@ enum ComputerUseToolExecutor {
         }
 
         switch toolCall.tool {
-        case .observe:
-            return .executed("Observed")
-        case .observeScreen:
-            return .executed("Observed screen")
-        case .openApp:
-            return await openApp(named: toolCall.appName ?? "")
-        case .focusApp:
-            return await focusApp(named: toolCall.appName ?? "")
-        case .clickElement:
-            guard let elementID = toolCall.elementID,
-                  let element = registry?.element(for: elementID)
-            else {
-                return .needsConfirmation("Confirm: unknown click target")
+        case .listApps:
+            return listApps()
+        case .launchApp:
+            return await openApp(named: toolCall.appName?.isEmpty == false ? toolCall.appName! : toolCall.canonicalBundleID)
+        case .listWindows:
+            return listWindows(appBundleID: toolCall.canonicalBundleID)
+        case .getWindowState:
+            if !toolCall.canonicalBundleID.isEmpty || toolCall.appName?.isEmpty == false {
+                return await focusApp(named: toolCall.appName?.isEmpty == false ? toolCall.appName! : toolCall.canonicalBundleID)
             }
-            return clickElement(element, fallbackLabel: toolCall.label ?? elementID)
-        case .clickPoint:
-            return clickPoint(toolCall, registry: registry)
-        case .moveCursor:
-            return moveCursor(toolCall, registry: registry)
+            return .executed("Captured window state")
+        case .click:
+            return click(toolCall, registry: registry)
+        case .setValue:
+            return setValue(toolCall, registry: registry)
         case .drag:
             return drag(toolCall, registry: registry)
-        case .getCursorPosition:
-            let point = currentCursorPosition()
-            return .executed("Cursor at \(Int(point.x.rounded())),\(Int(point.y.rounded()))")
-        case .pressKey:
+        case .pressKey, .hotkey:
             return pressKey(ComputerUseKeyCommand(
                 modifiers: toolCall.modifiers ?? [],
                 key: toolCall.key ?? ""
@@ -115,13 +108,41 @@ enum ComputerUseToolExecutor {
         case .typeText:
             PasteController.typeText(toolCall.text ?? "")
             return .executed("Typed text")
-        case .pasteText:
-            PasteController.paste(text: toolCall.text ?? "")
-            return .executed("Pasted text")
         case .scroll:
             return scroll(direction: toolCall.direction ?? .down, pages: toolCall.pages ?? 1)
+        case .listBrowserTabs:
+            return ComputerUseBrowserAutomation.listTabs(appBundleID: toolCall.canonicalBundleID)
+        case .activateBrowserTab:
+            return ComputerUseBrowserAutomation.activateTab(
+                appBundleID: toolCall.canonicalBundleID,
+                windowIndex: toolCall.windowIndex ?? 1,
+                tabIndex: toolCall.tabIndex ?? 1
+            )
+        case .navigateURL:
+            return ComputerUseBrowserAutomation.navigate(
+                appBundleID: toolCall.canonicalBundleID,
+                windowIndex: toolCall.windowIndex,
+                tabIndex: toolCall.tabIndex,
+                url: toolCall.url ?? ""
+            )
+        case .pageGetText:
+            return ComputerUseBrowserAutomation.pageText(
+                appBundleID: toolCall.canonicalBundleID,
+                windowIndex: toolCall.windowIndex,
+                tabIndex: toolCall.tabIndex
+            )
+        case .pageQueryDOM:
+            return ComputerUseBrowserAutomation.queryDOM(
+                appBundleID: toolCall.canonicalBundleID,
+                windowIndex: toolCall.windowIndex,
+                tabIndex: toolCall.tabIndex,
+                selector: toolCall.selector ?? "",
+                attributes: toolCall.attributes ?? []
+            )
         case .finish:
             return .executed(toolCall.reason ?? "Done")
+        case .fail:
+            return .failed(toolCall.reason ?? "Failed")
         }
     }
 
@@ -131,6 +152,63 @@ enum ComputerUseToolExecutor {
 
     static func keyCode(for key: String) -> CGKeyCode? {
         keyCodes[canonicalKeyName(key)]
+    }
+
+    private static func listApps() -> ComputerUseExecutionResult {
+        let apps = NSWorkspace.shared.runningApplications
+            .filter { ($0.localizedName?.isEmpty == false) || ($0.bundleIdentifier?.isEmpty == false) }
+            .map { app in
+                "\(app.localizedName ?? "Unknown") (\(app.bundleIdentifier ?? "unknown"), pid \(app.processIdentifier))\(app.isActive ? " active" : "")"
+            }
+            .prefix(80)
+            .joined(separator: "\n")
+        return .executed(apps.isEmpty ? "No running apps" : apps)
+    }
+
+    private static func listWindows(appBundleID: String) -> ComputerUseExecutionResult {
+        let windows = windowInfos(appBundleID: appBundleID)
+        guard !windows.isEmpty else {
+            return .executed("No visible windows")
+        }
+        let text = windows.prefix(80).map { window in
+            let frame: String
+            if let rect = window.frame {
+                frame = " \(Int(rect.x)),\(Int(rect.y)),\(Int(rect.width)),\(Int(rect.height))"
+            } else {
+                frame = ""
+            }
+            return "\(window.windowID ?? 0): \(window.appName) - \(window.title)\(frame)"
+        }.joined(separator: "\n")
+        return .executed(text)
+    }
+
+    private static func windowInfos(appBundleID: String) -> [ComputerUseWindowInfo] {
+        let appByPID: [pid_t: NSRunningApplication] = Dictionary(
+            uniqueKeysWithValues: NSWorkspace.shared.runningApplications.map { ($0.processIdentifier, $0) }
+        )
+        let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[CFString: Any]] ?? []
+        return windowList.compactMap { window in
+            guard let layer = window[kCGWindowLayer] as? Int, layer == 0,
+                  let ownerPID = window[kCGWindowOwnerPID] as? pid_t
+            else { return nil }
+            let app = appByPID[ownerPID]
+            let bundleID = app?.bundleIdentifier ?? ""
+            if !appBundleID.isEmpty, bundleID != appBundleID {
+                return nil
+            }
+            let title = window[kCGWindowName] as? String ?? ""
+            let ownerName = window[kCGWindowOwnerName] as? String ?? app?.localizedName ?? "Unknown"
+            let windowID = window[kCGWindowNumber] as? Int
+            return ComputerUseWindowInfo(
+                windowID: windowID,
+                appName: ownerName,
+                bundleID: bundleID,
+                processID: Int(ownerPID),
+                title: title,
+                frame: cgWindowBounds(window).map(ComputerUseRect.init),
+                isOnScreen: (window[kCGWindowIsOnscreen] as? Bool) ?? true
+            )
+        }
     }
 
     private static func openApp(named rawName: String) async -> ComputerUseExecutionResult {
@@ -209,6 +287,40 @@ enum ComputerUseToolExecutor {
         )
         event?.post(tap: .cghidEventTap)
         return .executed("Scrolled \(direction.rawValue)")
+    }
+
+    private static func click(_ toolCall: ComputerUseToolCall, registry: ComputerUseElementRegistry?) -> ComputerUseExecutionResult {
+        if let index = toolCall.elementIndex, let element = registry?.element(for: index) {
+            return clickElement(element, fallbackLabel: toolCall.label ?? "e\(index)")
+        }
+        if let elementID = toolCall.elementID,
+           let element = registry?.element(for: elementID) {
+            return clickElement(element, fallbackLabel: toolCall.label ?? elementID)
+        }
+        if toolCall.x != nil, toolCall.y != nil {
+            return clickPoint(toolCall, registry: registry)
+        }
+        return .needsConfirmation("Confirm: unknown click target")
+    }
+
+    private static func setValue(_ toolCall: ComputerUseToolCall, registry: ComputerUseElementRegistry?) -> ComputerUseExecutionResult {
+        let element: AXUIElement?
+        if let index = toolCall.elementIndex {
+            element = registry?.element(for: index)
+        } else if let elementID = toolCall.elementID {
+            element = registry?.element(for: elementID)
+        } else {
+            element = nil
+        }
+        guard let element else {
+            return .failed("Stale or unknown element target")
+        }
+        let value = toolCall.value ?? ""
+        let result = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFTypeRef)
+        if result == .success {
+            return .executed("Set value")
+        }
+        return .unsupported("Element does not support set_value")
     }
 
     private static func clickElement(labeled rawLabel: String) -> ComputerUseExecutionResult {
@@ -348,6 +460,12 @@ enum ComputerUseToolExecutor {
     }
 
     private static func applicationURL(for appName: String) -> URL? {
+        let trimmed = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("."),
+           let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed) {
+            return url
+        }
+
         let canonical = canonicalAppName(appName)
         if let bundleIdentifier = appAliases[canonical],
            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) {
@@ -388,6 +506,12 @@ enum ComputerUseToolExecutor {
     }
 
     private static func runningApplication(named appName: String) -> NSRunningApplication? {
+        let trimmed = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("."),
+           let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == trimmed }) {
+            return app
+        }
+
         let canonical = canonicalAppName(appName)
         if let bundleIdentifier = appAliases[canonical],
            let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleIdentifier }) {
@@ -522,6 +646,15 @@ enum ComputerUseToolExecutor {
               AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
         else { return nil }
         return CGRect(origin: position, size: size)
+    }
+
+    private static func cgWindowBounds(_ windowInfo: [CFString: Any]) -> CGRect? {
+        guard let bounds = windowInfo[kCGWindowBounds] as? [String: Any] else { return nil }
+        let x = bounds["X"] as? CGFloat ?? 0
+        let y = bounds["Y"] as? CGFloat ?? 0
+        let width = bounds["Width"] as? CGFloat ?? 0
+        let height = bounds["Height"] as? CGFloat ?? 0
+        return CGRect(x: x, y: y, width: width, height: height)
     }
 
     private static func screenPoint(
