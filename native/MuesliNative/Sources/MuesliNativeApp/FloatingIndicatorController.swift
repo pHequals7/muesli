@@ -349,10 +349,16 @@ final class FloatingIndicatorController: NSObject {
         let config = configStore.load()
         if panel == nil { createPanel(config: config) }
         guard let panel, let contentView, let iconLabel, let textLabel else { return }
-
-        let warningSize = NSSize(width: 260, height: 36)
-        let center = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
         guard let screen = NSScreen.main?.visibleFrame else { return }
+
+        let warningFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+        let warningSize = warningPillSize(
+            message: message,
+            icon: icon,
+            font: warningFont,
+            screen: screen
+        )
+        let center = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
         let x = min(max(center.x - warningSize.width / 2, screen.minX), screen.maxX - warningSize.width)
         let y = min(max(center.y - warningSize.height / 2, screen.minY), screen.maxY - warningSize.height)
         let targetFrame = NSRect(x: x, y: y, width: warningSize.width, height: warningSize.height)
@@ -382,6 +388,7 @@ final class FloatingIndicatorController: NSObject {
             iconLabel.animator().alphaValue = 1
 
             textLabel.stringValue = message
+            textLabel.font = warningFont
             textLabel.textColor = NSColor.colorWith(hex: 0x1A140D, alpha: 0.95)
             textLabel.isHidden = false
             textLabel.animator().alphaValue = 1
@@ -393,6 +400,15 @@ final class FloatingIndicatorController: NSObject {
             guard let self, self.state == .idle else { return }
             self.setState(.idle, config: self.configStore.load())
         }
+    }
+
+    private func warningPillSize(message: String, icon: String, font: NSFont, screen: NSRect) -> NSSize {
+        let horizontalPadding: CGFloat = 24
+        let iconWidth = max(24, ceil((icon as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 14, weight: .bold)]).width) + 2)
+        let textWidth = ceil((message as NSString).size(withAttributes: [.font: font]).width) + 2
+        let preferredWidth = horizontalPadding + iconWidth + 4 + textWidth + horizontalPadding
+        let maxWidth = max(260, min(520, screen.width - 32))
+        return NSSize(width: min(max(preferredWidth, 260), maxWidth), height: 36)
     }
 
     func showLoading(_ message: String) {
@@ -733,6 +749,9 @@ final class FloatingIndicatorController: NSObject {
         let textLabel = NSTextField(labelWithString: "")
         textLabel.alignment = .left
         textLabel.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        textLabel.lineBreakMode = .byTruncatingTail
+        textLabel.maximumNumberOfLines = 1
+        textLabel.usesSingleLineMode = true
         contentView.addSubview(textLabel)
 
         panel.contentView = contentView
@@ -961,14 +980,16 @@ final class FloatingIndicatorController: NSObject {
         let iconSize = iconLabel.attributedStringValue.size()
         let textSize = textLabel.attributedStringValue.size()
         let gap: CGFloat = 4
+        let horizontalPadding: CGFloat = 12
 
         let iconWidth = max(24, ceil(iconSize.width) + 2)
         let iconHeight = max(18, ceil(iconSize.height))
-        let textWidth = ceil(textSize.width) + 2
+        let availableTextWidth = max(0, size.width - (horizontalPadding * 2) - iconWidth - gap)
+        let textWidth = min(ceil(textSize.width) + 2, availableTextWidth)
         let textHeight = max(16, ceil(textSize.height))
 
         let totalWidth = iconWidth + gap + textWidth
-        let originX = max((size.width - totalWidth) / 2, 12)
+        let originX = max((size.width - totalWidth) / 2, horizontalPadding)
 
         let iconFrame = NSRect(
             x: originX,
