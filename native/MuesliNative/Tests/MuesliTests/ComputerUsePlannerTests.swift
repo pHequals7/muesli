@@ -109,6 +109,21 @@ struct ComputerUsePlannerResponseTests {
     }
 }
 
+@Suite("Computer Use planner model")
+struct ComputerUsePlannerModelTests {
+    @Test("uses dedicated CUA model instead of shared ChatGPT model")
+    func usesDedicatedCUAModel() {
+        var config = AppConfig()
+        config.chatGPTModel = "gpt-5.4-mini"
+
+        #expect(ComputerUsePlannerClient.plannerModel(for: config) == ComputerUsePlannerClient.defaultModel)
+
+        config.computerUsePlannerModel = "gpt-5.4"
+
+        #expect(ComputerUsePlannerClient.plannerModel(for: config) == "gpt-5.4")
+    }
+}
+
 @Suite("Computer Use observation shaping")
 struct ComputerUseObservationTests {
     @Test("candidate labels normalize")

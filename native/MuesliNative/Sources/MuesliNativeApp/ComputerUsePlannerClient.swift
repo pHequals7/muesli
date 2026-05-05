@@ -22,7 +22,7 @@ enum ComputerUsePlannerError: LocalizedError, Equatable {
 
 enum ComputerUsePlannerClient {
     private static let whamURL = URL(string: "https://chatgpt.com/backend-api/wham/responses")!
-    private static let defaultModel = "gpt-5.4-mini"
+    static let defaultModel = "gpt-5.5"
 
     static var instructions: String {
         """
@@ -60,7 +60,7 @@ enum ComputerUsePlannerClient {
                 systemPrompt: instructions,
                 userPrompt: requestPrompt(for: request),
                 imageDataURL: request.latestWindowState.screenshot?.imageDataURL,
-                model: config.chatGPTModel.isEmpty ? defaultModel : config.chatGPTModel
+                model: plannerModel(for: config)
             )
             do {
                 return try ComputerUsePlannerResponse.decodeJSON(from: text)
@@ -74,6 +74,11 @@ enum ComputerUsePlannerClient {
         } catch {
             throw ComputerUsePlannerError.requestFailed(error.localizedDescription)
         }
+    }
+
+    static func plannerModel(for config: AppConfig) -> String {
+        let trimmed = config.computerUsePlannerModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultModel : trimmed
     }
 
     private static func requestPrompt(for request: ComputerUsePlannerRequest) throws -> String {

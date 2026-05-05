@@ -220,6 +220,16 @@ struct SummaryModelPresetTests {
         }
     }
 
+    @Test("Computer use planner presets include GPT-5.5 default")
+    func computerUsePlannerModels() {
+        #expect(SummaryModelPreset.computerUsePlannerModels.first?.id == "gpt-5.5")
+        #expect(SummaryModelPreset.computerUsePlannerModels.contains { $0.id == "gpt-5.4-mini" })
+        for preset in SummaryModelPreset.computerUsePlannerModels {
+            #expect(!preset.id.isEmpty)
+            #expect(!preset.label.isEmpty)
+        }
+    }
+
     @Test("model menu includes custom configured model")
     func modelMenuIncludesCustomConfiguredModel() {
         let customModel = "anthropic/claude-sonnet-4.5"
@@ -357,6 +367,7 @@ struct AppConfigTests {
         #expect(config.computerUseHotkey == .computerUseDefault)
         #expect(config.enableComputerUseHotkey == true)
         #expect(config.enableComputerUsePlanner == true)
+        #expect(config.computerUsePlannerModel.isEmpty)
         #expect(config.showFloatingIndicator == true)
         #expect(config.indicatorAnchor == .midTrailing)
         #expect(config.hasCompletedOnboarding == false)
@@ -395,6 +406,7 @@ struct AppConfigTests {
         config.computerUseHotkey = HotkeyConfig(keyCode: 62, label: "Right Ctrl")
         config.enableComputerUseHotkey = false
         config.enableComputerUsePlanner = false
+        config.computerUsePlannerModel = "gpt-5.4"
 
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
@@ -420,6 +432,7 @@ struct AppConfigTests {
         #expect(decoded.computerUseHotkey == HotkeyConfig(keyCode: 62, label: "Right Ctrl"))
         #expect(decoded.enableComputerUseHotkey == false)
         #expect(decoded.enableComputerUsePlanner == false)
+        #expect(decoded.computerUsePlannerModel == "gpt-5.4")
     }
 
     @Test("JSON coding keys use snake_case")
@@ -433,6 +446,7 @@ struct AppConfigTests {
         #expect(json["computer_use_hotkey"] != nil)
         #expect(json["enable_computer_use_hotkey"] != nil)
         #expect(json["enable_computer_use_planner"] != nil)
+        #expect(json["computer_use_planner_model"] != nil)
         #expect(json["cohere_language"] != nil)
         #expect(json["meeting_transcription_backend"] != nil)
         #expect(json["meeting_transcription_model"] != nil)
@@ -471,6 +485,7 @@ struct AppConfigTests {
         #expect(config.computerUseHotkey == .computerUseDefault)
         #expect(config.enableComputerUseHotkey == true)
         #expect(config.enableComputerUsePlanner == true)
+        #expect(config.computerUsePlannerModel.isEmpty)
         #expect(config.meetingHookEnabled == false)
         #expect(config.meetingHookPath.isEmpty)
         #expect(config.meetingHookTimeoutSeconds == 30)

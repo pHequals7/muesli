@@ -46,6 +46,7 @@ struct SettingsView: View {
     private enum SettingsPane: String, CaseIterable, Identifiable {
         case general
         case dictation
+        case computerUse
         case meetings
         case appearance
 
@@ -55,6 +56,7 @@ struct SettingsView: View {
             switch self {
             case .general: return "General"
             case .dictation: return "Dictation"
+            case .computerUse: return "Computer Use"
             case .meetings: return "Meetings"
             case .appearance: return "Appearance"
             }
@@ -251,7 +253,7 @@ struct SettingsView: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 560)
+            .frame(width: 680)
             Spacer()
         }
     }
@@ -263,6 +265,8 @@ struct SettingsView: View {
             generalSettingsPane
         case .dictation:
             dictationSettingsPane
+        case .computerUse:
+            computerUseSettingsPane
         case .meetings:
             meetingsSettingsPane
         case .appearance:
@@ -361,6 +365,29 @@ struct SettingsView: View {
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
                 screenContextRow("App context")
+            }
+        }
+    }
+
+    private var computerUseSettingsPane: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
+            settingsSection("Computer Use") {
+                settingsRow("Enable planner", controlWidth: meetingControlWidth) {
+                    settingsSwitch(isOn: appState.config.enableComputerUsePlanner) { newValue in
+                        controller.updateConfig { $0.enableComputerUsePlanner = newValue }
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Account", controlWidth: meetingControlWidth) {
+                    chatGPTAccountControl
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Planner model", controlWidth: meetingControlWidth) {
+                    settingsModelMenu(
+                        currentModel: appState.config.computerUsePlannerModel,
+                        presets: SummaryModelPreset.computerUsePlannerModels
+                    ) { val in controller.updateConfig { $0.computerUsePlannerModel = val } }
+                }
             }
         }
     }
