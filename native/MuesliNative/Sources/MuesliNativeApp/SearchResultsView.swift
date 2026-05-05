@@ -89,10 +89,21 @@ struct SearchResultsView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(appState.searchResultDictations) { record in
-                            SearchDictationRow(record: record, query: appState.searchQuery) {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(record.rawText, forType: .string)
-                            }
+                            SearchDictationRow(
+                                record: record,
+                                query: appState.searchQuery,
+                                onCopy: {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(record.rawText, forType: .string)
+                                },
+                                onCopyTrace: record.computerUseTrace == nil ? nil : {
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(
+                                        ComputerUseTraceFormatter.debugText(for: record),
+                                        forType: .string
+                                    )
+                                }
+                            )
                         }
                     }
                     .padding(.vertical, MuesliTheme.spacing8)
@@ -148,6 +159,7 @@ private struct SearchDictationRow: View {
     let record: DictationRecord
     let query: String
     let onCopy: () -> Void
+    var onCopyTrace: (() -> Void)? = nil
 
     @State private var isHovered = false
 
@@ -163,12 +175,24 @@ private struct SearchDictationRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Button(action: onCopy) {
-                Image(systemName: "doc.on.doc")
-                    .font(.system(size: 12))
-                    .foregroundStyle(MuesliTheme.textTertiary)
+            HStack(spacing: 8) {
+                if record.computerUseTrace != nil, let onCopyTrace {
+                    Button(action: onCopyTrace) {
+                        Image(systemName: "list.bullet.clipboard")
+                            .font(.system(size: 12))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy CUA trace")
+                }
+
+                Button(action: onCopy) {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .opacity(isHovered ? 1 : 0)
         }
         .padding(.horizontal, MuesliTheme.spacing20)

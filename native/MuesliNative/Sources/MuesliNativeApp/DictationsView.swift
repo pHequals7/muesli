@@ -115,6 +115,9 @@ struct DictationsView: View {
                                             onCopy: {
                                                 controller.copyToClipboard(record.rawText)
                                             },
+                                            onCopyTrace: record.computerUseTrace == nil ? nil : {
+                                                controller.copyToClipboard(ComputerUseTraceFormatter.debugText(for: record))
+                                            },
                                             onDelete: {
                                                 controller.deleteDictation(id: record.id)
                                             }
@@ -124,6 +127,13 @@ struct DictationsView: View {
                                                 controller.copyToClipboard(record.rawText)
                                             } label: {
                                                 Label("Copy", systemImage: "doc.on.doc")
+                                            }
+                                            if record.computerUseTrace != nil {
+                                                Button {
+                                                    controller.copyToClipboard(ComputerUseTraceFormatter.debugText(for: record))
+                                                } label: {
+                                                    Label("Copy CUA Trace", systemImage: "list.bullet.clipboard")
+                                                }
                                             }
                                         }
                                     }

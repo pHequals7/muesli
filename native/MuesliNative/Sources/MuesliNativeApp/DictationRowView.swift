@@ -5,6 +5,7 @@ struct DictationRowView: View {
     let record: DictationRecord
     let timeOnly: String
     let onCopy: () -> Void
+    var onCopyTrace: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
 
     @State private var isHovered = false
@@ -68,6 +69,16 @@ struct DictationRowView: View {
                                 .foregroundStyle(MuesliTheme.textTertiary)
                         }
                         .buttonStyle(.plain)
+                    }
+
+                    if record.computerUseTrace != nil, let onCopyTrace {
+                        Button(action: onCopyTrace) {
+                            Image(systemName: "list.bullet.clipboard")
+                                .font(.system(size: 12))
+                                .foregroundStyle(MuesliTheme.textTertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy CUA trace")
                     }
 
                     Button(action: onCopy) {
