@@ -3044,7 +3044,20 @@ final class MuesliController: NSObject {
                         "planner_enabled": self.config.enableComputerUsePlanner ? "true" : "false",
                     ])
                 }
-                await self.handleComputerUseCommand(transcript: text)
+                let commandEndedAt = Date()
+                let dictationID: Int64?
+                if text.isEmpty {
+                    dictationID = nil
+                } else {
+                    dictationID = try? self.dictationStore.insertDictation(
+                        text: text,
+                        durationSeconds: duration,
+                        source: "cua",
+                        startedAt: startedAt,
+                        endedAt: commandEndedAt
+                    )
+                }
+                await self.handleComputerUseCommand(transcript: text, dictationID: dictationID)
             } catch is CancellationError {
                 fputs("[cua] command parsing cancelled\n", stderr)
                 await MainActor.run {
@@ -3084,7 +3097,7 @@ final class MuesliController: NSObject {
     }
 
     @MainActor
-    private func handleComputerUseCommand(transcript: String) async {
+    private func handleComputerUseCommand(transcript: String, dictationID: Int64?) async {
         setState(.transcribing)
         let runtime = ComputerUsePlannerRuntime(config: config) { [weak self] status in
             guard let self else { return }
@@ -3093,12 +3106,37 @@ final class MuesliController: NSObject {
         }
 
         let result = await runtime.run(command: transcript)
+        persistComputerUseTrace(result, dictationID: dictationID)
         computerUseCommandTask = nil
         presentComputerUseRuntimeResult(result)
         meetingMonitor.resumeAfterCooldown()
         TelemetryDeck.signal("computer_use.command_finished", parameters: [
             "status": "\(result.status)",
         ])
+    }
+
+    private func persistComputerUseTrace(_ result: ComputerUsePlannerRuntimeResult, dictationID: Int64?) {
+        guard let dictationID else { return }
+        try? dictationStore.insertComputerUseTrace(
+            dictationID: dictationID,
+            finalStatus: computerUseTraceStatus(result.status),
+            finalMessage: result.message,
+            events: result.traceEvents
+        )
+        statusBarController?.refresh()
+        historyWindowController?.reload()
+        syncAppState()
+    }
+
+    private func computerUseTraceStatus(_ status: ComputerUsePlannerRuntimeResult.Status) -> String {
+        switch status {
+        case .done:
+            return "done"
+        case .needsConfirmation:
+            return "confirm"
+        case .failed:
+            return "failed"
+        }
     }
 
     private func presentComputerUseRuntimeResult(_ result: ComputerUsePlannerRuntimeResult) {
@@ -3387,7 +3425,7 @@ final class MuesliController: NSObject {
             if !config.maraudersMapUnlocked { checkMaraudersMapActivation(cleaned) }
 
             if !cleaned.isEmpty {
-                try? dictationStore.insertDictation(
+                _ = try? dictationStore.insertDictation(
                     text: cleaned,
                     durationSeconds: duration,
                     startedAt: startedAt,
@@ -3467,7 +3505,7 @@ final class MuesliController: NSObject {
                     return
                 }
                 let appContextString = self.capturedDictationContext.map { DictationContextCapture.formatForStorage($0) } ?? ""
-                try? self.dictationStore.insertDictation(
+                _ = try? self.dictationStore.insertDictation(
                     text: text,
                     durationSeconds: duration,
                     appContext: appContextString,

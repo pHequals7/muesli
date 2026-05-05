@@ -14,6 +14,10 @@ public enum DictationStoreError: Error, LocalizedError {
 
 public final class DictationStore {
     private let databaseURL: URL
+    private static let dictationColumns = """
+    d.id, d.timestamp, d.duration_seconds, d.raw_text, d.app_context, d.word_count, d.source,
+    t.id, t.final_status, t.final_message, t.trace_json, t.created_at
+    """
     private static let meetingColumns = """
     id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, meeting_status, manual_notes, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt
     """
@@ -52,6 +56,16 @@ public final class DictationStore {
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_dictations_timestamp ON dictations(timestamp DESC);
+
+        CREATE TABLE IF NOT EXISTS computer_use_traces (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            dictation_id INTEGER NOT NULL UNIQUE REFERENCES dictations(id) ON DELETE CASCADE,
+            final_status TEXT NOT NULL,
+            final_message TEXT NOT NULL,
+            trace_json TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_computer_use_traces_dictation_id ON computer_use_traces(dictation_id);
 
         CREATE TABLE IF NOT EXISTS meetings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,23 +130,28 @@ public final class DictationStore {
         if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN manual_notes TEXT NOT NULL DEFAULT ''", nil, nil, nil) != SQLITE_OK {
             // Column may already exist.
         }
+        if sqlite3_exec(db, "ALTER TABLE dictations ADD COLUMN source TEXT NOT NULL DEFAULT 'dictation'", nil, nil, nil) != SQLITE_OK {
+            // Column may already exist.
+        }
         let _ = sqlite3_exec(db, "CREATE INDEX IF NOT EXISTS idx_meetings_folder ON meetings(folder_id)", nil, nil, nil)
     }
 
+    @discardableResult
     public func insertDictation(
         text: String,
         durationSeconds: Double,
         appContext: String = "",
+        source: String = "dictation",
         startedAt: Date,
         endedAt: Date
-    ) throws {
+    ) throws -> Int64 {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
 
         let sql = """
         INSERT INTO dictations
         (timestamp, duration_seconds, raw_text, app_context, word_count, source, started_at, ended_at)
-        VALUES (?, ?, ?, ?, ?, 'dictation', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -148,12 +167,14 @@ public final class DictationStore {
         sqlite3_bind_text(statement, 3, (text as NSString).utf8String, -1, nil)
         sqlite3_bind_text(statement, 4, (appContext as NSString).utf8String, -1, nil)
         sqlite3_bind_int(statement, 5, Int32(Self.countWords(in: text)))
-        sqlite3_bind_text(statement, 6, (started as NSString).utf8String, -1, nil)
-        sqlite3_bind_text(statement, 7, (ended as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 6, (source as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 7, (started as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 8, (ended as NSString).utf8String, -1, nil)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
+        return sqlite3_last_insert_rowid(db)
     }
 
     public func recentDictations(limit: Int = 10, offset: Int = 0, fromDate: String? = nil, toDate: String? = nil) throws -> [DictationRecord] {
@@ -163,20 +184,21 @@ public final class DictationStore {
         var conditions: [String] = []
         var boundValues: [String] = []
         if let fromDate {
-            conditions.append("timestamp >= ?")
+            conditions.append("d.timestamp >= ?")
             boundValues.append(fromDate)
         }
         if let toDate {
-            conditions.append("timestamp <= ?")
+            conditions.append("d.timestamp <= ?")
             boundValues.append(toDate)
         }
         let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
 
         let sql = """
-        SELECT id, timestamp, duration_seconds, raw_text, app_context, word_count
-        FROM dictations
+        SELECT \(Self.dictationColumns)
+        FROM dictations d
+        LEFT JOIN computer_use_traces t ON t.dictation_id = d.id
         \(whereClause)
-        ORDER BY id DESC
+        ORDER BY d.id DESC
         LIMIT ? OFFSET ?
         """
         var statement: OpaquePointer?
@@ -194,16 +216,7 @@ public final class DictationStore {
 
         var rows: [DictationRecord] = []
         while sqlite3_step(statement) == SQLITE_ROW {
-            rows.append(
-                DictationRecord(
-                    id: sqlite3_column_int64(statement, 0),
-                    timestamp: stringColumn(statement, index: 1),
-                    durationSeconds: sqlite3_column_double(statement, 2),
-                    rawText: stringColumn(statement, index: 3),
-                    appContext: stringColumn(statement, index: 4),
-                    wordCount: Int(sqlite3_column_int(statement, 5))
-                )
-            )
+            rows.append(makeDictationRecord(statement))
         }
         return rows
     }
@@ -213,9 +226,10 @@ public final class DictationStore {
         defer { sqlite3_close(db) }
 
         let sql = """
-        SELECT id, timestamp, duration_seconds, raw_text, app_context, word_count
-        FROM dictations
-        WHERE id = ?
+        SELECT \(Self.dictationColumns)
+        FROM dictations d
+        LEFT JOIN computer_use_traces t ON t.dictation_id = d.id
+        WHERE d.id = ?
         LIMIT 1
         """
         var statement: OpaquePointer?
@@ -228,14 +242,7 @@ public final class DictationStore {
         guard sqlite3_step(statement) == SQLITE_ROW else {
             return nil
         }
-        return DictationRecord(
-            id: sqlite3_column_int64(statement, 0),
-            timestamp: stringColumn(statement, index: 1),
-            durationSeconds: sqlite3_column_double(statement, 2),
-            rawText: stringColumn(statement, index: 3),
-            appContext: stringColumn(statement, index: 4),
-            wordCount: Int(sqlite3_column_int(statement, 5))
-        )
+        return makeDictationRecord(statement)
     }
 
     public func meetingCounts() throws -> (total: Int, byFolder: [Int64: Int]) {
@@ -359,10 +366,11 @@ public final class DictationStore {
         defer { sqlite3_close(db) }
 
         let sql = """
-        SELECT id, timestamp, duration_seconds, raw_text, app_context, word_count
-        FROM dictations
-        WHERE raw_text LIKE ? ESCAPE '\\' OR app_context LIKE ? ESCAPE '\\'
-        ORDER BY id DESC
+        SELECT \(Self.dictationColumns)
+        FROM dictations d
+        LEFT JOIN computer_use_traces t ON t.dictation_id = d.id
+        WHERE d.raw_text LIKE ? ESCAPE '\\' OR d.app_context LIKE ? ESCAPE '\\' OR t.final_message LIKE ? ESCAPE '\\' OR t.trace_json LIKE ? ESCAPE '\\'
+        ORDER BY d.id DESC
         LIMIT ?
         """
         var statement: OpaquePointer?
@@ -373,20 +381,13 @@ public final class DictationStore {
         let pattern = Self.escapeLikePattern(query) as NSString
         sqlite3_bind_text(statement, 1, pattern.utf8String, -1, nil)
         sqlite3_bind_text(statement, 2, pattern.utf8String, -1, nil)
-        sqlite3_bind_int(statement, 3, Int32(limit))
+        sqlite3_bind_text(statement, 3, pattern.utf8String, -1, nil)
+        sqlite3_bind_text(statement, 4, pattern.utf8String, -1, nil)
+        sqlite3_bind_int(statement, 5, Int32(limit))
 
         var rows: [DictationRecord] = []
         while sqlite3_step(statement) == SQLITE_ROW {
-            rows.append(
-                DictationRecord(
-                    id: sqlite3_column_int64(statement, 0),
-                    timestamp: stringColumn(statement, index: 1),
-                    durationSeconds: sqlite3_column_double(statement, 2),
-                    rawText: stringColumn(statement, index: 3),
-                    appContext: stringColumn(statement, index: 4),
-                    wordCount: Int(sqlite3_column_int(statement, 5))
-                )
-            )
+            rows.append(makeDictationRecord(statement))
         }
         return rows
     }
@@ -612,6 +613,7 @@ public final class DictationStore {
     public func deleteDictation(id: Int64) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
+        try exec("DELETE FROM computer_use_traces WHERE dictation_id = \(id)", db: db)
         let sql = "DELETE FROM dictations WHERE id = ?"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -643,7 +645,42 @@ public final class DictationStore {
     public func clearDictations() throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
+        try exec("DELETE FROM computer_use_traces", db: db)
         try exec("DELETE FROM dictations", db: db)
+    }
+
+    public func insertComputerUseTrace(
+        dictationID: Int64,
+        finalStatus: String,
+        finalMessage: String,
+        events: [ComputerUseTraceEvent]
+    ) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(events)
+        let traceJSON = String(data: data, encoding: .utf8) ?? "[]"
+
+        try exec("DELETE FROM computer_use_traces WHERE dictation_id = \(dictationID)", db: db)
+        let sql = """
+        INSERT INTO computer_use_traces
+        (dictation_id, final_status, final_message, trace_json)
+        VALUES (?, ?, ?, ?)
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, dictationID)
+        sqlite3_bind_text(statement, 2, (finalStatus as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 3, (finalMessage as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(statement, 4, (traceJSON as NSString).utf8String, -1, nil)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
     }
 
     public func clearMeetings() throws {
@@ -996,6 +1033,38 @@ public final class DictationStore {
 
     public static func countWords(in text: String) -> Int {
         text.split(whereSeparator: \.isWhitespace).count
+    }
+
+    private func makeDictationRecord(_ statement: OpaquePointer?) -> DictationRecord {
+        let trace: ComputerUseTraceRecord?
+        if sqlite3_column_type(statement, 7) == SQLITE_NULL {
+            trace = nil
+        } else {
+            let traceJSON = stringColumn(statement, index: 10)
+            let events = (try? JSONDecoder().decode(
+                [ComputerUseTraceEvent].self,
+                from: Data(traceJSON.utf8)
+            )) ?? []
+            trace = ComputerUseTraceRecord(
+                id: sqlite3_column_int64(statement, 7),
+                dictationID: sqlite3_column_int64(statement, 0),
+                finalStatus: stringColumn(statement, index: 8),
+                finalMessage: stringColumn(statement, index: 9),
+                events: events,
+                createdAt: stringColumn(statement, index: 11)
+            )
+        }
+
+        return DictationRecord(
+            id: sqlite3_column_int64(statement, 0),
+            timestamp: stringColumn(statement, index: 1),
+            durationSeconds: sqlite3_column_double(statement, 2),
+            rawText: stringColumn(statement, index: 3),
+            appContext: stringColumn(statement, index: 4),
+            wordCount: Int(sqlite3_column_int(statement, 5)),
+            source: stringColumn(statement, index: 6),
+            computerUseTrace: trace
+        )
     }
 
     private func makeMeetingRecord(_ statement: OpaquePointer?) -> MeetingRecord {

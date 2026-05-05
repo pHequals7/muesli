@@ -854,6 +854,102 @@ struct DictationStoreTests {
         #expect(results.first!.rawText.contains("muesli"))
     }
 
+    @Test("computer use dictation rows hydrate persisted trace")
+    func computerUseTraceHydrates() throws {
+        let store = try makeStore()
+        let now = Date()
+        let dictationID = try store.insertDictation(
+            text: "open Google Chrome",
+            durationSeconds: 1.2,
+            source: "cua",
+            startedAt: now.addingTimeInterval(-1.2),
+            endedAt: now
+        )
+        let events = [
+            ComputerUseTraceEvent(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                kind: "model_output",
+                title: "Model output",
+                body: #"{"tool":"open_app","app_name":"Google Chrome"}"#,
+                status: "planned",
+                step: 1,
+                timestamp: "2026-05-05T00:00:00Z"
+            ),
+            ComputerUseTraceEvent(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+                kind: "finish",
+                title: "Final output",
+                body: "Done: open Google Chrome",
+                status: "done",
+                step: 1,
+                timestamp: "2026-05-05T00:00:01Z"
+            ),
+        ]
+
+        try store.insertComputerUseTrace(
+            dictationID: dictationID,
+            finalStatus: "done",
+            finalMessage: "Done: open Google Chrome",
+            events: events
+        )
+
+        let row = try #require(store.recentDictations(limit: 1).first)
+        #expect(row.id == dictationID)
+        #expect(row.source == "cua")
+        #expect(row.computerUseTrace?.finalStatus == "done")
+        #expect(row.computerUseTrace?.events == events)
+    }
+
+    @Test("searchDictations matches computer use trace text")
+    func searchDictationsMatchesComputerUseTrace() throws {
+        let store = try makeStore()
+        let now = Date()
+        let dictationID = try store.insertDictation(
+            text: "do the browser thing",
+            durationSeconds: 1.0,
+            source: "cua",
+            startedAt: now,
+            endedAt: now
+        )
+        try store.insertComputerUseTrace(
+            dictationID: dictationID,
+            finalStatus: "done",
+            finalMessage: "Done: opened Google Chrome",
+            events: [
+                ComputerUseTraceEvent(kind: "tool_result", title: "Tool result", body: "Opened Google Chrome")
+            ]
+        )
+
+        let results = try store.searchDictations(query: "Chrome")
+
+        #expect(results.map(\.id).contains(dictationID))
+        #expect(results.first(where: { $0.id == dictationID })?.computerUseTrace?.finalStatus == "done")
+    }
+
+    @Test("deleteDictation removes computer use trace")
+    func deleteDictationRemovesComputerUseTrace() throws {
+        let store = try makeStore()
+        let now = Date()
+        let dictationID = try store.insertDictation(
+            text: "switch to Chrome",
+            durationSeconds: 1.0,
+            source: "cua",
+            startedAt: now,
+            endedAt: now
+        )
+        try store.insertComputerUseTrace(
+            dictationID: dictationID,
+            finalStatus: "done",
+            finalMessage: "Done",
+            events: [ComputerUseTraceEvent(kind: "finish", title: "Final output", body: "Done")]
+        )
+
+        try store.deleteDictation(id: dictationID)
+
+        #expect(try store.dictation(id: dictationID) == nil)
+        #expect(try store.searchDictations(query: "Final output").isEmpty)
+    }
+
     @Test("searchDictations returns empty for non-matching query")
     func searchDictationsNoMatch() throws {
         let store = try makeStore()

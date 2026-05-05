@@ -33,14 +33,80 @@ public struct DictationRecord: Identifiable, Codable, Sendable {
     public let rawText: String
     public let appContext: String
     public let wordCount: Int
+    public let source: String
+    public let computerUseTrace: ComputerUseTraceRecord?
 
-    public init(id: Int64, timestamp: String, durationSeconds: Double, rawText: String, appContext: String, wordCount: Int) {
+    public init(
+        id: Int64,
+        timestamp: String,
+        durationSeconds: Double,
+        rawText: String,
+        appContext: String,
+        wordCount: Int,
+        source: String = "dictation",
+        computerUseTrace: ComputerUseTraceRecord? = nil
+    ) {
         self.id = id
         self.timestamp = timestamp
         self.durationSeconds = durationSeconds
         self.rawText = rawText
         self.appContext = appContext
         self.wordCount = wordCount
+        self.source = source
+        self.computerUseTrace = computerUseTrace
+    }
+}
+
+public struct ComputerUseTraceRecord: Identifiable, Codable, Equatable, Sendable {
+    public let id: Int64
+    public let dictationID: Int64
+    public let finalStatus: String
+    public let finalMessage: String
+    public let events: [ComputerUseTraceEvent]
+    public let createdAt: String
+
+    public init(
+        id: Int64,
+        dictationID: Int64,
+        finalStatus: String,
+        finalMessage: String,
+        events: [ComputerUseTraceEvent],
+        createdAt: String
+    ) {
+        self.id = id
+        self.dictationID = dictationID
+        self.finalStatus = finalStatus
+        self.finalMessage = finalMessage
+        self.events = events
+        self.createdAt = createdAt
+    }
+}
+
+public struct ComputerUseTraceEvent: Identifiable, Codable, Equatable, Sendable {
+    public let id: UUID
+    public let kind: String
+    public let title: String
+    public let body: String
+    public let status: String?
+    public let step: Int?
+    public let timestamp: String
+
+    public init(
+        id: UUID = UUID(),
+        kind: String,
+        title: String,
+        body: String,
+        status: String? = nil,
+        step: Int? = nil,
+        timestamp: String = ISO8601DateFormatter().string(from: Date())
+    ) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.body = body
+        self.status = status
+        self.step = step
+        self.timestamp = timestamp
     }
 }
 

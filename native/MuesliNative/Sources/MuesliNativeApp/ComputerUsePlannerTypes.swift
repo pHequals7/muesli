@@ -152,13 +152,15 @@ struct ComputerUseToolCall: Codable, Equatable {
 
 struct ComputerUsePlannerResponse: Codable, Equatable {
     let toolCall: ComputerUseToolCall
+    let rawModelOutput: String?
 
     enum CodingKeys: String, CodingKey {
         case toolCall = "tool_call"
     }
 
-    init(toolCall: ComputerUseToolCall) {
+    init(toolCall: ComputerUseToolCall, rawModelOutput: String? = nil) {
         self.toolCall = toolCall
+        self.rawModelOutput = rawModelOutput
     }
 
     init(from decoder: Decoder) throws {
@@ -173,6 +175,7 @@ struct ComputerUsePlannerResponse: Codable, Equatable {
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: failure)
             )
         }
+        rawModelOutput = nil
     }
 
     func encode(to encoder: Encoder) throws {
@@ -182,7 +185,8 @@ struct ComputerUsePlannerResponse: Codable, Equatable {
 
     static func decodeJSON(from text: String) throws -> ComputerUsePlannerResponse {
         let json = try extractJSONObject(from: text)
-        return try JSONDecoder().decode(ComputerUsePlannerResponse.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder().decode(ComputerUsePlannerResponse.self, from: Data(json.utf8))
+        return ComputerUsePlannerResponse(toolCall: decoded.toolCall, rawModelOutput: json)
     }
 
     private static func extractJSONObject(from text: String) throws -> String {

@@ -99,6 +99,8 @@ struct ComputerUsePlannerRuntimeTests {
 
         #expect(result.status == .done)
         #expect(result.message == "done")
+        #expect(result.traceEvents.contains { $0.kind == "model_output" })
+        #expect(result.traceEvents.contains { $0.kind == "finish" })
     }
 
     @Test("stops at max step count")
@@ -155,6 +157,8 @@ struct ComputerUsePlannerRuntimeTests {
 
         #expect(result.status == .done)
         #expect(result.message == "Done: open google chrome")
+        #expect(result.traceEvents.contains { $0.kind == "fallback" })
+        #expect(result.traceEvents.contains { $0.kind == "tool_result" })
     }
 
     @Test("rejects non-schema planner output")

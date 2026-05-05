@@ -1,4 +1,5 @@
 import Foundation
+import MuesliCore
 
 struct ComputerUsePlannerRuntimeResult: Equatable {
     enum Status: Equatable {
@@ -9,6 +10,13 @@ struct ComputerUsePlannerRuntimeResult: Equatable {
 
     let status: Status
     let message: String
+    let traceEvents: [ComputerUseTraceEvent]
+
+    init(status: Status, message: String, traceEvents: [ComputerUseTraceEvent] = []) {
+        self.status = status
+        self.message = message
+        self.traceEvents = traceEvents
+    }
 }
 
 @MainActor
@@ -58,8 +66,18 @@ final class ComputerUsePlannerRuntime {
     }
 
     func run(command: String) async -> ComputerUsePlannerRuntimeResult {
+        var traceEvents = [
+            traceEvent(
+                kind: "transcript",
+                title: "Command",
+                body: command.isEmpty ? "(empty)" : command,
+                status: nil,
+                step: nil
+            ),
+        ]
+
         guard config.enableComputerUsePlanner else {
-            return await runParserFallback(command: command, fallbackReason: nil)
+            return await runParserFallback(command: command, fallbackReason: nil, traceEvents: traceEvents)
         }
 
         let deadline = Date().addingTimeInterval(timeoutSeconds)
@@ -67,10 +85,12 @@ final class ComputerUsePlannerRuntime {
 
         onStatus("Observing")
         var observation = observe(registry)
+        traceEvents.append(observationEvent(observation, step: nil))
 
         for step in 1...maxSteps {
             if Date() >= deadline {
-                return .init(status: .failed, message: "CUA timed out")
+                traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: "CUA timed out", status: "failed", step: step))
+                return .init(status: .failed, message: "CUA timed out", traceEvents: traceEvents)
             }
 
             let request = ComputerUsePlannerRequest(
@@ -84,22 +104,48 @@ final class ComputerUsePlannerRuntime {
             let response: ComputerUsePlannerResponse
             do {
                 onStatus("Planning")
+                traceEvents.append(traceEvent(
+                    kind: "planning",
+                    title: "Planning",
+                    body: "Step \(step) of \(maxSteps). Prior tool results: \(priorResults.count).",
+                    status: "planning",
+                    step: step
+                ))
                 response = try await plan(request)
             } catch {
-                return await runParserFallback(command: command, fallbackReason: error)
+                traceEvents.append(traceEvent(
+                    kind: "fallback",
+                    title: "Planner fallback",
+                    body: error.localizedDescription,
+                    status: "fallback",
+                    step: step
+                ))
+                return await runParserFallback(command: command, fallbackReason: error, traceEvents: traceEvents)
             }
 
             let toolCall = response.toolCall
+            traceEvents.append(traceEvent(
+                kind: "model_output",
+                title: "Model output",
+                body: response.rawModelOutput ?? formatToolCall(toolCall),
+                status: "planned",
+                step: step
+            ))
             if let validationFailure = toolCall.validationFailure() {
-                return .init(status: .failed, message: validationFailure)
+                traceEvents.append(traceEvent(kind: "failed", title: "Schema rejected", body: validationFailure, status: "failed", step: step))
+                return .init(status: .failed, message: validationFailure, traceEvents: traceEvents)
             }
             if toolCall.requiresConfirmation {
-                return .init(status: .needsConfirmation, message: "Confirm: \(toolCall.summary)")
+                let message = "Confirm: \(toolCall.summary)"
+                traceEvents.append(traceEvent(kind: "confirm", title: "Confirmation required", body: message, status: "confirm", step: step))
+                return .init(status: .needsConfirmation, message: message, traceEvents: traceEvents)
             }
 
             switch toolCall.tool {
             case .finish:
-                return .init(status: .done, message: toolCall.reason?.isEmpty == false ? toolCall.reason! : "Done")
+                let message = toolCall.reason?.isEmpty == false ? toolCall.reason! : "Done"
+                traceEvents.append(traceEvent(kind: "finish", title: "Final output", body: message, status: "done", step: step))
+                return .init(status: .done, message: message, traceEvents: traceEvents)
             case .observe:
                 priorResults.append(ComputerUseToolResult(
                     step: step,
@@ -109,9 +155,17 @@ final class ComputerUsePlannerRuntime {
                 ))
                 onStatus("Observing")
                 observation = observe(registry)
+                traceEvents.append(observationEvent(observation, step: step))
                 continue
             default:
                 onStatus("Executing")
+                traceEvents.append(traceEvent(
+                    kind: "tool_call",
+                    title: "Executing",
+                    body: toolCall.summary,
+                    status: "executing",
+                    step: step
+                ))
                 let result = await execute(toolCall, registry)
                 priorResults.append(ComputerUseToolResult(
                     step: step,
@@ -119,52 +173,113 @@ final class ComputerUsePlannerRuntime {
                     status: "\(result.status)",
                     message: result.message
                 ))
+                traceEvents.append(traceEvent(
+                    kind: "tool_result",
+                    title: "Tool result",
+                    body: result.message,
+                    status: "\(result.status)",
+                    step: step
+                ))
 
                 switch result.status {
                 case .executed:
                     onStatus("Observing")
                     observation = observe(registry)
+                    traceEvents.append(observationEvent(observation, step: step))
                 case .needsConfirmation:
-                    return .init(status: .needsConfirmation, message: result.message)
+                    traceEvents.append(traceEvent(kind: "confirm", title: "Confirmation required", body: result.message, status: "confirm", step: step))
+                    return .init(status: .needsConfirmation, message: result.message, traceEvents: traceEvents)
                 case .unsupported, .failed:
-                    return .init(status: .failed, message: result.message)
+                    traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: result.message, status: "failed", step: step))
+                    return .init(status: .failed, message: result.message, traceEvents: traceEvents)
                 }
             }
         }
 
-        return .init(status: .failed, message: "CUA reached its step limit")
+        traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: "CUA reached its step limit", status: "failed", step: maxSteps))
+        return .init(status: .failed, message: "CUA reached its step limit", traceEvents: traceEvents)
     }
 
-    private func runParserFallback(command: String, fallbackReason: Error?) async -> ComputerUsePlannerRuntimeResult {
+    private func runParserFallback(
+        command: String,
+        fallbackReason: Error?,
+        traceEvents: [ComputerUseTraceEvent]
+    ) async -> ComputerUsePlannerRuntimeResult {
+        var traceEvents = traceEvents
         guard let parsed = ComputerUseIntentParser.parse(command) else {
             if let plannerError = fallbackReason as? ComputerUsePlannerError,
                plannerError == .notAuthenticated {
-                return .init(status: .failed, message: plannerError.localizedDescription)
+                traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: plannerError.localizedDescription, status: "failed", step: nil))
+                return .init(status: .failed, message: plannerError.localizedDescription, traceEvents: traceEvents)
             }
             if let fallbackReason {
-                return .init(status: .failed, message: fallbackReason.localizedDescription)
+                traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: fallbackReason.localizedDescription, status: "failed", step: nil))
+                return .init(status: .failed, message: fallbackReason.localizedDescription, traceEvents: traceEvents)
             }
-            return .init(status: .failed, message: "Unsupported CUA command")
+            traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: "Unsupported CUA command", status: "failed", step: nil))
+            return .init(status: .failed, message: "Unsupported CUA command", traceEvents: traceEvents)
         }
 
+        traceEvents.append(traceEvent(kind: "fallback", title: "Rule parser", body: parsed.intent.summary, status: "parsed", step: nil))
         if parsed.requiresConfirmation {
-            return .init(status: .needsConfirmation, message: "Confirm: \(parsed.intent.summary)")
+            let message = "Confirm: \(parsed.intent.summary)"
+            traceEvents.append(traceEvent(kind: "confirm", title: "Confirmation required", body: message, status: "confirm", step: nil))
+            return .init(status: .needsConfirmation, message: message, traceEvents: traceEvents)
         }
 
         onStatus("Executing")
         let result = await executeParsed(parsed)
+        traceEvents.append(traceEvent(kind: "tool_result", title: "Tool result", body: result.message, status: "\(result.status)", step: nil))
         switch result.status {
         case .executed:
-            return .init(status: .done, message: "Done: \(parsed.intent.summary)")
+            let message = "Done: \(parsed.intent.summary)"
+            traceEvents.append(traceEvent(kind: "finish", title: "Final output", body: message, status: "done", step: nil))
+            return .init(status: .done, message: message, traceEvents: traceEvents)
         case .needsConfirmation:
-            return .init(status: .needsConfirmation, message: "Confirm: \(parsed.intent.summary)")
+            let message = "Confirm: \(parsed.intent.summary)"
+            traceEvents.append(traceEvent(kind: "confirm", title: "Confirmation required", body: message, status: "confirm", step: nil))
+            return .init(status: .needsConfirmation, message: message, traceEvents: traceEvents)
         case .unsupported, .failed:
             if let plannerError = fallbackReason as? ComputerUsePlannerError,
                plannerError == .notAuthenticated {
-                return .init(status: .failed, message: plannerError.localizedDescription)
+                traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: plannerError.localizedDescription, status: "failed", step: nil))
+                return .init(status: .failed, message: plannerError.localizedDescription, traceEvents: traceEvents)
             }
-            return .init(status: .failed, message: result.message)
+            traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: result.message, status: "failed", step: nil))
+            return .init(status: .failed, message: result.message, traceEvents: traceEvents)
         }
+    }
+
+    private func observationEvent(_ observation: ComputerUseObservation, step: Int?) -> ComputerUseTraceEvent {
+        let app = observation.appName.isEmpty ? "Unknown app" : observation.appName
+        let window = observation.windowTitle.isEmpty ? "No focused window" : observation.windowTitle
+        return traceEvent(
+            kind: "observation",
+            title: "Observation",
+            body: "\(app) - \(window) - \(observation.elements.count) AX candidates",
+            status: "observed",
+            step: step
+        )
+    }
+
+    private func formatToolCall(_ toolCall: ComputerUseToolCall) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(toolCall),
+              let text = String(data: data, encoding: .utf8) else {
+            return toolCall.summary
+        }
+        return text
+    }
+
+    private func traceEvent(
+        kind: String,
+        title: String,
+        body: String,
+        status: String?,
+        step: Int?
+    ) -> ComputerUseTraceEvent {
+        ComputerUseTraceEvent(kind: kind, title: title, body: body, status: status, step: step)
     }
 }
 
