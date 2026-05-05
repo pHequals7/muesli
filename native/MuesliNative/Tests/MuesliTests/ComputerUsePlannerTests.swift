@@ -494,6 +494,33 @@ struct ComputerUsePlannerRuntimeTests {
         #expect(result.traceEvents.contains { $0.title == "Screen fallback" })
     }
 
+    @Test("emits specific floating status labels")
+    @MainActor
+    func emitsSpecificFloatingStatusLabels() async {
+        var statuses: [String] = []
+        let runtime = ComputerUsePlannerRuntime(
+            config: AppConfig(),
+            onStatus: { status in statuses.append(status) },
+            observe: { _, _, _ in Self.observation(screenshot: Self.screenshot()) },
+            plan: { request in
+                if request.step == 1 {
+                    return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .launchApp, appName: "Google Chrome"))
+                }
+                return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish, reason: "done"))
+            },
+            execute: { _, _ in .executed("Opened Google Chrome") }
+        )
+
+        let result = await runtime.run(command: "open chrome")
+
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.done)
+        #expect(statuses.contains("Observing screen"))
+        #expect(statuses.contains("Planning step 1"))
+        #expect(statuses.contains("Opening Google Chrome"))
+        #expect(statuses.contains("Planning step 2"))
+        #expect(statuses.contains("Done"))
+    }
+
     static func observation(
         appName: String = "Test",
         bundleID: String = "com.example.Test",

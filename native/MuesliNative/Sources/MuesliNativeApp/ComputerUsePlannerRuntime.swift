@@ -88,7 +88,7 @@ final class ComputerUsePlannerRuntime {
         // synthetic focus enforcement, and user-frontmost-app preservation.
         var currentTarget: ComputerUseObservationTarget?
 
-        onStatus("Observing")
+        onStatus("Observing screen")
         var observation = observe(registry, true, currentTarget)
         traceEvents.append(observationEvent(observation, step: nil))
 
@@ -114,7 +114,7 @@ final class ComputerUsePlannerRuntime {
 
             let response: ComputerUsePlannerResponse
             do {
-                onStatus("Planning")
+                onStatus("Planning step \(step)")
                 traceEvents.append(traceEvent(
                     kind: "planning",
                     title: "Planning",
@@ -176,7 +176,7 @@ final class ComputerUsePlannerRuntime {
                 traceEvents.append(traceEvent(kind: "failed", title: "Final output", body: message, status: "failed", step: step))
                 return .init(status: .failed, message: message, traceEvents: traceEvents)
             case .getWindowState:
-                onStatus("Observing")
+                onStatus("Observing screen")
                 let result = await execute(toolCall, registry)
                 let outcomeMessage = recoverableFallbackMessage(for: toolCall, result: result) ?? result.message
                 priorResults.append(ComputerUseToolOutcome(
@@ -193,7 +193,7 @@ final class ComputerUsePlannerRuntime {
                     traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: result.message, status: "failed", step: step))
                     return .init(status: .failed, message: result.message, traceEvents: traceEvents)
                 }
-                onStatus("Observing")
+                onStatus("Observing screen")
                 observation = observe(registry, true, currentTarget)
                 traceEvents.append(observationEvent(observation, step: step))
                 continue
@@ -229,7 +229,7 @@ final class ComputerUsePlannerRuntime {
                 switch result.status {
                 case .executed:
                     if toolCall.isMutating {
-                        onStatus("Observing")
+                        onStatus("Observing screen")
                         observation = observe(registry, true, currentTarget)
                         traceEvents.append(observationEvent(observation, step: step))
                     }
@@ -238,6 +238,7 @@ final class ComputerUsePlannerRuntime {
                     return .init(status: .needsConfirmation, message: result.message, traceEvents: traceEvents)
                 case .unsupported, .failed:
                     if let fallbackMessage = recoverableFallbackMessage(for: toolCall, result: result) {
+                        onStatus("Screen fallback")
                         traceEvents.append(traceEvent(
                             kind: "fallback",
                             title: "Screen fallback",
@@ -245,7 +246,7 @@ final class ComputerUsePlannerRuntime {
                             status: "fallback",
                             step: step
                         ))
-                        onStatus("Observing")
+                        onStatus("Observing screen")
                         observation = observe(registry, true, currentTarget)
                         traceEvents.append(observationEvent(observation, step: step))
                         continue

@@ -123,6 +123,10 @@ final class MuesliController: NSObject {
     private var dictationStartedAt: Date?
     private var computerUseCommandStartedAt: Date?
     private var computerUseCommandTask: Task<Void, Never>?
+    private var computerUseFloatingStatusWorkItem: DispatchWorkItem?
+    private var computerUseLastFloatingStatusAt = Date.distantPast
+    private var computerUseLastFloatingStatus = ""
+    private let computerUseFloatingStatusMinimumDwell: TimeInterval = 0.55
     private var _streamingDictationController: Any?  // StreamingDictationController (macOS 15+)
     private var isNemotronStreaming = false
     private var previousStreamText = ""
@@ -3098,21 +3102,97 @@ final class MuesliController: NSObject {
 
     @MainActor
     private func handleComputerUseCommand(transcript: String, dictationID: Int64?) async {
+        resetComputerUseFloatingStatus()
+        indicator.setTranscribingTitle("Starting CUA", config: config)
         setState(.transcribing)
         let runtime = ComputerUsePlannerRuntime(config: config) { [weak self] status in
             guard let self else { return }
-            self.statusBarController?.setStatus(status)
-            self.indicator.setTranscribingTitle(status, config: self.config)
+            self.presentComputerUseFloatingStatus(status)
         }
 
         let result = await runtime.run(command: transcript)
         persistComputerUseTrace(result, dictationID: dictationID)
         computerUseCommandTask = nil
+        await waitForComputerUseFloatingStatusDwell()
         presentComputerUseRuntimeResult(result)
         meetingMonitor.resumeAfterCooldown()
         TelemetryDeck.signal("computer_use.command_finished", parameters: [
             "status": "\(result.status)",
         ])
+    }
+
+    @MainActor
+    private func resetComputerUseFloatingStatus() {
+        computerUseFloatingStatusWorkItem?.cancel()
+        computerUseFloatingStatusWorkItem = nil
+        computerUseLastFloatingStatusAt = .distantPast
+        computerUseLastFloatingStatus = ""
+    }
+
+    @MainActor
+    private func presentComputerUseFloatingStatus(_ status: String) {
+        let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        statusBarController?.setStatus(trimmed)
+        guard dictationState == .transcribing else { return }
+        guard trimmed != computerUseLastFloatingStatus else { return }
+
+        let now = Date()
+        let elapsed = now.timeIntervalSince(computerUseLastFloatingStatusAt)
+        if shouldShowComputerUseStatusImmediately(trimmed, elapsed: elapsed) {
+            computerUseFloatingStatusWorkItem?.cancel()
+            computerUseFloatingStatusWorkItem = nil
+            applyComputerUseFloatingStatus(trimmed, at: now)
+            return
+        }
+
+        let delay = max(0.08, computerUseFloatingStatusMinimumDwell - elapsed)
+        computerUseFloatingStatusWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                guard self.dictationState == .transcribing else { return }
+                self.applyComputerUseFloatingStatus(trimmed, at: Date())
+                self.computerUseFloatingStatusWorkItem = nil
+            }
+        }
+        computerUseFloatingStatusWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    @MainActor
+    private func shouldShowComputerUseStatusImmediately(_ status: String, elapsed: TimeInterval) -> Bool {
+        guard !computerUseLastFloatingStatus.isEmpty else { return true }
+        if elapsed >= computerUseFloatingStatusMinimumDwell { return true }
+        if status == "Done" || status == "Failed" || status == "Confirm" { return true }
+        if computerUseLastFloatingStatus.hasPrefix("Planning"), elapsed >= 0.25 {
+            return true
+        }
+        if status.hasPrefix("Opening") || status == "Navigating" || status == "Typing" || status == "Clicking" {
+            return elapsed >= 0.2
+        }
+        return false
+    }
+
+    @MainActor
+    private func applyComputerUseFloatingStatus(_ status: String, at date: Date) {
+        computerUseLastFloatingStatus = status
+        computerUseLastFloatingStatusAt = date
+        indicator.setTranscribingTitle(status, config: config)
+    }
+
+    @MainActor
+    private func waitForComputerUseFloatingStatusDwell() async {
+        computerUseFloatingStatusWorkItem?.cancel()
+        computerUseFloatingStatusWorkItem = nil
+        let elapsed = Date().timeIntervalSince(computerUseLastFloatingStatusAt)
+        let remaining = computerUseLastFloatingStatus.isEmpty
+            ? 0
+            : computerUseFloatingStatusMinimumDwell - elapsed
+        if remaining > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+        }
     }
 
     private func persistComputerUseTrace(_ result: ComputerUsePlannerRuntimeResult, dictationID: Int64?) {
