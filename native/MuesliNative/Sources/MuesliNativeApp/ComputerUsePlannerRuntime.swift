@@ -28,7 +28,7 @@ final class ComputerUsePlannerRuntime {
     typealias ParsedExecuteHandler = @MainActor (ParsedComputerUseIntent) async -> ComputerUseExecutionResult
 
     private let config: AppConfig
-    private let maxSteps: Int
+    private let maxSteps: Int?
     private let timeoutSeconds: TimeInterval
     private let registry = ComputerUseElementRegistry()
     private let onStatus: StatusHandler
@@ -39,8 +39,8 @@ final class ComputerUsePlannerRuntime {
 
     init(
         config: AppConfig,
-        maxSteps: Int = 16,
-        timeoutSeconds: TimeInterval = 45,
+        maxSteps: Int? = nil,
+        timeoutSeconds: TimeInterval = 60,
         onStatus: @escaping StatusHandler = { _ in },
         observe: @escaping ObserveHandler = { registry, includeScreenshot in
             ComputerUseObservationCapture.capture(registry: registry, includeScreenshot: includeScreenshot)
@@ -87,11 +87,17 @@ final class ComputerUsePlannerRuntime {
         var observation = observe(registry, false)
         traceEvents.append(observationEvent(observation, step: nil))
 
-        for step in 1...maxSteps {
+        var step = 1
+        while true {
             if Date() >= deadline {
                 traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: "CUA timed out", status: "failed", step: step))
                 return .init(status: .failed, message: "CUA timed out", traceEvents: traceEvents)
             }
+            if let maxSteps, step > maxSteps {
+                traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: "CUA reached its step limit", status: "failed", step: maxSteps))
+                return .init(status: .failed, message: "CUA reached its step limit", traceEvents: traceEvents)
+            }
+            defer { step += 1 }
 
             let request = ComputerUsePlannerRequest(
                 command: command,
@@ -107,7 +113,7 @@ final class ComputerUsePlannerRuntime {
                 traceEvents.append(traceEvent(
                     kind: "planning",
                     title: "Planning",
-                    body: "Step \(step) of \(maxSteps). Prior tool results: \(priorResults.count).",
+                    body: "Step \(step)\(stepLimitSuffix(maxSteps)). Prior tool results: \(priorResults.count).",
                     status: "planning",
                     step: step
                 ))
@@ -207,9 +213,6 @@ final class ComputerUsePlannerRuntime {
                 }
             }
         }
-
-        traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: "CUA reached its step limit", status: "failed", step: maxSteps))
-        return .init(status: .failed, message: "CUA reached its step limit", traceEvents: traceEvents)
     }
 
     private func runParserFallback(
@@ -279,6 +282,10 @@ final class ComputerUsePlannerRuntime {
             status: "observed",
             step: step
         )
+    }
+
+    private func stepLimitSuffix(_ maxSteps: Int?) -> String {
+        maxSteps.map { " of \($0)" } ?? ""
     }
 
     private func formatToolCall(_ toolCall: ComputerUseToolCall) -> String {

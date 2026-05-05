@@ -272,7 +272,7 @@ struct ComputerUseToolResult: Codable, Equatable {
 struct ComputerUsePlannerRequest: Codable, Equatable {
     let command: String
     let step: Int
-    let maxSteps: Int
+    let maxSteps: Int?
     let observation: ComputerUseObservation
     let priorResults: [ComputerUseToolResult]
 
