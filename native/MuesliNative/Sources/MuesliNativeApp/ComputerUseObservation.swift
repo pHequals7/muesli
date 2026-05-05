@@ -126,6 +126,18 @@ struct ComputerUseObservation: Codable, Equatable {
     }
 }
 
+struct ComputerUseObservationTarget: Codable, Equatable {
+    let appName: String?
+    let bundleID: String?
+
+    var displayName: String {
+        if let appName, !appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return appName
+        }
+        return bundleID ?? ""
+    }
+}
+
 @MainActor
 final class ComputerUseElementRegistry {
     private var elements: [String: AXUIElement] = [:]
@@ -169,11 +181,15 @@ enum ComputerUseObservationCapture {
     static func capture(
         registry: ComputerUseElementRegistry,
         includeScreenshot: Bool = false,
+        target: ComputerUseObservationTarget? = nil,
         maxCandidates: Int = 80,
         maxDepth: Int = 8
     ) -> ComputerUseObservation {
         registry.clear()
-        let app = NSWorkspace.shared.frontmostApplication
+        let app = runningApplication(for: target) ?? NSWorkspace.shared.frontmostApplication
+        if target != nil, let app, !app.isActive {
+            app.activate(options: [.activateAllWindows])
+        }
         let appName = app?.localizedName ?? "Unknown"
         let bundleID = app?.bundleIdentifier ?? ""
         let capturedAt = Date()
@@ -324,6 +340,25 @@ enum ComputerUseObservationCapture {
         return (element as! AXUIElement)
     }
 
+    private static func runningApplication(for target: ComputerUseObservationTarget?) -> NSRunningApplication? {
+        guard let target else { return nil }
+        if let bundleID = target.bundleID?.trimmingCharacters(in: .whitespacesAndNewlines), !bundleID.isEmpty {
+            return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == bundleID }
+        }
+        guard let appName = target.appName?.trimmingCharacters(in: .whitespacesAndNewlines), !appName.isEmpty else {
+            return nil
+        }
+        let canonical = canonicalAppName(appName)
+        if let bundleID = ComputerUseExecutor.bundleIdentifierAlias(for: appName),
+           let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleID }) {
+            return app
+        }
+        return NSWorkspace.shared.runningApplications.first { app in
+            guard let name = app.localizedName else { return false }
+            return canonicalAppName(name) == canonical
+        }
+    }
+
     private static func childElements(of element: AXUIElement) -> [AXUIElement] {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success,
@@ -431,5 +466,18 @@ enum ComputerUseObservationCapture {
 
     private static func truncate(_ value: String, limit: Int) -> String {
         value.count > limit ? String(value.prefix(limit - 1)) + "..." : value
+    }
+
+    private static func canonicalAppName(_ value: String) -> String {
+        let scalars = value.lowercased().unicodeScalars.map { scalar -> Character in
+            CharacterSet.alphanumerics.contains(scalar) || CharacterSet.whitespaces.contains(scalar)
+                ? Character(scalar)
+                : " "
+        }
+        return String(scalars)
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+            .replacingOccurrences(of: #" app$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

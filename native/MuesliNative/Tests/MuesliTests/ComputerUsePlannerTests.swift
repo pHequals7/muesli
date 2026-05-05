@@ -169,7 +169,7 @@ struct ComputerUsePlannerRuntimeTests {
     func finishesAfterFinishTool() async {
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish, reason: "done")) },
             execute: { _, _ in .executed("unexpected") }
         )
@@ -187,7 +187,7 @@ struct ComputerUsePlannerRuntimeTests {
     func failToolProducesFailedResult() async {
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .fail, reason: "blocked")) },
             execute: { _, _ in .executed("unexpected") }
         )
@@ -203,7 +203,7 @@ struct ComputerUsePlannerRuntimeTests {
     func defaultRuntimeUsesHighSafetyStepCap() async {
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { request in
                 #expect(request.maxSteps == 100)
                 #expect(request.toolCatalogVersion == ComputerUseToolRegistry.catalogVersion)
@@ -224,7 +224,7 @@ struct ComputerUsePlannerRuntimeTests {
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
             maxSteps: 2,
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .getWindowState)) },
             execute: { _, _ in .executed("unexpected") }
         )
@@ -241,7 +241,7 @@ struct ComputerUsePlannerRuntimeTests {
         var executionCount = 0
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation(screenshot: Self.screenshot()) },
+            observe: { _, _, _ in Self.observation(screenshot: Self.screenshot()) },
             plan: { _ in
                 ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(
                     tool: .click,
@@ -268,7 +268,7 @@ struct ComputerUsePlannerRuntimeTests {
     func stopsOnConfirmationRequiredAction() async {
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { _ in
                 ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(
                     tool: .click,
@@ -290,7 +290,7 @@ struct ComputerUsePlannerRuntimeTests {
     func failsWhenPlannerUnavailable() async {
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { _ in throw ComputerUsePlannerError.notAuthenticated },
             execute: { _, _ in .failed("unexpected") }
         )
@@ -309,7 +309,7 @@ struct ComputerUsePlannerRuntimeTests {
         var executedTools: [ComputerUseToolCall] = []
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { request in
                 if request.step == 1 {
                     return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .launchApp, appName: "Google Chrome"))
@@ -332,6 +332,48 @@ struct ComputerUsePlannerRuntimeTests {
         #expect(!result.traceEvents.contains { $0.title == "Planner app mismatch" })
     }
 
+    @Test("refreshes launched app state instead of frontmost fallback")
+    @MainActor
+    func refreshesLaunchedAppStateInsteadOfFrontmostFallback() async {
+        var observedTargets: [ComputerUseObservationTarget?] = []
+        let runtime = ComputerUsePlannerRuntime(
+            config: AppConfig(),
+            observe: { _, _, target in
+                observedTargets.append(target)
+                if target?.appName == "Notes" {
+                    return Self.observation(
+                        appName: "Notes",
+                        bundleID: "com.apple.Notes",
+                        windowTitle: "Notes",
+                        screenshot: Self.screenshot()
+                    )
+                }
+                return Self.observation(
+                    appName: "Google Chrome",
+                    bundleID: "com.google.Chrome",
+                    windowTitle: "YouTube",
+                    screenshot: Self.screenshot()
+                )
+            },
+            plan: { request in
+                if request.step == 1 {
+                    #expect(request.latestWindowState.bundleID == "com.google.Chrome")
+                    return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .launchApp, appName: "Notes"))
+                }
+                #expect(request.latestWindowState.bundleID == "com.apple.Notes")
+                return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish, reason: "done"))
+            },
+            execute: { _, _ in .executed("Opened Notes") }
+        )
+
+        let result = await runtime.run(command: "open notes")
+
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.done)
+        #expect(observedTargets.count == 2)
+        #expect(observedTargets[0] == nil)
+        #expect(observedTargets[1]?.appName == "Notes")
+    }
+
     @Test("fails when planner mode is disabled")
     @MainActor
     func failsWhenPlannerModeDisabled() async {
@@ -339,7 +381,7 @@ struct ComputerUsePlannerRuntimeTests {
         config.enableComputerUsePlanner = false
         let runtime = ComputerUsePlannerRuntime(
             config: config,
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish)) },
             execute: { _, _ in .executed("unexpected") }
         )
@@ -356,7 +398,7 @@ struct ComputerUsePlannerRuntimeTests {
     func rejectsNonSchemaPlannerOutput() async {
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, _ in Self.observation() },
+            observe: { _, _, _ in Self.observation() },
             plan: { _ in
                 _ = try ComputerUsePlannerResponse.decodeJSON(from: #"{"tool":"launch_app","text":"Google Chrome"}"#)
                 return ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .finish))
@@ -376,7 +418,7 @@ struct ComputerUsePlannerRuntimeTests {
         var executedTool: ComputerUseToolName?
         let runtime = ComputerUsePlannerRuntime(
             config: AppConfig(),
-            observe: { _, includeScreenshot in
+            observe: { _, includeScreenshot, _ in
                 includeScreenshotValues.append(includeScreenshot)
                 return Self.observation(screenshot: includeScreenshot ? Self.screenshot() : nil)
             },
@@ -401,11 +443,16 @@ struct ComputerUsePlannerRuntimeTests {
         #expect(result.traceEvents.contains { $0.body.contains("screenshot s1") })
     }
 
-    static func observation(screenshot: ComputerUseScreenshotObservation? = nil) -> ComputerUseObservation {
+    static func observation(
+        appName: String = "Test",
+        bundleID: String = "com.example.Test",
+        windowTitle: String = "Window",
+        screenshot: ComputerUseScreenshotObservation? = nil
+    ) -> ComputerUseObservation {
         ComputerUseObservation(
-            appName: "Test",
-            bundleID: "com.example.Test",
-            windowTitle: "Window",
+            appName: appName,
+            bundleID: bundleID,
+            windowTitle: windowTitle,
             windowFrame: nil,
             screenshot: screenshot,
             cursorPosition: ComputerUseRect(x: 10, y: 20, width: 1, height: 1),

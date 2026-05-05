@@ -221,7 +221,9 @@ enum ComputerUseToolExecutor {
         configuration.activates = true
 
         do {
-            _ = try await openApplication(at: appURL, configuration: configuration)
+            let app = try await openApplication(at: appURL, configuration: configuration)
+            app.activate(options: [.activateAllWindows])
+            _ = await waitUntilActive(app: app, timeout: 1.5)
             return .executed("Opened \(name)")
         } catch {
             return .failed("Could not open \(name)")
@@ -232,6 +234,7 @@ enum ComputerUseToolExecutor {
         let name = cleanedName(rawName)
         if let app = runningApplication(named: name) {
             app.activate(options: [.activateAllWindows])
+            _ = await waitUntilActive(app: app, timeout: 1.5)
             return .executed("Focused \(name)")
         }
         return await openApp(named: name)
@@ -538,6 +541,17 @@ enum ComputerUseToolExecutor {
                 }
             }
         }
+    }
+
+    private static func waitUntilActive(app: NSRunningApplication, timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if app.isActive {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return app.isActive
     }
 
     private static func cgFlags(for modifiers: [ComputerUseKeyModifier]) -> CGEventFlags {

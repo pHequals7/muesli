@@ -36,7 +36,8 @@ enum ComputerUsePlannerClient {
     - Only use element_index or element_id values present in latest_window_state. Element references expire after each new get_window_state or refreshed state.
     - Never invent AppleScript, shell commands, code, URLs, or tools.
     - For app launch/navigation, use launch_app with the requested app name or app bundle id. Do not substitute another app because it is frontmost, visible, or present in examples.
-    - Prefer get_window_state when the current state is insufficient.
+    - After launch_app, Muesli will refresh the requested app's state automatically. If the next state is not the requested app, call get_window_state for that app before using fail.
+    - Prefer get_window_state when the current state is insufficient or appears to be for the wrong app.
     - Prefer element-targeted click/set_value over coordinate clicks when a matching element exists.
     - For coordinate click/drag, use screenshot pixel coordinates from the current screenshot, not global screen coordinates.
     - Include screenshot_id from latest_window_state when using screenshot-coordinate tools.

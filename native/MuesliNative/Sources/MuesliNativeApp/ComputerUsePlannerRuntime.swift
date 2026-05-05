@@ -22,7 +22,7 @@ struct ComputerUsePlannerRuntimeResult: Equatable {
 @MainActor
 final class ComputerUsePlannerRuntime {
     typealias StatusHandler = @MainActor (String) -> Void
-    typealias ObserveHandler = @MainActor (ComputerUseElementRegistry, Bool) -> ComputerUseObservation
+    typealias ObserveHandler = @MainActor (ComputerUseElementRegistry, Bool, ComputerUseObservationTarget?) -> ComputerUseObservation
     typealias PlanHandler = (ComputerUsePlannerRequest) async throws -> ComputerUsePlannerResponse
     typealias ExecuteHandler = @MainActor (ComputerUseToolCall, ComputerUseElementRegistry) async -> ComputerUseExecutionResult
 
@@ -40,8 +40,12 @@ final class ComputerUsePlannerRuntime {
         maxSteps: Int? = 100,
         timeoutSeconds: TimeInterval = 60,
         onStatus: @escaping StatusHandler = { _ in },
-        observe: @escaping ObserveHandler = { registry, includeScreenshot in
-            ComputerUseObservationCapture.capture(registry: registry, includeScreenshot: includeScreenshot)
+        observe: @escaping ObserveHandler = { registry, includeScreenshot, target in
+            ComputerUseObservationCapture.capture(
+                registry: registry,
+                includeScreenshot: includeScreenshot,
+                target: target
+            )
         },
         plan: PlanHandler? = nil,
         execute: @escaping ExecuteHandler = { toolCall, registry in
@@ -79,9 +83,13 @@ final class ComputerUsePlannerRuntime {
         let deadline = Date().addingTimeInterval(timeoutSeconds)
         var priorResults: [ComputerUseToolOutcome] = []
         var repeatedToolCounts: [String: Int] = [:]
+        // V1 keeps foreground activation, but state is scoped to a target app.
+        // Later Codex-style work should replace this with background key-window tracking,
+        // synthetic focus enforcement, and user-frontmost-app preservation.
+        var currentTarget: ComputerUseObservationTarget?
 
         onStatus("Observing")
-        var observation = observe(registry, true)
+        var observation = observe(registry, true, currentTarget)
         traceEvents.append(observationEvent(observation, step: nil))
 
         var step = 1
@@ -127,6 +135,9 @@ final class ComputerUsePlannerRuntime {
             }
 
             let toolCall = response.toolCall
+            if let target = target(from: toolCall, fallback: currentTarget) {
+                currentTarget = target
+            }
             traceEvents.append(traceEvent(
                 kind: "model_output",
                 title: "Model output",
@@ -178,7 +189,7 @@ final class ComputerUsePlannerRuntime {
                     return .init(status: .failed, message: result.message, traceEvents: traceEvents)
                 }
                 onStatus("Observing")
-                observation = observe(registry, true)
+                observation = observe(registry, true, currentTarget)
                 traceEvents.append(observationEvent(observation, step: step))
                 continue
             default:
@@ -213,7 +224,7 @@ final class ComputerUsePlannerRuntime {
                 case .executed:
                     if toolCall.isMutating {
                         onStatus("Observing")
-                        observation = observe(registry, true)
+                        observation = observe(registry, true, currentTarget)
                         traceEvents.append(observationEvent(observation, step: step))
                     }
                 case .needsConfirmation:
@@ -282,6 +293,21 @@ final class ComputerUsePlannerRuntime {
             return true
         case .listApps, .launchApp, .listWindows, .getWindowState, .listBrowserTabs, .pageGetText, .pageQueryDOM, .finish, .fail:
             return false
+        }
+    }
+
+    private func target(from toolCall: ComputerUseToolCall, fallback: ComputerUseObservationTarget?) -> ComputerUseObservationTarget? {
+        if !toolCall.canonicalBundleID.isEmpty {
+            return ComputerUseObservationTarget(appName: toolCall.appName, bundleID: toolCall.canonicalBundleID)
+        }
+        if let appName = toolCall.appName?.trimmingCharacters(in: .whitespacesAndNewlines), !appName.isEmpty {
+            return ComputerUseObservationTarget(appName: appName, bundleID: nil)
+        }
+        switch toolCall.tool {
+        case .click, .setValue, .typeText, .pressKey, .hotkey, .scroll, .drag:
+            return fallback
+        default:
+            return nil
         }
     }
 
