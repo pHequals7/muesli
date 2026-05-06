@@ -223,10 +223,12 @@ enum ComputerUseToolExecutor {
         do {
             let app = try await openApplication(at: appURL, configuration: configuration)
             app.activate(options: [.activateAllWindows])
-            _ = await waitUntilActive(app: app, timeout: 1.5)
+            _ = try await waitUntilActive(app: app, timeout: 1.5)
             return .executed("Opened \(name)")
+        } catch is CancellationError {
+            return .failed("Cancelled opening \(name)")
         } catch {
-            return .failed("Could not open \(name)")
+            return .failed("Could not open \(name): \(error.localizedDescription)")
         }
     }
 
@@ -234,7 +236,13 @@ enum ComputerUseToolExecutor {
         let name = cleanedName(rawName)
         if let app = runningApplication(named: name) {
             app.activate(options: [.activateAllWindows])
-            _ = await waitUntilActive(app: app, timeout: 1.5)
+            do {
+                _ = try await waitUntilActive(app: app, timeout: 1.5)
+            } catch is CancellationError {
+                return .failed("Cancelled focusing \(name)")
+            } catch {
+                return .failed("Could not focus \(name): \(error.localizedDescription)")
+            }
             return .executed("Focused \(name)")
         }
         return await openApp(named: name)
@@ -262,34 +270,32 @@ enum ComputerUseToolExecutor {
             return .failed("Could not create scroll event")
         }
 
-        let units = Int32(max(1, min(8, pages)) * 8)
-        let vertical: Int32
-        let horizontal: Int32
-        switch direction {
-        case .up:
-            vertical = units
-            horizontal = 0
-        case .down:
-            vertical = -units
-            horizontal = 0
-        case .left:
-            vertical = 0
-            horizontal = units
-        case .right:
-            vertical = 0
-            horizontal = -units
-        }
+        let deltas = scrollDeltas(direction: direction, pages: pages)
 
         let event = CGEvent(
             scrollWheelEvent2Source: source,
             units: .line,
             wheelCount: 2,
-            wheel1: vertical,
-            wheel2: horizontal,
+            wheel1: deltas.vertical,
+            wheel2: deltas.horizontal,
             wheel3: 0
         )
         event?.post(tap: .cghidEventTap)
         return .executed("Scrolled \(direction.rawValue)")
+    }
+
+    static func scrollDeltas(direction: ComputerUseScrollDirection, pages: Double) -> (vertical: Int32, horizontal: Int32) {
+        let units = Int32(max(1, min(8, pages)) * 8)
+        switch direction {
+        case .up:
+            return (units, 0)
+        case .down:
+            return (-units, 0)
+        case .left:
+            return (0, -units)
+        case .right:
+            return (0, units)
+        }
     }
 
     private static func click(_ toolCall: ComputerUseToolCall, registry: ComputerUseElementRegistry?) -> ComputerUseExecutionResult {
@@ -544,13 +550,13 @@ enum ComputerUseToolExecutor {
         }
     }
 
-    private static func waitUntilActive(app: NSRunningApplication, timeout: TimeInterval) async -> Bool {
+    private static func waitUntilActive(app: NSRunningApplication, timeout: TimeInterval) async throws -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if app.isActive {
                 return true
             }
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            try await Task.sleep(nanoseconds: 100_000_000)
         }
         return app.isActive
     }

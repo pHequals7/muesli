@@ -21,6 +21,15 @@ struct ComputerUseExecutorTests {
         #expect(ComputerUseExecutor.keyCode(for: "left arrow") == 123)
     }
 
+    @Test("maps scroll directions to CG wheel deltas")
+    @MainActor
+    func scrollDirectionDeltas() {
+        #expect(ComputerUseToolExecutor.scrollDeltas(direction: .up, pages: 1).vertical > 0)
+        #expect(ComputerUseToolExecutor.scrollDeltas(direction: .down, pages: 1).vertical < 0)
+        #expect(ComputerUseToolExecutor.scrollDeltas(direction: .left, pages: 1).horizontal < 0)
+        #expect(ComputerUseToolExecutor.scrollDeltas(direction: .right, pages: 1).horizontal > 0)
+    }
+
     @Test("parses browser tab Apple Events output")
     func parsesBrowserTabs() {
         let tabs = ComputerUseBrowserAutomation.parseTabs(

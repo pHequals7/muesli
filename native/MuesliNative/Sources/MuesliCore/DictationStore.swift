@@ -613,16 +613,37 @@ public final class DictationStore {
     public func deleteDictation(id: Int64) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        try exec("DELETE FROM computer_use_traces WHERE dictation_id = \(id)", db: db)
-        let sql = "DELETE FROM dictations WHERE id = ?"
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+        guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
             throw lastError(db)
         }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_int64(statement, 1, id)
-        guard sqlite3_step(statement) == SQLITE_DONE else {
-            throw lastError(db)
+
+        do {
+            var traceStatement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "DELETE FROM computer_use_traces WHERE dictation_id = ?", -1, &traceStatement, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(traceStatement) }
+            sqlite3_bind_int64(traceStatement, 1, id)
+            guard sqlite3_step(traceStatement) == SQLITE_DONE else {
+                throw lastError(db)
+            }
+
+            var dictationStatement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, "DELETE FROM dictations WHERE id = ?", -1, &dictationStatement, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(dictationStatement) }
+            sqlite3_bind_int64(dictationStatement, 1, id)
+            guard sqlite3_step(dictationStatement) == SQLITE_DONE else {
+                throw lastError(db)
+            }
+
+            guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
         }
     }
 

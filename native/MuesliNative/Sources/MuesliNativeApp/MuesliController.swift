@@ -3083,6 +3083,7 @@ final class MuesliController: NSObject {
                 }
             }
         }
+        computerUseCommandTask?.cancel()
         computerUseCommandTask = task
     }
 
