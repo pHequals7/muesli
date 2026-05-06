@@ -21,10 +21,25 @@ struct ComputerUseToolRegistryTests {
         #expect(docs.contains("Tool: page_query_dom"))
     }
 
+    @Test("emits native tool definitions")
+    func emitsNativeToolDefinitions() {
+        let tools = ComputerUseToolRegistry.nativeToolDefinitions()
+
+        #expect(tools.count == ComputerUseToolName.allCases.count)
+        #expect(JSONSerialization.isValidJSONObject(tools))
+        let launch = tools.first { ($0["name"] as? String) == "launch_app" }
+        #expect(launch?["type"] as? String == "function")
+        let parameters = launch?["parameters"] as? [String: Any]
+        let properties = parameters?["properties"] as? [String: Any]
+        #expect(properties?["tool"] == nil)
+        #expect(properties?["app_name"] != nil)
+    }
+
     @Test("planner guidance treats browser page tools as optional")
     func plannerGuidanceTreatsBrowserPageToolsAsOptional() {
         let instructions = ComputerUsePlannerClient.instructions
 
+        #expect(instructions.contains("native tool call"))
         #expect(instructions.contains("Browser page tools are optional shortcuts"))
         #expect(instructions.contains("Chrome Apple Events JavaScript permission"))
         #expect(instructions.contains("AX/screenshot fallback"))
@@ -82,6 +97,28 @@ struct ComputerUsePlannerResponseTests {
         #expect(response.toolCall.screenshotID == "s1")
         #expect(response.toolCall.x == 120)
         #expect(response.toolCall.y == 240)
+    }
+
+    @Test("decodes native tool call arguments")
+    func decodesNativeToolCallArguments() throws {
+        let response = try ComputerUsePlannerResponse.decodeNativeToolCall(
+            name: "launch_app",
+            arguments: #"{"app_name":"Google Chrome"}"#
+        )
+
+        #expect(response.toolCall.tool == .launchApp)
+        #expect(response.toolCall.appName == "Google Chrome")
+        #expect(response.rawModelOutput?.contains(#""tool":"launch_app""#) == true)
+    }
+
+    @Test("native tool call rejects unsupported fields")
+    func nativeToolCallRejectsUnsupportedFields() {
+        #expect(throws: Error.self) {
+            _ = try ComputerUsePlannerResponse.decodeNativeToolCall(
+                name: "finish",
+                arguments: #"{"reason":"done","url":"https://example.com"}"#
+            )
+        }
     }
 
     @Test("malformed JSON fails safely")

@@ -172,6 +172,31 @@ enum ComputerUseToolRegistry {
         }.joined(separator: "\n\n")
     }
 
+    static func nativeToolDefinitions() -> [[String: Any]] {
+        definitions.map { definition in
+            [
+                "type": "function",
+                "name": definition.name.rawValue,
+                "description": "\(definition.description) Risk policy: \(definition.riskPolicy)",
+                "parameters": toolParameters(for: definition),
+            ]
+        }
+    }
+
+    private static func toolParameters(for definition: ComputerUseToolDefinition) -> [String: Any] {
+        let properties = definition.schema.properties
+            .filter { $0.key != "tool" }
+            .reduce(into: [String: Any]()) { partial, entry in
+                partial[entry.key] = entry.value.jsonSchema
+            }
+        return [
+            "type": definition.schema.type,
+            "properties": properties,
+            "required": definition.schema.required.filter { $0 != "tool" },
+            "additionalProperties": definition.schema.additionalProperties,
+        ]
+    }
+
     private static func definition(
         _ name: ComputerUseToolName,
         _ description: String,
@@ -207,5 +232,19 @@ private extension ComputerUseToolSchemaProperty {
 
     static func array(_ description: String, item: ComputerUseToolSchemaProperty) -> ComputerUseToolSchemaProperty {
         ComputerUseToolSchemaProperty(type: "array", description: description, items: ["type": item.type])
+    }
+
+    var jsonSchema: [String: Any] {
+        var schema: [String: Any] = [
+            "type": type,
+            "description": description,
+        ]
+        if let enumValues {
+            schema["enum"] = enumValues
+        }
+        if let items {
+            schema["items"] = items
+        }
+        return schema
     }
 }

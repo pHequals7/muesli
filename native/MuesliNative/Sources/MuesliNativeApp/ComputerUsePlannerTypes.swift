@@ -509,6 +509,33 @@ struct ComputerUsePlannerResponse: Codable, Equatable {
         return ComputerUsePlannerResponse(toolCall: decoded.toolCall, rawModelOutput: json)
     }
 
+    static func decodeNativeToolCall(name: String, arguments: String) throws -> ComputerUsePlannerResponse {
+        guard let tool = ComputerUseToolName(rawValue: name) else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: [], debugDescription: "Unknown native tool \(name)")
+            )
+        }
+        let trimmedArguments = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        let argumentData = trimmedArguments.isEmpty ? Data("{}".utf8) : Data(trimmedArguments.utf8)
+        guard let argumentObject = try JSONSerialization.jsonObject(with: argumentData) as? [String: Any] else {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: [], debugDescription: "\(name) arguments were not a JSON object")
+            )
+        }
+        var invocationObject = argumentObject
+        invocationObject["tool"] = tool.rawValue
+        let invocationData = try JSONSerialization.data(withJSONObject: invocationObject)
+        let json = String(data: invocationData, encoding: .utf8) ?? "{}"
+        try rejectUnknownKeys(in: json)
+        let decoded = try JSONDecoder().decode(ComputerUseToolInvocation.self, from: invocationData)
+        if let failure = decoded.validationFailure() {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(codingPath: [], debugDescription: failure)
+            )
+        }
+        return ComputerUsePlannerResponse(toolCall: decoded, rawModelOutput: json)
+    }
+
     private static func rejectUnknownKeys(in json: String) throws {
         guard let data = json.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]

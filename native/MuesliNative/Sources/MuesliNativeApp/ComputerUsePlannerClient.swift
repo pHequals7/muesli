@@ -26,11 +26,7 @@ enum ComputerUsePlannerClient {
 
     static var instructions: String {
         """
-    You are Muesli's computer-use planner. You do not execute actions. You choose exactly one tool call.
-
-    Return exactly one JSON object and no markdown. The JSON object must be a single tool invocation from this generated tool catalog:
-
-    \(ComputerUseToolRegistry.promptDocumentation())
+    You are Muesli's computer-use planner. You do not execute actions. You must choose exactly one native tool call from the provided tool list.
 
     Rules:
     - Only use element_index or element_id values present in latest_window_state. Element references expire after each new get_window_state or refreshed state.
@@ -58,17 +54,12 @@ enum ComputerUsePlannerClient {
         config: AppConfig
     ) async throws -> ComputerUsePlannerResponse {
         do {
-            let text = try await callWHAM(
+            return try await callWHAM(
                 systemPrompt: instructions,
                 userPrompt: requestPrompt(for: request),
                 imageDataURL: request.latestWindowState.screenshot?.imageDataURL,
                 model: plannerModel(for: config)
             )
-            do {
-                return try ComputerUsePlannerResponse.decodeJSON(from: text)
-            } catch {
-                throw ComputerUsePlannerError.invalidResponse(error.localizedDescription)
-            }
         } catch ChatGPTAuthError.notAuthenticated {
             throw ComputerUsePlannerError.notAuthenticated
         } catch let error as ComputerUsePlannerError {
@@ -97,7 +88,7 @@ enum ComputerUsePlannerClient {
         userPrompt: String,
         imageDataURL: String?,
         model: String
-    ) async throws -> String {
+    ) async throws -> ComputerUsePlannerResponse {
         let (token, accountId) = try await ChatGPTAuthManager.shared.validAccessToken()
         var content: [[String: Any]] = [
             ["type": "input_text", "text": userPrompt],
@@ -110,6 +101,9 @@ enum ComputerUsePlannerClient {
             "store": false,
             "stream": true,
             "instructions": systemPrompt,
+            "tools": ComputerUseToolRegistry.nativeToolDefinitions(),
+            "tool_choice": "required",
+            "parallel_tool_calls": false,
             "input": [
                 [
                     "role": "user",
@@ -141,6 +135,7 @@ enum ComputerUsePlannerClient {
         }
 
         var fullText = ""
+        var parsedNativeToolCall: (name: String, arguments: String)?
         for try await line in bytes.lines {
             guard line.hasPrefix("data: ") else { continue }
             let jsonString = String(line.dropFirst(6))
@@ -155,9 +150,69 @@ enum ComputerUsePlannerClient {
                let delta = json["delta"] as? String {
                 fullText += delta
             }
+            if let toolCall = nativeToolCall(in: json) {
+                parsedNativeToolCall = toolCall
+            }
         }
 
-        return fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let nativeToolCall = parsedNativeToolCall {
+            do {
+                return try ComputerUsePlannerResponse.decodeNativeToolCall(
+                    name: nativeToolCall.name,
+                    arguments: nativeToolCall.arguments
+                )
+            } catch {
+                throw ComputerUsePlannerError.invalidResponse(
+                    "\(error.localizedDescription) Raw native tool call: \(nativeToolCall.name) \(String(nativeToolCall.arguments.prefix(800)))"
+                )
+            }
+        }
+
+        let trimmedText = fullText.trimmingCharacters(in: .whitespacesAndNewlines)
+        throw ComputerUsePlannerError.invalidResponse(
+            trimmedText.isEmpty
+                ? "The model did not return a native tool call."
+                : "The model returned text instead of a native tool call: \(String(trimmedText.prefix(800)))"
+        )
+    }
+
+    private static func nativeToolCall(in value: Any) -> (name: String, arguments: String)? {
+        if let dictionary = value as? [String: Any] {
+            if let type = dictionary["type"] as? String, type == "function_call",
+               let name = dictionary["name"] as? String {
+                return (name, argumentsString(from: dictionary["arguments"]))
+            }
+            if let function = dictionary["function"] as? [String: Any],
+               let name = function["name"] as? String {
+                return (name, argumentsString(from: function["arguments"]))
+            }
+            for child in dictionary.values {
+                if let toolCall = nativeToolCall(in: child) {
+                    return toolCall
+                }
+            }
+        }
+        if let array = value as? [Any] {
+            for child in array {
+                if let toolCall = nativeToolCall(in: child) {
+                    return toolCall
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func argumentsString(from value: Any?) -> String {
+        if let value = value as? String {
+            return value
+        }
+        if let value,
+           JSONSerialization.isValidJSONObject(value),
+           let data = try? JSONSerialization.data(withJSONObject: value),
+           let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        return "{}"
     }
 
     private static func extractErrorMessage(from data: Data) -> String? {
