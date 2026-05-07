@@ -316,6 +316,49 @@ struct ComputerUseToolInvocation: Codable, Equatable {
         trimmed(appBundleID).isEmpty ? trimmed(bundleID) : trimmed(appBundleID)
     }
 
+    func normalizedPlannerOutput() -> ComputerUseToolInvocation {
+        var normalizedElementID = elementID
+        var normalizedElementIndex = elementIndex
+        if tool == .click, x != nil, y != nil {
+            if trimmed(normalizedElementID).isEmpty {
+                normalizedElementID = nil
+            }
+            if let index = normalizedElementIndex, index <= 0 {
+                normalizedElementIndex = nil
+            }
+        }
+        return ComputerUseToolInvocation(
+            tool: tool,
+            appName: appName,
+            appBundleID: appBundleID,
+            bundleID: bundleID,
+            processID: processID,
+            windowID: windowID,
+            windowIndex: windowIndex,
+            tabIndex: tabIndex,
+            elementID: normalizedElementID,
+            elementIndex: normalizedElementIndex,
+            screenshotID: screenshotID,
+            label: label,
+            x: x,
+            y: y,
+            toX: toX,
+            toY: toY,
+            clicks: clicks,
+            button: button,
+            key: key,
+            modifiers: modifiers,
+            text: text,
+            value: value,
+            direction: direction,
+            pages: pages,
+            url: url,
+            selector: selector,
+            attributes: attributes,
+            reason: reason
+        )
+    }
+
     func validationFailure() -> String? {
         switch tool {
         case .listApps, .listWindows, .getWindowState, .finish:
@@ -551,11 +594,13 @@ struct ComputerUsePlannerResponse: Codable, Equatable {
 
     init(from decoder: Decoder) throws {
         let keyed = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedToolCall: ComputerUseToolInvocation
         if keyed.contains(.toolCall) {
-            toolCall = try keyed.decode(ComputerUseToolInvocation.self, forKey: .toolCall)
+            decodedToolCall = try keyed.decode(ComputerUseToolInvocation.self, forKey: .toolCall)
         } else {
-            toolCall = try ComputerUseToolInvocation(from: decoder)
+            decodedToolCall = try ComputerUseToolInvocation(from: decoder)
         }
+        toolCall = decodedToolCall.normalizedPlannerOutput()
         if let failure = toolCall.validationFailure() {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: decoder.codingPath, debugDescription: failure)
@@ -594,7 +639,7 @@ struct ComputerUsePlannerResponse: Codable, Equatable {
         let invocationData = try JSONSerialization.data(withJSONObject: invocationObject)
         let json = String(data: invocationData, encoding: .utf8) ?? "{}"
         try rejectUnknownKeys(in: json)
-        let decoded = try JSONDecoder().decode(ComputerUseToolInvocation.self, from: invocationData)
+        let decoded = try JSONDecoder().decode(ComputerUseToolInvocation.self, from: invocationData).normalizedPlannerOutput()
         if let failure = decoded.validationFailure() {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(codingPath: [], debugDescription: failure)

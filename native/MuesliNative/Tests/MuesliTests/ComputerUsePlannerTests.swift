@@ -138,6 +138,22 @@ struct ComputerUsePlannerResponseTests {
         }
     }
 
+    @Test("coordinate click ignores placeholder element target")
+    func coordinateClickIgnoresPlaceholderElementTarget() throws {
+        let response = try ComputerUsePlannerResponse.decodeNativeToolCall(
+            name: "click",
+            arguments: #"{"button":"left","y":871,"clicks":1,"x":1050,"screenshot_id":"s1778148270271","element_index":0,"label":"reply text field on X post","element_id":""}"#
+        )
+
+        #expect(response.toolCall.tool == .click)
+        #expect(response.toolCall.elementIndex == nil)
+        #expect(response.toolCall.elementID == nil)
+        #expect(response.toolCall.x == 1050)
+        #expect(response.toolCall.y == 871)
+        #expect(response.toolCall.screenshotID == "s1778148270271")
+        #expect(response.toolCall.summary == "click reply text field on X post at 1050,871")
+    }
+
     @Test("click rejects invalid element index")
     func clickRejectsInvalidElementIndex() {
         #expect(throws: Error.self) {
