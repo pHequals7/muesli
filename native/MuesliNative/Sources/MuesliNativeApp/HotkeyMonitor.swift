@@ -55,7 +55,10 @@ final class HotkeyMonitor {
             self?.handle(event)
         }
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
-            self?.handle(event)
+            guard let self else { return event }
+            if self.shouldHandleLocalEvent(event) {
+                self.handle(event)
+            }
             return event
         }
 
@@ -129,6 +132,31 @@ final class HotkeyMonitor {
         default:
             break
         }
+    }
+
+    private func shouldHandleLocalEvent(_ event: NSEvent) -> Bool {
+        shouldHandleLocalEvent(
+            type: event.type,
+            keyCode: event.keyCode,
+            firstResponder: NSApp.keyWindow?.firstResponder
+        )
+    }
+
+    private func shouldHandleLocalEvent(
+        type: NSEvent.EventType,
+        keyCode: UInt16,
+        firstResponder: NSResponder?
+    ) -> Bool {
+        let isTextEditing = firstResponder is NSTextView || firstResponder is NSTextField
+        guard isTextEditing else { return true }
+
+        // Text editing owns fresh hotkey starts, but an already-armed hotkey
+        // session must still receive key-up/Escape cleanup events.
+        if targetKeyDown || prepared || active || toggleActive {
+            return true
+        }
+
+        return type == .keyDown && keyCode == 53
     }
 
     func handleFlagsChanged(keyCode: UInt16, flags: NSEvent.ModifierFlags) {
@@ -288,5 +316,13 @@ final class HotkeyMonitor {
     func setHoldRecordingActiveForTests() {
         targetKeyDown = true
         active = true
+    }
+
+    func shouldHandleLocalEventForTests(
+        type: NSEvent.EventType,
+        keyCode: UInt16,
+        firstResponder: NSResponder?
+    ) -> Bool {
+        shouldHandleLocalEvent(type: type, keyCode: keyCode, firstResponder: firstResponder)
     }
 }

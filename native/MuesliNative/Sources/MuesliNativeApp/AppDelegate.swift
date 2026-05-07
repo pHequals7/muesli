@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let sparkleUpdateDelegate = SparkleUpdateDelegate()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.installStandardEditMenu()
+
         let telemetryConfig = TelemetryDeck.Config(appID: "7F2B7846-1CB5-4FE6-8ABC-56F217B06A86")
         TelemetryDeck.initialize(config: telemetryConfig)
         TelemetryDeck.signal("app.launched")
@@ -59,6 +61,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return false
         }
         return !feedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func installStandardEditMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            withTitle: "Quit \(AppIdentity.displayName)",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+
+        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redo)
+
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+        NSApp.mainMenu = mainMenu
     }
 }
 

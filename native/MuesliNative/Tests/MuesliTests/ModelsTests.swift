@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import Foundation
 import MuesliCore
 @testable import MuesliNativeApp
@@ -701,6 +702,63 @@ struct HotkeyMonitorTests {
         monitor.handleKeyDown(keyCode: 53)
 
         #expect(cancelCount == 1)
+    }
+
+    @Test("local monitor skips fresh hotkey starts while editing text")
+    @MainActor
+    func localMonitorSkipsFreshHotkeyStartsWhileEditingText() async throws {
+        let monitor = HotkeyMonitor()
+        let textView = NSTextView()
+
+        #expect(
+            monitor.shouldHandleLocalEventForTests(
+                type: .flagsChanged,
+                keyCode: 55,
+                firstResponder: textView
+            ) == false
+        )
+    }
+
+    @Test("local monitor preserves key-up cleanup after hotkey session is armed")
+    @MainActor
+    func localMonitorPreservesKeyUpCleanupAfterHotkeySessionIsArmed() async throws {
+        let monitor = HotkeyMonitor()
+        let textView = NSTextView()
+        var stopCount = 0
+        monitor.onStop = {
+            stopCount += 1
+        }
+
+        monitor.setHoldRecordingActiveForTests()
+
+        #expect(
+            monitor.shouldHandleLocalEventForTests(
+                type: .flagsChanged,
+                keyCode: 55,
+                firstResponder: textView
+            ) == true
+        )
+
+        monitor.handleFlagsChanged(keyCode: 55, flags: [])
+
+        #expect(stopCount == 1)
+    }
+
+    @Test("local monitor still lets escape cancel active hold dictation while editing text")
+    @MainActor
+    func localMonitorLetsEscapeCancelActiveHoldDictationWhileEditingText() async throws {
+        let monitor = HotkeyMonitor()
+        let textView = NSTextView()
+
+        monitor.setHoldRecordingActiveForTests()
+
+        #expect(
+            monitor.shouldHandleLocalEventForTests(
+                type: .keyDown,
+                keyCode: 53,
+                firstResponder: textView
+            ) == true
+        )
     }
 }
 
