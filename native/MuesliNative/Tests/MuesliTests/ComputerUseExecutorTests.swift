@@ -84,6 +84,18 @@ struct ComputerUseExecutorTests {
         #expect(result.status == .executed)
     }
 
+    @Test("browser automation preserves cancellation")
+    func browserAutomationPreservesCancellation() async {
+        ComputerUseBrowserAutomation.runAppleScriptForTests = { _ in
+            throw CancellationError()
+        }
+        defer { ComputerUseBrowserAutomation.runAppleScriptForTests = nil }
+
+        let result = await ComputerUseBrowserAutomation.listTabs(appBundleID: "com.google.Chrome")
+
+        #expect(result.status == .cancelled)
+    }
+
     @Test("navigates safe URLs and rejects unsafe URLs")
     func navigatesSafeURLsAndRejectsUnsafeURLs() async {
         var capturedScript = ""

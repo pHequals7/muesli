@@ -8,6 +8,7 @@ struct ComputerUseExecutionResult: Equatable {
         case needsConfirmation
         case unsupported
         case failed
+        case cancelled
     }
 
     let status: Status
@@ -27,6 +28,10 @@ struct ComputerUseExecutionResult: Equatable {
 
     static func failed(_ message: String) -> ComputerUseExecutionResult {
         ComputerUseExecutionResult(status: .failed, message: message)
+    }
+
+    static func cancelled(_ message: String = "Cancelled") -> ComputerUseExecutionResult {
+        ComputerUseExecutionResult(status: .cancelled, message: message)
     }
 }
 
@@ -216,7 +221,7 @@ enum ComputerUseToolExecutor {
 
     private static func openApp(named rawName: String) async -> ComputerUseExecutionResult {
         let name = cleanedName(rawName)
-        guard let appURL = applicationURL(for: name) else {
+        guard let appURL = await applicationURL(for: name) else {
             return .failed("Could not find \(name)")
         }
 
@@ -229,7 +234,7 @@ enum ComputerUseToolExecutor {
             _ = try await waitUntilActive(app: app, timeout: 1.5)
             return .executed("Opened \(name)")
         } catch is CancellationError {
-            return .failed("Cancelled opening \(name)")
+            return .cancelled("Cancelled opening \(name)")
         } catch {
             return .failed("Could not open \(name): \(error.localizedDescription)")
         }
@@ -242,7 +247,7 @@ enum ComputerUseToolExecutor {
             do {
                 _ = try await waitUntilActive(app: app, timeout: 1.5)
             } catch is CancellationError {
-                return .failed("Cancelled focusing \(name)")
+                return .cancelled("Cancelled focusing \(name)")
             } catch {
                 return .failed("Could not focus \(name): \(error.localizedDescription)")
             }
@@ -374,11 +379,17 @@ enum ComputerUseToolExecutor {
         if case let .failure(message) = targetApp {
             return .failed(message)
         }
+        if case .cancelled = targetApp {
+            return .cancelled()
+        }
         let app = targetApp.app
 
         if let elementResult = await focusTextEntryElement(toolCall, registry: registry) {
             if case let .failure(message) = elementResult {
                 return .failed(message)
+            }
+            if case .cancelled = elementResult {
+                return .cancelled()
             }
         }
 
@@ -390,10 +401,22 @@ enum ComputerUseToolExecutor {
         switch mode {
         case .keyboard:
             PasteController.typeText(toolCall.text ?? "")
-            try? await Task.sleep(nanoseconds: 250_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 250_000_000)
+            } catch is CancellationError {
+                return .cancelled()
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         case .paste:
             PasteController.paste(text: toolCall.text ?? "")
-            try? await Task.sleep(nanoseconds: 700_000_000)
+            do {
+                try await Task.sleep(nanoseconds: 700_000_000)
+            } catch is CancellationError {
+                return .cancelled()
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         }
         return .executed(mode.completedMessage)
     }
@@ -401,6 +424,7 @@ enum ComputerUseToolExecutor {
     private enum AppPreparationResult {
         case success(NSRunningApplication?)
         case failure(String)
+        case cancelled
 
         var app: NSRunningApplication? {
             if case let .success(app) = self { return app }
@@ -411,6 +435,7 @@ enum ComputerUseToolExecutor {
     private enum ElementFocusResult {
         case success
         case failure(String)
+        case cancelled
     }
 
     private static func prepareTextEntryApp(_ toolCall: ComputerUseToolCall) async -> AppPreparationResult {
@@ -420,6 +445,9 @@ enum ComputerUseToolExecutor {
         }
 
         let focusResult = await focusApp(named: target)
+        if focusResult.status == .cancelled {
+            return .cancelled
+        }
         guard focusResult.status == .executed else {
             return .failure(focusResult.message)
         }
@@ -461,7 +489,13 @@ enum ComputerUseToolExecutor {
             ComputerUseCursorOverlay.shared.show(at: CGPoint(x: rect.midX, y: rect.midY), label: toolCall.label)
         }
         _ = clickCenter(of: element)
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        do {
+            try await Task.sleep(nanoseconds: 250_000_000)
+        } catch is CancellationError {
+            return .cancelled
+        } catch {
+            return .failure(error.localizedDescription)
+        }
         return .success
     }
 
@@ -622,7 +656,7 @@ enum ComputerUseToolExecutor {
         return .executed("Dragged pointer")
     }
 
-    private static func applicationURL(for appName: String) -> URL? {
+    private static func applicationURL(for appName: String) async -> URL? {
         let trimmed = appName.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.contains("."),
            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed) {
@@ -635,6 +669,12 @@ enum ComputerUseToolExecutor {
             return url
         }
 
+        return await Task.detached(priority: .userInitiated) {
+            findApplicationURL(canonicalName: canonical)
+        }.value
+    }
+
+    nonisolated private static func findApplicationURL(canonicalName: String) -> URL? {
         let searchRoots = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             URL(fileURLWithPath: "/System/Applications", isDirectory: true),
@@ -648,7 +688,7 @@ enum ComputerUseToolExecutor {
             ) else { continue }
 
             for case let url as URL in enumerator where url.pathExtension == "app" {
-                if applicationNames(for: url).contains(canonical) {
+                if applicationNames(for: url).contains(canonicalName) {
                     return url
                 }
             }
@@ -656,7 +696,7 @@ enum ComputerUseToolExecutor {
         return nil
     }
 
-    private static func applicationNames(for appURL: URL) -> Set<String> {
+    nonisolated private static func applicationNames(for appURL: URL) -> Set<String> {
         var names: Set<String> = [canonicalAppName(appURL.deletingPathExtension().lastPathComponent)]
         if let bundle = Bundle(url: appURL) {
             for key in ["CFBundleDisplayName", "CFBundleName"] {
@@ -945,7 +985,7 @@ enum ComputerUseToolExecutor {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func canonicalAppName(_ value: String) -> String {
+    nonisolated private static func canonicalAppName(_ value: String) -> String {
         canonicalLabel(value)
             .replacingOccurrences(of: #" app$"#, with: "", options: .regularExpression)
     }
@@ -955,7 +995,7 @@ enum ComputerUseToolExecutor {
             .replacingOccurrences(of: "arrow key", with: "arrow")
     }
 
-    private static func canonicalLabel(_ value: String) -> String {
+    nonisolated private static func canonicalLabel(_ value: String) -> String {
         let scalars = value.lowercased().unicodeScalars.map { scalar -> Character in
             CharacterSet.alphanumerics.contains(scalar) || CharacterSet.whitespaces.contains(scalar)
                 ? Character(scalar)

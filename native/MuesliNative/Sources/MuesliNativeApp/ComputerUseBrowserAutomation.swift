@@ -31,6 +31,8 @@ enum ComputerUseBrowserAutomation {
             return .executed(tabs.map { tab in
                 "\(tab.windowIndex):\(tab.tabIndex) \(tab.isActive ? "active " : "")\(tab.title) - \(tab.url)"
             }.joined(separator: "\n"))
+        } catch is CancellationError {
+            return .cancelled()
         } catch {
             return .failed(browserScriptError(error))
         }
@@ -50,6 +52,8 @@ enum ComputerUseBrowserAutomation {
         do {
             _ = try await runAppleScript(script)
             return .executed("Activated browser tab \(windowIndex):\(tabIndex)")
+        } catch is CancellationError {
+            return .cancelled()
         } catch {
             return .failed(browserScriptError(error))
         }
@@ -72,6 +76,8 @@ enum ComputerUseBrowserAutomation {
             let output = try await runAppleScript(script)
             let suffix = output.isEmpty ? "" : " (\(output))"
             return .executed("Navigated to \(safeURL.absoluteString)\(suffix)")
+        } catch is CancellationError {
+            return .cancelled()
         } catch {
             return .failed(browserScriptError(error))
         }
@@ -202,6 +208,8 @@ enum ComputerUseBrowserAutomation {
         do {
             let output = try await runAppleScript(script)
             return .executed("\(successPrefix): \(String(output.prefix(12000)))")
+        } catch is CancellationError {
+            return .cancelled()
         } catch {
             return .failed(browserScriptError(error))
         }
@@ -226,32 +234,47 @@ enum ComputerUseBrowserAutomation {
             return try runAppleScriptForTests(script)
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-                    process.arguments = ["-e", script]
-                    let output = Pipe()
-                    let error = Pipe()
-                    process.standardOutput = output
-                    process.standardError = error
-                    try process.run()
-                    process.waitUntilExit()
+        let processBox = AppleScriptProcessBox()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let process = Process()
+                        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+                        process.arguments = ["-e", script]
+                        let output = Pipe()
+                        let error = Pipe()
+                        process.standardOutput = output
+                        process.standardError = error
+                        guard processBox.set(process) else {
+                            throw CancellationError()
+                        }
+                        try process.run()
+                        process.waitUntilExit()
 
-                    let data = output.fileHandleForReading.readDataToEndOfFile()
-                    let errorData = error.fileHandleForReading.readDataToEndOfFile()
-                    if process.terminationStatus != 0 {
-                        let message = String(data: errorData, encoding: .utf8) ?? "Apple Events failed"
-                        throw NSError(domain: "ComputerUseBrowserAutomation", code: Int(process.terminationStatus), userInfo: [
-                            NSLocalizedDescriptionKey: message.trimmingCharacters(in: .whitespacesAndNewlines),
-                        ])
+                        let wasCancelled = processBox.clear()
+                        if wasCancelled {
+                            throw CancellationError()
+                        }
+
+                        let data = output.fileHandleForReading.readDataToEndOfFile()
+                        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+                        if process.terminationStatus != 0 {
+                            let message = String(data: errorData, encoding: .utf8) ?? "Apple Events failed"
+                            throw NSError(domain: "ComputerUseBrowserAutomation", code: Int(process.terminationStatus), userInfo: [
+                                NSLocalizedDescriptionKey: message.trimmingCharacters(in: .whitespacesAndNewlines),
+                            ])
+                        }
+                        continuation.resume(returning: (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+                    } catch {
+                        _ = processBox.clear()
+                        continuation.resume(throwing: error)
                     }
-                    continuation.resume(returning: (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
-                } catch {
-                    continuation.resume(throwing: error)
                 }
             }
+        } onCancel: {
+            processBox.cancel()
         }
     }
 
@@ -290,5 +313,36 @@ enum ComputerUseBrowserAutomation {
             return "[]"
         }
         return text
+    }
+}
+
+private final class AppleScriptProcessBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var cancelled = false
+
+    func set(_ process: Process) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled else { return false }
+        self.process = process
+        return true
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let currentProcess = process
+        lock.unlock()
+        currentProcess?.terminate()
+    }
+
+    @discardableResult
+    func clear() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let wasCancelled = cancelled
+        process = nil
+        return wasCancelled
     }
 }

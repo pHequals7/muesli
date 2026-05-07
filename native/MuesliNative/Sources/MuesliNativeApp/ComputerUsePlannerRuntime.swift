@@ -177,6 +177,9 @@ final class ComputerUsePlannerRuntime {
             case .getWindowState:
                 onStatus("Observing screen")
                 let result = await execute(toolCall, registry)
+                if Task.isCancelled || result.status == .cancelled {
+                    return cancelledResult(traceEvents: traceEvents, step: step)
+                }
                 let outcomeMessage = recoverableFallbackMessage(for: toolCall, result: result) ?? result.message
                 priorResults.append(ComputerUseToolOutcome(
                     step: step,
@@ -225,6 +228,10 @@ final class ComputerUsePlannerRuntime {
                     step: step
                 ))
 
+                if Task.isCancelled || result.status == .cancelled {
+                    return cancelledResult(traceEvents: traceEvents, step: step)
+                }
+
                 switch result.status {
                 case .executed:
                     if let resultTitle = resultStatusTitle(for: toolCall, result: result) {
@@ -255,6 +262,8 @@ final class ComputerUsePlannerRuntime {
                     }
                     traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: result.message, status: "failed", step: step))
                     return .init(status: .failed, message: result.message, traceEvents: traceEvents)
+                case .cancelled:
+                    return cancelledResult(traceEvents: traceEvents, step: step)
                 }
             }
         }

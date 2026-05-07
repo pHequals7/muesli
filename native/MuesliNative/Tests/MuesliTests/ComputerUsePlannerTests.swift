@@ -385,6 +385,23 @@ struct ComputerUsePlannerRuntimeTests {
         #expect(result.message == "blocked")
     }
 
+    @Test("cancelled executor result produces cancelled runtime result")
+    @MainActor
+    func cancelledExecutorResultProducesCancelledRuntimeResult() async {
+        let runtime = ComputerUsePlannerRuntime(
+            config: AppConfig(),
+            observe: { _, _, _ in Self.observation() },
+            plan: { _ in ComputerUsePlannerResponse(toolCall: ComputerUseToolCall(tool: .launchApp, appName: "Google Chrome")) },
+            execute: { _, _ in .cancelled("Cancelled opening Google Chrome") }
+        )
+
+        let result = await runtime.run(command: "open chrome")
+
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.cancelled)
+        #expect(result.message == "CUA cancelled")
+        #expect(result.traceEvents.contains { $0.kind == "cancelled" })
+    }
+
     @Test("default runtime uses a high safety step cap")
     @MainActor
     func defaultRuntimeUsesHighSafetyStepCap() async {
