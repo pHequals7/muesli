@@ -462,7 +462,7 @@ struct ComputerUsePlannerRuntimeTests {
         let result = await runtime.run(command: "search in chrome")
 
         #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
-        #expect(result.message.contains("one retry of click Address and search bar"))
+        #expect(result.message.contains("repeated click Address and search bar after two unchanged attempts"))
         #expect(executionCount == 2)
         #expect(result.traceEvents.contains { $0.title == "Repeated action stopped" })
     }
@@ -504,7 +504,7 @@ struct ComputerUsePlannerRuntimeTests {
         let result = await runtime.run(command: "use the visible page")
 
         #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
-        #expect(result.message.contains("one retry of get window state"))
+        #expect(result.message.contains("repeated get window state after two unchanged attempts"))
         #expect(executionCount == 2)
         #expect(result.traceEvents.contains { $0.title == "Repeated action stopped" })
     }

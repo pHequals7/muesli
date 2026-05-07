@@ -221,14 +221,19 @@ enum ComputerUseToolExecutor {
 
     private static func openApp(named rawName: String) async -> ComputerUseExecutionResult {
         let name = cleanedName(rawName)
-        guard let appURL = await applicationURL(for: name) else {
-            return .failed("Could not find \(name)")
-        }
-
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-
         do {
+            if let app = runningApplication(named: name) {
+                app.activate(options: [.activateAllWindows])
+                _ = try await waitUntilActive(app: app, timeout: 1.5)
+                return .executed("Opened \(name) (already running)")
+            }
+
+            guard let appURL = try await applicationURL(for: name) else {
+                return .failed("Could not find \(name)")
+            }
+
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
             let app = try await openApplication(at: appURL, configuration: configuration)
             app.activate(options: [.activateAllWindows])
             _ = try await waitUntilActive(app: app, timeout: 1.5)
@@ -656,7 +661,8 @@ enum ComputerUseToolExecutor {
         return .executed("Dragged pointer")
     }
 
-    private static func applicationURL(for appName: String) async -> URL? {
+    private static func applicationURL(for appName: String) async throws -> URL? {
+        try Task.checkCancellation()
         let trimmed = appName.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.contains("."),
            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: trimmed) {
@@ -669,18 +675,25 @@ enum ComputerUseToolExecutor {
             return url
         }
 
-        return await Task.detached(priority: .userInitiated) {
-            findApplicationURL(canonicalName: canonical)
-        }.value
+        let lookupTask = Task.detached(priority: .userInitiated) {
+            try findApplicationURL(canonicalName: canonical)
+        }
+        return try await withTaskCancellationHandler {
+            try await lookupTask.value
+        } onCancel: {
+            lookupTask.cancel()
+        }
     }
 
-    nonisolated private static func findApplicationURL(canonicalName: String) -> URL? {
+    nonisolated private static func findApplicationURL(canonicalName: String) throws -> URL? {
         let searchRoots = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             URL(fileURLWithPath: "/System/Applications", isDirectory: true),
             URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications", isDirectory: true),
         ]
+        var checkedURLs = 0
         for root in searchRoots {
+            try Task.checkCancellation()
             guard let enumerator = FileManager.default.enumerator(
                 at: root,
                 includingPropertiesForKeys: [.isDirectoryKey],
@@ -688,6 +701,10 @@ enum ComputerUseToolExecutor {
             ) else { continue }
 
             for case let url as URL in enumerator where url.pathExtension == "app" {
+                checkedURLs += 1
+                if checkedURLs.isMultiple(of: 25) {
+                    try Task.checkCancellation()
+                }
                 if applicationNames(for: url).contains(canonicalName) {
                     return url
                 }
@@ -730,16 +747,26 @@ enum ComputerUseToolExecutor {
         at url: URL,
         configuration: NSWorkspace.OpenConfiguration
     ) async throws -> NSRunningApplication {
-        try await withCheckedThrowingContinuation { continuation in
-            NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else if let app {
-                    continuation.resume(returning: app)
-                } else {
-                    continuation.resume(throwing: CocoaError(.fileNoSuchFile))
+        let continuationBox = OpenApplicationContinuationBox()
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            return try await withCheckedThrowingContinuation { continuation in
+                guard continuationBox.set(continuation) else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                NSWorkspace.shared.openApplication(at: url, configuration: configuration) { app, error in
+                    if let error {
+                        continuationBox.resume(throwing: error)
+                    } else if let app {
+                        continuationBox.resume(returning: app)
+                    } else {
+                        continuationBox.resume(throwing: CocoaError(.fileNoSuchFile))
+                    }
                 }
             }
+        } onCancel: {
+            continuationBox.cancel()
         }
     }
 
@@ -1005,6 +1032,48 @@ enum ComputerUseToolExecutor {
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private final class OpenApplicationContinuationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<NSRunningApplication, Error>?
+    private var cancelled = false
+
+    func set(_ continuation: CheckedContinuation<NSRunningApplication, Error>) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled else { return false }
+        self.continuation = continuation
+        return true
+    }
+
+    func cancel() {
+        let continuationToResume: CheckedContinuation<NSRunningApplication, Error>?
+        lock.lock()
+        cancelled = true
+        continuationToResume = continuation
+        continuation = nil
+        lock.unlock()
+        continuationToResume?.resume(throwing: CancellationError())
+    }
+
+    func resume(returning app: NSRunningApplication) {
+        let continuationToResume: CheckedContinuation<NSRunningApplication, Error>?
+        lock.lock()
+        continuationToResume = continuation
+        continuation = nil
+        lock.unlock()
+        continuationToResume?.resume(returning: app)
+    }
+
+    func resume(throwing error: Error) {
+        let continuationToResume: CheckedContinuation<NSRunningApplication, Error>?
+        lock.lock()
+        continuationToResume = continuation
+        continuation = nil
+        lock.unlock()
+        continuationToResume?.resume(throwing: error)
     }
 }
 
