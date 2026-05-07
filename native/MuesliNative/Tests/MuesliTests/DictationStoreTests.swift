@@ -569,9 +569,23 @@ struct DictationStoreTests {
     func clearDictations() throws {
         let store = try makeStore()
         let now = Date()
-        try store.insertDictation(text: "to delete", durationSeconds: 1.0, startedAt: now, endedAt: now)
+        let dictationID = try store.insertDictation(text: "to delete", durationSeconds: 1.0, startedAt: now, endedAt: now)
+        try store.insertComputerUseTrace(
+            dictationID: dictationID,
+            finalStatus: "done",
+            finalMessage: "Done",
+            events: [ComputerUseTraceEvent(kind: "finish", title: "Final output", body: "Done")]
+        )
         try store.clearDictations()
         #expect(try store.recentDictations(limit: 100).isEmpty)
+        #expect(throws: Error.self) {
+            try store.insertComputerUseTrace(
+                dictationID: dictationID,
+                finalStatus: "done",
+                finalMessage: "Should fail",
+                events: []
+            )
+        }
     }
 
     @Test("clear meetings removes all records")
@@ -926,6 +940,37 @@ struct DictationStoreTests {
         #expect(results.first(where: { $0.id == dictationID })?.computerUseTrace?.finalStatus == "done")
     }
 
+    @Test("insertComputerUseTrace replaces existing trace atomically")
+    func insertComputerUseTraceReplacesExistingTrace() throws {
+        let store = try makeStore()
+        let now = Date()
+        let dictationID = try store.insertDictation(
+            text: "open chrome",
+            durationSeconds: 1.0,
+            source: "cua",
+            startedAt: now,
+            endedAt: now
+        )
+
+        try store.insertComputerUseTrace(
+            dictationID: dictationID,
+            finalStatus: "failed",
+            finalMessage: "Old",
+            events: [ComputerUseTraceEvent(kind: "failed", title: "Failed", body: "Old")]
+        )
+        try store.insertComputerUseTrace(
+            dictationID: dictationID,
+            finalStatus: "done",
+            finalMessage: "New",
+            events: [ComputerUseTraceEvent(kind: "finish", title: "Final output", body: "New")]
+        )
+
+        let row = try #require(try store.dictation(id: dictationID))
+        #expect(row.computerUseTrace?.finalStatus == "done")
+        #expect(row.computerUseTrace?.finalMessage == "New")
+        #expect(row.computerUseTrace?.events.map(\.body) == ["New"])
+    }
+
     @Test("deleteDictation removes computer use trace")
     func deleteDictationRemovesComputerUseTrace() throws {
         let store = try makeStore()
@@ -948,6 +993,14 @@ struct DictationStoreTests {
 
         #expect(try store.dictation(id: dictationID) == nil)
         #expect(try store.searchDictations(query: "Final output").isEmpty)
+    }
+
+    @Test("deleteDictation fails when row is missing")
+    func deleteDictationFailsWhenRowMissing() throws {
+        let store = try makeStore()
+        #expect(throws: DictationStoreError.self) {
+            try store.deleteDictation(id: 99_999)
+        }
     }
 
     @Test("searchDictations returns empty for non-matching query")

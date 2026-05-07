@@ -6,6 +6,7 @@ struct ComputerUsePlannerRuntimeResult: Equatable {
         case done
         case needsConfirmation
         case failed
+        case cancelled
     }
 
     let status: Status
@@ -95,6 +96,9 @@ final class ComputerUsePlannerRuntime {
 
         var step = 1
         while true {
+            if Task.isCancelled {
+                return cancelledResult(traceEvents: traceEvents, step: step)
+            }
             if Date() >= deadline {
                 traceEvents.append(traceEvent(kind: "failed", title: "Failed", body: "CUA timed out", status: "failed", step: step))
                 return .init(status: .failed, message: "CUA timed out", traceEvents: traceEvents)
@@ -116,6 +120,8 @@ final class ComputerUsePlannerRuntime {
             let response: ComputerUsePlannerResponse
             do {
                 response = try await planWithRetry(request, traceEvents: &traceEvents)
+            } catch is CancellationError {
+                return cancelledResult(traceEvents: traceEvents, step: step)
             } catch {
                 traceEvents.append(traceEvent(
                     kind: "failed",
@@ -254,6 +260,12 @@ final class ComputerUsePlannerRuntime {
         }
     }
 
+    private func cancelledResult(traceEvents: [ComputerUseTraceEvent], step: Int) -> ComputerUsePlannerRuntimeResult {
+        var events = traceEvents
+        events.append(traceEvent(kind: "cancelled", title: "Cancelled", body: "CUA cancelled", status: "cancelled", step: step))
+        return .init(status: .cancelled, message: "CUA cancelled", traceEvents: events)
+    }
+
     private func observationEvent(_ observation: ComputerUseObservation, step: Int?) -> ComputerUseTraceEvent {
         let app = observation.appName.isEmpty ? "Unknown app" : observation.appName
         let window = observation.windowTitle.isEmpty ? "No focused window" : observation.windowTitle
@@ -283,20 +295,20 @@ final class ComputerUsePlannerRuntime {
         repeatedToolCounts: inout [String: Int]
     ) -> String? {
         guard shouldTrackForRepetition(toolCall.tool) else { return nil }
-        let key = [
-            toolCall.tool.rawValue,
-            toolCall.elementID ?? "",
-            toolCall.elementIndex.map(String.init) ?? "",
-            toolCall.appName ?? "",
-            toolCall.canonicalBundleID,
-            toolCall.label ?? "",
-            toolCall.key ?? "",
-            toolCall.text ?? "",
-            toolCall.value ?? "",
-            toolCall.url ?? "",
-            toolCall.direction?.rawValue ?? "",
-            observationSignature(observation),
-        ].joined(separator: "|")
+        var keyParts: [String] = []
+        keyParts.append(toolCall.tool.rawValue)
+        keyParts.append(toolCall.elementID ?? "")
+        keyParts.append(toolCall.elementIndex.map(String.init) ?? "")
+        keyParts.append(toolCall.appName ?? "")
+        keyParts.append(toolCall.canonicalBundleID)
+        keyParts.append(toolCall.label ?? "")
+        keyParts.append(toolCall.key ?? "")
+        keyParts.append(toolCall.text ?? "")
+        keyParts.append(toolCall.value ?? "")
+        keyParts.append(toolCall.url ?? "")
+        keyParts.append(toolCall.direction?.rawValue ?? "")
+        keyParts.append(observationSignature(observation))
+        let key = keyParts.joined(separator: "|")
         let count = (repeatedToolCounts[key] ?? 0) + 1
         repeatedToolCounts[key] = count
         guard count > 2 else { return nil }

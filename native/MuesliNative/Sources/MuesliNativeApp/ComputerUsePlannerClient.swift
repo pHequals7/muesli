@@ -181,7 +181,8 @@ enum ComputerUsePlannerClient {
         )
     }
 
-    private static func nativeToolCall(in value: Any) -> (name: String, arguments: String)? {
+    private static func nativeToolCall(in value: Any, depth: Int = 0) -> (name: String, arguments: String)? {
+        guard depth <= 16 else { return nil }
         if let dictionary = value as? [String: Any] {
             if let type = dictionary["type"] as? String, type == "function_call",
                let name = dictionary["name"] as? String {
@@ -192,14 +193,14 @@ enum ComputerUsePlannerClient {
                 return (name, argumentsString(from: function["arguments"]))
             }
             for child in dictionary.values {
-                if let toolCall = nativeToolCall(in: child) {
+                if let toolCall = nativeToolCall(in: child, depth: depth + 1) {
                     return toolCall
                 }
             }
         }
         if let array = value as? [Any] {
             for child in array {
-                if let toolCall = nativeToolCall(in: child) {
+                if let toolCall = nativeToolCall(in: child, depth: depth + 1) {
                     return toolCall
                 }
             }

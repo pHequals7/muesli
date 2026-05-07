@@ -3118,6 +3118,15 @@ final class MuesliController: NSObject {
 
         let result = await runtime.run(command: transcript)
         indicator.hideComputerUseCursor()
+        if result.status == .cancelled {
+            computerUseCommandTask = nil
+            setState(.idle)
+            meetingMonitor.resumeAfterCooldown()
+            TelemetryDeck.signal("computer_use.command_finished", parameters: [
+                "status": "\(result.status)",
+            ])
+            return
+        }
         persistComputerUseTrace(result, dictationID: dictationID)
         computerUseCommandTask = nil
         await waitForComputerUseFloatingStatusDwell()
@@ -3258,6 +3267,8 @@ final class MuesliController: NSObject {
             return "confirm"
         case .failed:
             return "failed"
+        case .cancelled:
+            return "cancelled"
         }
     }
 
@@ -3279,6 +3290,10 @@ final class MuesliController: NSObject {
             message = result.message
             floatingMessage = "Failed"
             icon = "!"
+        case .cancelled:
+            message = result.message
+            floatingMessage = "Cancelled"
+            icon = ""
         }
         statusBarController?.setStatus(message)
         indicator.showWarning(floatingMessage, icon: icon, duration: 3.0)

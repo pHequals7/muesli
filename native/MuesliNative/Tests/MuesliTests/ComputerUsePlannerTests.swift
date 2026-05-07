@@ -866,7 +866,8 @@ struct ComputerUsePlannerRuntimeTests {
 
         let result = await runtime.run(command: "open chrome")
 
-        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.failed)
+        #expect(result.status == ComputerUsePlannerRuntimeResult.Status.cancelled)
+        #expect(result.message == "CUA cancelled")
         #expect(planCalls == 1)
         #expect(!result.traceEvents.contains { $0.title == "Planner retry" })
     }
