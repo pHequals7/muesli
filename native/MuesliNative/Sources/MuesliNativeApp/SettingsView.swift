@@ -642,6 +642,10 @@ struct SettingsView: View {
                     .padding(.horizontal, MuesliTheme.spacing16)
             }
 
+            settingsSection("Calendars") {
+                calendarSourcesControl
+            }
+
             if appState.isGoogleCalendarAvailable {
                 settingsSection("Calendar") {
                     settingsRow("Google Calendar") {
@@ -649,6 +653,10 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+        .onAppear {
+            controller.refreshAvailableEventKitCalendars()
+            Task { await controller.refreshGoogleCalendarList() }
         }
     }
 
@@ -1416,6 +1424,170 @@ struct SettingsView: View {
             }
             config.mutedMeetingDetectionAppBundleIDs = muted.sorted()
         }
+    }
+
+    // MARK: - Calendars
+
+    private struct CalendarToggleItem: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let colorHex: String?
+        let isEnabled: Bool
+    }
+
+    private struct CalendarSourceGroup: Identifiable, Equatable {
+        let id: String
+        let title: String
+        let items: [CalendarToggleItem]
+    }
+
+    private var calendarSourceGroups: [CalendarSourceGroup] {
+        let disabled = Set(appState.config.disabledCalendarIDs)
+        var groups: [CalendarSourceGroup] = []
+
+        let ekBySource = Dictionary(grouping: appState.availableEventKitCalendars) { $0.sourceTitle }
+        for sourceTitle in ekBySource.keys.sorted() {
+            let items = (ekBySource[sourceTitle] ?? [])
+                .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+                .map { cal in
+                    CalendarToggleItem(
+                        id: cal.id,
+                        title: cal.title,
+                        colorHex: cal.colorHex,
+                        isEnabled: !disabled.contains(cal.id)
+                    )
+                }
+            groups.append(CalendarSourceGroup(id: "ek::\(sourceTitle)", title: sourceTitle, items: items))
+        }
+
+        if appState.isGoogleCalendarAuthenticated && !appState.availableGoogleCalendars.isEmpty {
+            let items = appState.availableGoogleCalendars.map { cal in
+                CalendarToggleItem(
+                    id: cal.id,
+                    title: cal.summary + (cal.isPrimary ? " (Primary)" : ""),
+                    colorHex: cal.colorHex,
+                    isEnabled: !disabled.contains(cal.id)
+                )
+            }
+            groups.append(CalendarSourceGroup(id: "google_oauth", title: "Google (OAuth)", items: items))
+        }
+
+        return groups
+    }
+
+    private var calendarSourcesControl: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+            Text("Disabled calendars are hidden from Muesli — no notifications, no Coming Up, no meeting detection.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if calendarSourceGroups.isEmpty {
+                Text("No calendars detected. Make sure Calendar permission is granted in System Settings > Privacy & Security > Calendars.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(calendarSourceGroups) { group in
+                    calendarSourceGroupView(group)
+                }
+            }
+
+            if appState.isGoogleCalendarAuthenticated {
+                googleCalendarListLoadStateView
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func calendarSourceGroupView(_ group: CalendarSourceGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(group.title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .textCase(.uppercase)
+
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+            ], alignment: .leading, spacing: 8) {
+                ForEach(group.items) { item in
+                    calendarToggleButton(item)
+                }
+            }
+        }
+        .padding(.leading, MuesliTheme.spacing16)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(MuesliTheme.surfaceBorder)
+                .frame(width: 2)
+        }
+    }
+
+    private func calendarToggleButton(_ item: CalendarToggleItem) -> some View {
+        Button {
+            updateDisabledCalendar(item.id, isDisabled: item.isEnabled)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: item.isEnabled ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(item.isEnabled ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 16)
+                Circle()
+                    .fill(item.colorHex.map { Color(hex: $0) } ?? MuesliTheme.textTertiary)
+                    .frame(width: 8, height: 8)
+                Text(item.title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .background(item.isEnabled ? MuesliTheme.accentSubtle : MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(item.isEnabled ? MuesliTheme.accent.opacity(0.35) : MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var googleCalendarListLoadStateView: some View {
+        switch appState.googleCalendarListLoadState {
+        case .loading:
+            Text("Loading Google calendars…")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textTertiary)
+        case .failed(let message):
+            HStack(spacing: 8) {
+                Text("Failed to load Google calendars: \(message)")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                Button("Retry") {
+                    Task { await controller.refreshGoogleCalendarList() }
+                }
+                .buttonStyle(.link)
+                .font(MuesliTheme.caption())
+            }
+        case .idle, .loaded:
+            EmptyView()
+        }
+    }
+
+    private func updateDisabledCalendar(_ calendarID: String, isDisabled: Bool) {
+        controller.updateConfig { config in
+            var disabled = Set(config.disabledCalendarIDs)
+            if isDisabled {
+                disabled.insert(calendarID)
+            } else {
+                disabled.remove(calendarID)
+            }
+            config.disabledCalendarIDs = disabled.sorted()
+        }
+        Task { await controller.refreshUpcomingCalendarEvents() }
     }
 
     @ViewBuilder

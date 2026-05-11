@@ -892,7 +892,10 @@ final class MuesliController: NSObject {
         do {
             try await googleCalAuth.signIn()
             syncAppState()
-            Task { await refreshUpcomingCalendarEvents() }
+            Task {
+                await refreshUpcomingCalendarEvents()
+                await refreshGoogleCalendarList()
+            }
             return nil
         } catch {
             fputs("[muesli-native] Google Calendar sign-in failed: \(error)\n", stderr)
@@ -903,16 +906,48 @@ final class MuesliController: NSObject {
     func signOutGoogleCalendar() {
         googleCalAuth.signOut()
         googleCalClient.resetSync()
+        appState.availableGoogleCalendars = []
+        appState.googleCalendarListLoadState = .idle
         syncAppState()
         Task { await refreshUpcomingCalendarEvents() }
     }
 
+    /// Refresh the EventKit-available calendars list. Cheap (no network), safe
+    /// to call frequently — driven by Settings panel onAppear and by the
+    /// EKEventStoreChangedNotification handler.
+    func refreshAvailableEventKitCalendars() {
+        appState.availableEventKitCalendars = calendarMonitor.availableCalendars()
+    }
+
+    /// Refresh the Google calendar list via the Calendar API. No-op when OAuth
+    /// is not available or the user is not authenticated.
+    func refreshGoogleCalendarList() async {
+        guard googleCalAuth.isAuthenticated else {
+            appState.availableGoogleCalendars = []
+            appState.googleCalendarListLoadState = .idle
+            return
+        }
+        appState.googleCalendarListLoadState = .loading
+        do {
+            let list = try await googleCalClient.fetchCalendarList()
+            appState.availableGoogleCalendars = list
+            appState.googleCalendarListLoadState = .loaded
+        } catch {
+            fputs("[muesli-native] Google calendarList fetch failed: \(error)\n", stderr)
+            appState.googleCalendarListLoadState = .failed(error.localizedDescription)
+        }
+    }
+
     func refreshUpcomingCalendarEvents() async {
-        var ekEvents = calendarMonitor.upcomingEvents(daysAhead: 7)
+        let disabledIDs = Set(config.disabledCalendarIDs)
+        var ekEvents = calendarMonitor.upcomingEvents(daysAhead: 7, disabledCalendarIDs: disabledIDs)
 
         if googleCalAuth.isAuthenticated {
             do {
-                let googleEvents = try await googleCalClient.fetchUpcomingEvents(daysAhead: 7)
+                let googleEvents = try await googleCalClient.fetchUpcomingEvents(
+                    daysAhead: 7,
+                    disabledCalendarIDs: disabledIDs
+                )
                 ekEvents = GoogleCalendarClient.mergeEvents(eventKit: ekEvents, google: googleEvents)
             } catch GoogleCalendarAuthError.notAuthenticated {
                 googleCalAuth.signOut()
@@ -949,6 +984,7 @@ final class MuesliController: NSObject {
         calendarMonitor.onCalendarChanged = { [weak self] in
             guard let self else { return }
             Task { @MainActor in
+                self.refreshAvailableEventKitCalendars()
                 await self.refreshUpcomingCalendarEvents()
                 self.checkUpcomingCalendarNotifications()
             }
@@ -971,6 +1007,7 @@ final class MuesliController: NSObject {
 
         // Run first cycle immediately
         Task { @MainActor in
+            self.refreshAvailableEventKitCalendars()
             await self.refreshUpcomingCalendarEvents()
             self.checkUpcomingCalendarNotifications()
         }
