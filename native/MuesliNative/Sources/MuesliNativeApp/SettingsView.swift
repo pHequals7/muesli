@@ -610,6 +610,18 @@ struct SettingsView: View {
                 }
             }
 
+            settingsSection("Calendars") {
+                calendarSourcesControl
+            }
+
+            if appState.isGoogleCalendarAvailable {
+                settingsSection("Calendar") {
+                    settingsRow("Google Calendar") {
+                        googleCalendarControl
+                    }
+                }
+            }
+
             settingsSection("Advanced") {
                 settingsRow("Enable post-meeting hook") {
                     settingsSwitch(isOn: appState.config.meetingHookEnabled) { newValue in
@@ -640,18 +652,6 @@ struct SettingsView: View {
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textTertiary)
                     .padding(.horizontal, MuesliTheme.spacing16)
-            }
-
-            settingsSection("Calendars") {
-                calendarSourcesControl
-            }
-
-            if appState.isGoogleCalendarAvailable {
-                settingsSection("Calendar") {
-                    settingsRow("Google Calendar") {
-                        googleCalendarControl
-                    }
-                }
             }
         }
         .onAppear {
@@ -1438,6 +1438,8 @@ struct SettingsView: View {
     private struct CalendarSourceGroup: Identifiable, Equatable {
         let id: String
         let title: String
+        let subtitle: String
+        let iconName: String
         let items: [CalendarToggleItem]
     }
 
@@ -1457,7 +1459,13 @@ struct SettingsView: View {
                         isEnabled: !disabled.contains(cal.id)
                     )
                 }
-            groups.append(CalendarSourceGroup(id: "ek::\(sourceTitle)", title: sourceTitle, items: items))
+            groups.append(CalendarSourceGroup(
+                id: "ek::\(sourceTitle)",
+                title: sourceTitle,
+                subtitle: calendarSourceSubtitle(for: sourceTitle),
+                iconName: calendarSourceIconName(for: sourceTitle),
+                items: items
+            ))
         }
 
         if appState.isGoogleCalendarAuthenticated && !appState.availableGoogleCalendars.isEmpty {
@@ -1469,7 +1477,13 @@ struct SettingsView: View {
                     isEnabled: !disabled.contains(cal.id)
                 )
             }
-            groups.append(CalendarSourceGroup(id: "google_oauth", title: "Google (OAuth)", items: items))
+            groups.append(CalendarSourceGroup(
+                id: "google_oauth",
+                title: "Google Calendar",
+                subtitle: "Connected directly to Muesli",
+                iconName: "calendar.badge.plus",
+                items: items
+            ))
         }
 
         return groups
@@ -1477,7 +1491,7 @@ struct SettingsView: View {
 
     private var calendarSourcesControl: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            Text("Disabled calendars are hidden from Muesli — no notifications, no Coming Up, no meeting detection.")
+            Text("Calendar sources are listed first, with their calendars underneath. Disabled calendars are hidden from Muesli — no notifications, no Coming Up, no meeting detection.")
                 .font(MuesliTheme.caption())
                 .foregroundStyle(MuesliTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1508,11 +1522,27 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func calendarSourceGroupView(_ group: CalendarSourceGroup) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(group.title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .textCase(.uppercase)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: group.iconName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .frame(width: 18, height: 18)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                        .lineLimit(1)
+
+                    Text("\(group.subtitle) • \(group.items.count) \(group.items.count == 1 ? "calendar" : "calendars")")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
 
             LazyVGrid(columns: [
                 GridItem(.flexible(), spacing: 8),
@@ -1522,13 +1552,37 @@ struct SettingsView: View {
                     calendarToggleButton(item)
                 }
             }
+            .padding(.leading, 28)
         }
-        .padding(.leading, MuesliTheme.spacing16)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(MuesliTheme.surfaceBorder)
-                .frame(width: 2)
+        .padding(.vertical, 2)
+    }
+
+    private func calendarSourceSubtitle(for sourceTitle: String) -> String {
+        let normalized = sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "icloud" {
+            return "iCloud account in macOS Calendar"
         }
+        if normalized == "subscribed calendars" {
+            return "Subscribed in macOS Calendar"
+        }
+        if normalized == "other" {
+            return "System calendars from macOS"
+        }
+        return "Calendar account in macOS"
+    }
+
+    private func calendarSourceIconName(for sourceTitle: String) -> String {
+        let normalized = sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if normalized == "icloud" {
+            return "icloud"
+        }
+        if normalized == "subscribed calendars" {
+            return "calendar.badge.clock"
+        }
+        if normalized == "other" {
+            return "person.crop.circle.badge.clock"
+        }
+        return "calendar"
     }
 
     private func calendarToggleButton(_ item: CalendarToggleItem) -> some View {
@@ -1545,17 +1599,17 @@ struct SettingsView: View {
                     .frame(width: 8, height: 8)
                 Text(item.title)
                     .font(.system(size: 12))
-                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .foregroundStyle(item.isEnabled ? MuesliTheme.textPrimary : MuesliTheme.textTertiary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 8)
             .frame(height: 28)
-            .background(item.isEnabled ? MuesliTheme.accentSubtle : MuesliTheme.surfacePrimary)
+            .background(MuesliTheme.surfacePrimary)
             .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
             .overlay(
                 RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(item.isEnabled ? MuesliTheme.accent.opacity(0.35) : MuesliTheme.surfaceBorder, lineWidth: 1)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
