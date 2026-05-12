@@ -1287,6 +1287,44 @@ final class MuesliController: NSObject {
         }
     }
 
+    /// Reset a TCC permission entry for this bundle and quit Muesli.
+    /// `service` is the tccutil service identifier (e.g. "Accessibility",
+    /// "ListenEvent", "Microphone"). Used by the onboarding stale-permission
+    /// recovery hint when the user has been waiting on a grant that never
+    /// flips because the System Settings entry is tied to a previous binary
+    /// (cdhash mismatch on unsigned dev builds, or rare prod re-staple churn).
+    /// macOS's tccutil refuses to reset a permission for a process that is
+    /// still using it, so we exit immediately after spawning the reset.
+    /// We don't auto-relaunch — the user needs to re-grant in System Settings
+    /// before Muesli can run, and macOS will surface the standard permission
+    /// prompt when they reopen the app.
+    func resetTCCPermissionAndQuit(service: String) {
+        guard let bundleID = Bundle.main.bundleIdentifier else {
+            fputs("[muesli-native] tccutil reset: no bundle identifier\n", stderr)
+            return
+        }
+        DispatchQueue.main.async {
+            let shell = Process()
+            shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+            // sleep 1 → tccutil reset → notification banner so the user sees
+            // confirmation. Detached so it survives our exit.
+            let script = """
+            sleep 1
+            /usr/bin/tccutil reset "$1" "$2" >/dev/null 2>&1 || true
+            /usr/bin/osascript -e "display notification \\"Permission reset. Reopen Muesli to grant fresh.\\" with title \\"Muesli\\"" >/dev/null 2>&1 || true
+            """
+            shell.arguments = ["-c", script, "--", service, bundleID]
+            do {
+                try shell.run()
+            } catch {
+                fputs("[muesli-native] tccutil reset spawn failed: \(error)\n", stderr)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                exit(0)
+            }
+        }
+    }
+
     // MARK: - Dictation Test Mode (onboarding)
 
     /// When set, handleStop routes transcribed text to this callback instead of pasting.
