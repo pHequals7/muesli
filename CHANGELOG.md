@@ -30,3 +30,16 @@ All notable changes to this fork are documented here. Format follows
   without prompting; denied targets are surfaced via a persistent banner in
   the Auto-Capture settings pane and a new "Browser Auto-Capture" step in
   onboarding (schema v5). See `docs/decisions/0003-applescript-vs-extension-browser-detection.md`.
+- Auto-Capture v2: PWA discovery. A new `PWADiscovery` module scans
+  `~/Applications/Chrome Apps.localized/` for Chrome PWAs (bundle IDs of the
+  form `com.google.Chrome.app.<id>`) and `/Applications/` plus
+  `~/Applications/` for Safari Web Apps (`com.apple.Safari.WebApp.*` bundle
+  IDs). Discovered PWAs are surfaced in the Auto-Capture settings pane as a
+  new "PWAs" section with per-entry toggles and a Refresh button; toggling an
+  entry on adds its bundle ID to `auto_capture.allowed_app_bundle_ids` so the
+  existing coordinator allowlist path picks it up — no new tier in the state
+  machine. The scan also best-effort recovers each Chrome PWA's `start_url`
+  from `~/Library/Application Support/Google/Chrome/<profile>/Web
+  Applications/`. Results are cached in `auto_capture.pwa.cached_entries`,
+  refreshed off the main actor on app launch and on user-driven Refresh.
+  Filesystem work only — no AppleScript, no spawned processes.
