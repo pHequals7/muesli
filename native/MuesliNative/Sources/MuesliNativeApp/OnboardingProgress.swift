@@ -46,7 +46,11 @@ enum OnboardingPermissionGate {
 }
 
 struct OnboardingProgress: Codable {
-    static let currentSchemaVersion = 4
+    // v5 adds the Auto-Capture v1 Automation-permission step at the end of
+    // the meeting flow. Older progress files (≤ v4) are migrated forward by
+    // the load() path; their currentStep values still resolve correctly
+    // because the new step is appended rather than inserted.
+    static let currentSchemaVersion = 5
 
     var schemaVersion: Int = currentSchemaVersion
     var currentStep: Int
