@@ -35,7 +35,6 @@ struct MeetingSignalRefreshDecision: Equatable {
     let refreshAudioAttribution: Bool
     let refreshBrowserMeetings: Bool
     let fallbackInterval: TimeInterval
-    let debounceDelay: TimeInterval
 }
 
 struct MeetingSignalRefreshPolicy {
@@ -84,8 +83,7 @@ struct MeetingSignalRefreshPolicy {
             mode: mode,
             refreshAudioAttribution: shouldRefreshAudioAttribution(trigger: trigger, state: state, mode: mode, now: now),
             refreshBrowserMeetings: shouldRefreshBrowserMeetings(trigger: trigger, state: state, mode: mode, now: now),
-            fallbackInterval: fallbackInterval,
-            debounceDelay: shouldDebounce(trigger) ? debounceDelay : 0
+            fallbackInterval: fallbackInterval
         )
     }
 
@@ -173,16 +171,6 @@ struct MeetingSignalRefreshPolicy {
     private func isThrottleExpired(since date: Date?, throttle: TimeInterval, now: Date) -> Bool {
         guard let date else { return true }
         return now.timeIntervalSince(date) >= throttle
-    }
-
-    private func shouldDebounce(_ trigger: MeetingDetectionTrigger) -> Bool {
-        switch trigger {
-        case .fallbackTimer, .startup:
-            return false
-        case .micChanged, .cameraChanged, .sensorAttributionChanged, .workspaceActivated,
-             .calendarChanged, .promptStateChanged, .manualRefresh:
-            return true
-        }
     }
 
     private func isSuspicionTrigger(_ trigger: MeetingDetectionTrigger) -> Bool {

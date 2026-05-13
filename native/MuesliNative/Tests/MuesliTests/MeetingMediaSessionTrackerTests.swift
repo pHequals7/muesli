@@ -25,12 +25,16 @@ struct MeetingMediaSessionTrackerTests {
         )
     }
 
-    private func browserURLCandidate(now: Date) -> MeetingCandidate {
+    private func browserURLCandidate(
+        id: String = "googleMeet:meet.google.com/pwm-txwq-txy",
+        url: String = "meet.google.com/pwm-txwq-txy",
+        now: Date
+    ) -> MeetingCandidate {
         MeetingCandidate(
-            id: "googleMeet:meet.google.com/pwm-txwq-txy",
+            id: id,
             platform: .googleMeet,
             appName: "Chrome",
-            url: "meet.google.com/pwm-txwq-txy",
+            url: url,
             evidence: [.browserURL, .audioInputProcess],
             startedAt: now,
             meetingTitle: nil,
@@ -68,7 +72,7 @@ struct MeetingMediaSessionTrackerTests {
             snapshot: snapshot(now: now.addingTimeInterval(10))
         )
 
-        #expect(first?.id == "meeting-session:browser:com.google.Chrome:1800000000")
+        #expect(first?.id == "meeting-session:browser:com.google.Chrome:room:meet.google.com/pwm-txwq-txy:1800000000")
         #expect(second?.id == first?.id)
         #expect(second?.suppressionID == first?.suppressionID)
         #expect(second?.platform == .googleMeet)
@@ -89,9 +93,37 @@ struct MeetingMediaSessionTrackerTests {
             snapshot: snapshot(now: now.addingTimeInterval(45))
         )
 
-        #expect(first?.id == "meeting-session:browser:com.google.Chrome:1800000000")
-        #expect(later?.id == "meeting-session:browser:com.google.Chrome:1800000045")
+        #expect(first?.id == "meeting-session:browser:com.google.Chrome:room:meet.google.com/pwm-txwq-txy:1800000000")
+        #expect(later?.id == "meeting-session:browser:com.google.Chrome:room:meet.google.com/pwm-txwq-txy:1800000045")
         #expect(later?.id != first?.id)
+    }
+
+    @Test("different browser rooms in the quiet window get different media sessions")
+    func differentBrowserRoomsGetDifferentSessions() async {
+        let tracker = MeetingMediaSessionTracker(quietWindow: 30)
+
+        let first = await tracker.stabilize(
+            candidate: browserURLCandidate(now: now),
+            snapshot: snapshot(now: now)
+        )
+        let second = await tracker.stabilize(
+            candidate: browserURLCandidate(
+                id: "googleMeet:meet.google.com/abc-defg-hij",
+                url: "meet.google.com/abc-defg-hij",
+                now: now.addingTimeInterval(10)
+            ),
+            snapshot: snapshot(now: now.addingTimeInterval(10))
+        )
+        let genericAfterSecondRoom = await tracker.stabilize(
+            candidate: browserAudioCandidate(now: now.addingTimeInterval(11)),
+            snapshot: snapshot(now: now.addingTimeInterval(11))
+        )
+
+        #expect(first?.id == "meeting-session:browser:com.google.Chrome:room:meet.google.com/pwm-txwq-txy:1800000000")
+        #expect(second?.id == "meeting-session:browser:com.google.Chrome:room:meet.google.com/abc-defg-hij:1800000010")
+        #expect(second?.id != first?.id)
+        #expect(genericAfterSecondRoom?.id == second?.id)
+        #expect(genericAfterSecondRoom?.url == "meet.google.com/abc-defg-hij")
     }
 
     @Test("non-media browser URL candidate keeps original identity")

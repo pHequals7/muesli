@@ -134,6 +134,7 @@ final class MeetingNotificationController {
         dismissButton.contentTintColor = NSColor.white.withAlphaComponent(0.86)
         dismissButton.toolTip = "Dismiss"
         contentView.addSubview(dismissButton)
+        contentView.hoverFrames = [cardView.frame, dismissButton.frame]
 
         // Platform icon + text layout
         let textX: CGFloat
@@ -446,6 +447,8 @@ final class MeetingNotificationController {
 private final class HoverAwareView: NSView {
     var onMouseEntered: (() -> Void)?
     var onMouseExited: (() -> Void)?
+    var hoverFrames: [NSRect] = []
+    private var isHoveringActiveFrame = false
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -455,7 +458,7 @@ private final class HoverAwareView: NSView {
         addTrackingArea(
             NSTrackingArea(
                 rect: bounds,
-                options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect],
+                options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect],
                 owner: self,
                 userInfo: nil
             )
@@ -463,11 +466,30 @@ private final class HoverAwareView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        onMouseEntered?()
+        updateHoverState(with: event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        updateHoverState(with: event)
     }
 
     override func mouseExited(with event: NSEvent) {
-        onMouseExited?()
+        setHoveringActiveFrame(false)
+    }
+
+    private func updateHoverState(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        setHoveringActiveFrame(hoverFrames.contains { $0.contains(point) })
+    }
+
+    private func setHoveringActiveFrame(_ isHovering: Bool) {
+        guard isHovering != isHoveringActiveFrame else { return }
+        isHoveringActiveFrame = isHovering
+        if isHovering {
+            onMouseEntered?()
+        } else {
+            onMouseExited?()
+        }
     }
 }
 

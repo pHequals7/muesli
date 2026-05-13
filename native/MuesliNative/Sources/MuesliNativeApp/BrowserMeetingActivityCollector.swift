@@ -11,11 +11,20 @@ struct RunningAppSnapshot: Sendable {
 
 final class BrowserMeetingActivityCollector {
     private let browserBundleIDs = Set(MeetingCandidateResolver.browserApps.keys)
-    // Keep a recently seen meeting URL across tab/app focus dropouts so the
-    // resolver does not churn from a room-specific Meet candidate to a generic
-    // browser-audio candidate while the same call is still active.
-    private let cachedMeetingTTL: TimeInterval = 120
+    private let cachedMeetingTTL: TimeInterval
+    private let focusedDocumentURLProvider: ((RunningAppSnapshot) -> String?)?
+    private let activeBrowserURLProvider: ((String) -> String?)?
     private var cachedMeetings: [String: CachedBrowserMeeting] = [:]
+
+    init(
+        cachedMeetingTTL: TimeInterval = 30,
+        focusedDocumentURLProvider: ((RunningAppSnapshot) -> String?)? = nil,
+        activeBrowserURLProvider: ((String) -> String?)? = nil
+    ) {
+        self.cachedMeetingTTL = cachedMeetingTTL
+        self.focusedDocumentURLProvider = focusedDocumentURLProvider
+        self.activeBrowserURLProvider = activeBrowserURLProvider
+    }
 
     func collect(
         runningApps: [RunningAppSnapshot],
@@ -32,18 +41,12 @@ final class BrowserMeetingActivityCollector {
         }
 
         var liveMeetings: [BrowserMeetingContext] = []
-        let browsersToProbe = browserApps.filter { app in
-            app.isActive || cachedMeetings[app.bundleID] != nil
-        }
-
-        for app in browsersToProbe {
+        for app in browserApps {
             guard let normalized = await normalizedFocusedURL(
                 for: app,
                 shouldAttemptAppleScript: shouldAttemptAppleScript
             ) else {
-                if app.isActive {
-                    cachedMeetings.removeValue(forKey: app.bundleID)
-                }
+                cachedMeetings.removeValue(forKey: app.bundleID)
                 continue
             }
 
@@ -60,15 +63,7 @@ final class BrowserMeetingActivityCollector {
             liveMeetings.append(context)
         }
 
-        let liveBundleIDs = Set(liveMeetings.map(\.bundleID))
-
-        let cachedOnlyMeetings = cachedMeetings.values
-            .filter { !liveBundleIDs.contains($0.context.bundleID) }
-            .map { cached in
-                context(cached.context, runningApps: browserApps)
-            }
-
-        return liveMeetings + cachedOnlyMeetings
+        return liveMeetings
     }
 
     private func normalizedFocusedURL(
@@ -118,6 +113,10 @@ final class BrowserMeetingActivityCollector {
     }
 
     private func normalizedAXDocumentURL(for app: RunningAppSnapshot) -> NormalizedMeetingURL? {
+        if let rawURL = focusedDocumentURLProvider?(app) {
+            return MeetingURLNormalizer.normalize(rawURL)
+        }
+
         let axApp = AXUIElementCreateApplication(app.processIdentifier)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(axApp, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
@@ -138,18 +137,23 @@ final class BrowserMeetingActivityCollector {
 
     @MainActor
     private func activeBrowserURLViaAppleScript(bundleID: String) -> String? {
+        if let url = activeBrowserURLProvider?(bundleID) {
+            return url
+        }
+
+        let escapedBundleID = bundleID.replacingOccurrences(of: "\"", with: "\\\"")
         let source: String
         switch bundleID {
         case "com.apple.Safari":
             source = """
-            tell application id "\(bundleID)"
+            tell application id "\(escapedBundleID)"
                 if (count of windows) is 0 then return ""
                 return URL of current tab of front window
             end tell
             """
         case "com.google.Chrome", "com.brave.Browser", "company.thebrowser.Browser", "com.microsoft.edgemac":
             source = """
-            tell application id "\(bundleID)"
+            tell application id "\(escapedBundleID)"
                 if (count of windows) is 0 then return ""
                 return URL of active tab of front window
             end tell

@@ -305,6 +305,7 @@ private actor MeetingDetectionService {
     private var lastSuppressionLogKey: String?
     private var signalRefreshState = MeetingSignalRefreshState()
     private var currentFallbackInterval: TimeInterval?
+    private var resetTask: Task<Void, Never>?
     private var latestLifecycleGeneration = 0
     private var isStarted = false
 
@@ -316,7 +317,11 @@ private actor MeetingDetectionService {
         self.promptHandler = promptHandler
     }
 
-    func start(generation: Int) {
+    func start(generation: Int) async {
+        if let resetTask {
+            await resetTask.value
+            self.resetTask = nil
+        }
         guard generation >= latestLifecycleGeneration else { return }
         latestLifecycleGeneration = generation
         guard !isStarted else { return }
@@ -325,13 +330,13 @@ private actor MeetingDetectionService {
         scheduleEvaluation(.startup)
     }
 
-    func stop(generation: Int) {
+    func stop(generation: Int) async {
         guard generation >= latestLifecycleGeneration else { return }
         latestLifecycleGeneration = generation
-        stop()
+        await performStop(generation: generation)
     }
 
-    private func stop() {
+    private func performStop(generation: Int) async {
         isStarted = false
         fallbackEvaluationTask?.cancel()
         fallbackEvaluationTask = nil
@@ -343,12 +348,14 @@ private actor MeetingDetectionService {
         pendingEvaluationTrigger = nil
         currentFallbackInterval = nil
         signalRefreshState = MeetingSignalRefreshState()
-        Task { [audioAttributionService] in
+        let resetTask = Task { [audioAttributionService, mediaSessionTracker] in
             await audioAttributionService.reset()
-        }
-        Task { [mediaSessionTracker] in
             await mediaSessionTracker.reset()
         }
+        self.resetTask = resetTask
+        await resetTask.value
+        guard latestLifecycleGeneration == generation else { return }
+        self.resetTask = nil
         promptState.resetVisiblePrompt()
         emitPromptUpdate(.hide)
     }

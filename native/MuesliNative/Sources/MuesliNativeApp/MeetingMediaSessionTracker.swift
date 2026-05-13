@@ -26,7 +26,7 @@ actor MeetingMediaSessionTracker {
     ) -> MeetingCandidate? {
         pruneExpiredSessions(now: snapshot.now)
         guard let candidate else { return nil }
-        guard let key = sessionKey(for: candidate),
+        guard let key = sessionKey(for: candidate, now: snapshot.now),
               isMediaBacked(candidate, snapshot: snapshot) else {
             return candidate
         }
@@ -82,10 +82,15 @@ actor MeetingMediaSessionTracker {
         return session
     }
 
-    private func sessionKey(for candidate: MeetingCandidate) -> String? {
+    private func sessionKey(for candidate: MeetingCandidate, now: Date) -> String? {
         if let sourceBundleID = candidate.sourceBundleID {
             if MeetingCandidateResolver.browserApps[sourceBundleID] != nil {
-                return "browser:\(sourceBundleID)"
+                if let roomIdentity = roomIdentity(for: candidate) {
+                    return "browser:\(sourceBundleID):room:\(roomIdentity)"
+                }
+
+                return mostRecentBrowserSessionKey(for: sourceBundleID, now: now)
+                    ?? "browser:\(sourceBundleID):media"
             }
             return "app:\(sourceBundleID)"
         }
@@ -95,6 +100,27 @@ actor MeetingMediaSessionTracker {
         }
 
         return nil
+    }
+
+    private func roomIdentity(for candidate: MeetingCandidate) -> String? {
+        guard candidate.evidence.contains(.browserURL) else { return nil }
+        if let url = candidate.url, !url.isEmpty { return url }
+        if !candidate.id.hasPrefix("browser:"), !candidate.id.hasPrefix("app:") {
+            return candidate.id
+        }
+        return nil
+    }
+
+    private func mostRecentBrowserSessionKey(for bundleID: String, now: Date) -> String? {
+        let prefix = "browser:\(bundleID):"
+        return sessionsByKey.values
+            .filter { session in
+                session.key.hasPrefix(prefix)
+                    && now.timeIntervalSince(session.lastActiveAt) <= quietWindow
+            }
+            .sorted { lhs, rhs in lhs.lastActiveAt > rhs.lastActiveAt }
+            .first?
+            .key
     }
 
     private func isMediaBacked(
