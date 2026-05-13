@@ -217,3 +217,9 @@ Event-driven architecture for meeting notifications:
 2. **CoreAudio tap migration** — Replace ScreenCaptureKit with CoreAudio aggregate device for system audio. Unblocks OCR during meetings + friendlier "System Audio" permission (not "Screen Recording"). See `Context/handoff-2026-04-16-coreaudio-tap-migration.md`.
 3. **Google OAuth verification** — Pending Google approval (~4 weeks from April 12). Once approved, embed credentials with `verified: true`.
 4. **Post-processor fine-tune** — Collect `postproc-pairs.jsonl` from canary testers, train v3 model for better implicit list formatting.
+
+## Auto-Capture (v0)
+
+A new `AutoCapture/` module under `Sources/MuesliNativeApp/` adds opt-in detector-driven auto-start of meeting recordings. The master toggle (`auto_capture.enabled`) defaults to off, so upgrading is a no-op behavioural change. Per-app allow-list, start delay, "require calendar match", and "pause during Focus / DND" all live in the new Settings → Auto-Capture pane. The first time a recording would auto-start for a given bundle ID, a one-shot modal asks for permission; the user's choice is remembered in `auto_capture.acknowledged_app_bundle_ids`. Modal auto-declines after 30 seconds. The existing `auto_record_meetings` calendar-driven path is untouched.
+
+The coordinator (`AutoCaptureCoordinator`) is a pure listener: it subscribes to the already-existing `MeetingMonitor.onPromptCandidateChanged` callback by chaining alongside the notification UI, calls `MuesliController.startMeetingRecording(title:)` through an injected closure, and surfaces its state via the new `muesli-cli auto-capture status` subcommand for headless diagnostics. Config keys are all snake_case under the new `auto_capture` JSON object; missing keys decode to defaults, so older `config.json` files migrate cleanly.
