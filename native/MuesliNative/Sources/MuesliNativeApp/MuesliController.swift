@@ -3282,6 +3282,38 @@ final class MuesliController: NSObject {
         )
         autoCaptureCoordinator = coordinator
         coordinator.start()
+        refreshDiscoveredPWAs()
+    }
+
+    /// Run a filesystem scan for installed PWAs and update
+    /// `config.autoCapture.pwa.cachedEntries`. The scan runs off the main
+    /// actor; the completion fires on the main actor once the cache is
+    /// updated. Safe to call repeatedly — `PWADiscovery.scan` is cheap enough
+    /// to back the Settings refresh button.
+    func refreshDiscoveredPWAs(completion: (@MainActor () -> Void)? = nil) {
+        Task.detached(priority: .utility) { [weak self] in
+            let entries = PWADiscovery.scan()
+            await MainActor.run {
+                guard let self else {
+                    completion?()
+                    return
+                }
+                self.updateConfig { config in
+                    var pwa = config.autoCapture.pwa
+                    pwa.cachedEntries = entries
+                    // Drop toggles for PWAs that disappeared since the last scan
+                    // so the user doesn't end up with orphan allowlist entries.
+                    let known = Set(entries.map(\.bundleID))
+                    let stale = pwa.enabled.keys.filter { !known.contains($0) }
+                    for bundleID in stale {
+                        pwa.enabled.removeValue(forKey: bundleID)
+                        config.autoCapture.allowedAppBundleIDs.remove(bundleID)
+                    }
+                    config.autoCapture.pwa = pwa
+                }
+                completion?()
+            }
+        }
     }
 
     private func deliverAutoCaptureSignal(from candidate: MeetingCandidate?) {

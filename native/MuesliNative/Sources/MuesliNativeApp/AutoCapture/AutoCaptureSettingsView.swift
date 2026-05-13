@@ -12,6 +12,7 @@ struct AutoCaptureSettingsView: View {
 
     @State private var automationStatuses: [String: AutomationPermissionStatus] = [:]
     @State private var automationProbeTask: Task<Void, Never>?
+    @State private var isRefreshingPWAs: Bool = false
 
     private static let controlWidth: CGFloat = 275
     private static let automationRefreshInterval: TimeInterval = 5
@@ -24,15 +25,25 @@ struct AutoCaptureSettingsView: View {
         config.browserUrlPolling
     }
 
+    private var pwaConfig: PWAConfig {
+        config.pwa
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
             masterSection
             behaviourSection
             allowedAppsSection
             browserUrlPollingSection
+            pwaSection
             footerNotes
         }
-        .onAppear { startAutomationProbe() }
+        .onAppear {
+            startAutomationProbe()
+            // Kick a non-blocking refresh whenever the user opens the pane so
+            // the list reflects PWAs added since the last app launch.
+            triggerPWARefresh()
+        }
         .onDisappear { stopAutomationProbe() }
     }
 
@@ -317,6 +328,111 @@ struct AutoCaptureSettingsView: View {
             statuses[bundleID] = AutomationPermissionProbe.status(forBundleID: bundleID)
         }
         automationStatuses = statuses
+    }
+
+    // MARK: PWAs (v2)
+
+    private var pwaSection: some View {
+        sectionContainer("PWAs (v2)") {
+            HStack(alignment: .firstTextBaseline, spacing: MuesliTheme.spacing8) {
+                Text("Installed Chrome PWAs and Safari Web Apps detected on this Mac.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                Spacer(minLength: MuesliTheme.spacing8)
+                Button {
+                    triggerPWARefresh()
+                } label: {
+                    HStack(spacing: 4) {
+                        if isRefreshingPWAs {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        Text("Refresh")
+                            .font(MuesliTheme.caption())
+                    }
+                }
+                .buttonStyle(.link)
+                .disabled(isRefreshingPWAs)
+            }
+
+            if pwaConfig.cachedEntries.isEmpty {
+                Text("No installed PWAs found. Install one in Chrome or Safari (Safari → File → Add to Dock), then click Refresh.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .padding(.top, 6)
+            } else {
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 8),
+                    GridItem(.flexible(), spacing: 8),
+                ], alignment: .leading, spacing: 8) {
+                    ForEach(pwaConfig.cachedEntries) { entry in
+                        pwaToggleButton(entry)
+                    }
+                }
+                .padding(.top, 4)
+                .disabled(!config.enabled)
+            }
+        }
+    }
+
+    private func pwaToggleButton(_ entry: PWAEntry) -> some View {
+        let enabled = pwaConfig.isEnabled(bundleID: entry.bundleID)
+        let sourceLabel: String = {
+            switch entry.source {
+            case .chrome: return "Chrome"
+            case .safari: return "Safari"
+            }
+        }()
+        return Button {
+            update { current in
+                let nextEnabled = !current.pwa.isEnabled(bundleID: entry.bundleID)
+                current.pwa.enabled[entry.bundleID] = nextEnabled
+                if nextEnabled {
+                    current.allowedAppBundleIDs.insert(entry.bundleID)
+                } else {
+                    current.allowedAppBundleIDs.remove(entry.bundleID)
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: enabled ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(enabled ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 16)
+                Image(systemName: "app.dashed")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(entry.displayName)
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                        .lineLimit(1)
+                    Text(sourceLabel)
+                        .font(.system(size: 10))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(MuesliTheme.backgroundBase)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        }
+        .buttonStyle(.plain)
+        .help(entry.startURL ?? entry.bundleID)
+    }
+
+    private func triggerPWARefresh() {
+        guard !isRefreshingPWAs else { return }
+        isRefreshingPWAs = true
+        controller.refreshDiscoveredPWAs { [self] in
+            isRefreshingPWAs = false
+        }
     }
 
     private var footerNotes: some View {

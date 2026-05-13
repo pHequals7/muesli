@@ -39,6 +39,10 @@ struct AutoCaptureConfig: Codable, Equatable {
     /// upgrading to a v1 build. See ADR-0003.
     var browserUrlPolling: BrowserURLPollingConfig
 
+    /// v2 PWA discovery state — per-PWA toggles plus a cached scan result so
+    /// the Settings pane can render before the next refresh completes.
+    var pwa: PWAConfig
+
     static let defaultStartDelaySeconds: Double = 5
     static let minStartDelaySeconds: Double = 0
     static let maxStartDelaySeconds: Double = 60
@@ -74,7 +78,8 @@ struct AutoCaptureConfig: Codable, Equatable {
         startDelaySeconds: Double = AutoCaptureConfig.defaultStartDelaySeconds,
         requireCalendarMatch: Bool = false,
         disableDuringFocus: Bool = true,
-        browserUrlPolling: BrowserURLPollingConfig = .disabled
+        browserUrlPolling: BrowserURLPollingConfig = .disabled,
+        pwa: PWAConfig = .empty
     ) {
         self.enabled = enabled
         self.allowedAppBundleIDs = allowedAppBundleIDs
@@ -83,6 +88,7 @@ struct AutoCaptureConfig: Codable, Equatable {
         self.requireCalendarMatch = requireCalendarMatch
         self.disableDuringFocus = disableDuringFocus
         self.browserUrlPolling = browserUrlPolling
+        self.pwa = pwa
     }
 
     /// Returns the start delay clamped to the allowed range. Used at decode
@@ -116,6 +122,7 @@ struct AutoCaptureConfig: Codable, Equatable {
         case requireCalendarMatch = "require_calendar_match"
         case disableDuringFocus = "disable_during_focus"
         case browserUrlPolling = "browser_url_polling"
+        case pwa
     }
 
     init(from decoder: Decoder) throws {
@@ -134,5 +141,6 @@ struct AutoCaptureConfig: Codable, Equatable {
             (try? c.decode(Bool.self, forKey: .disableDuringFocus)) ?? defaults.disableDuringFocus
         self.browserUrlPolling =
             (try? c.decode(BrowserURLPollingConfig.self, forKey: .browserUrlPolling)) ?? defaults.browserUrlPolling
+        self.pwa = (try? c.decode(PWAConfig.self, forKey: .pwa)) ?? defaults.pwa
     }
 }
