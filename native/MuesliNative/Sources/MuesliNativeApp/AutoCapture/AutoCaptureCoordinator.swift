@@ -80,6 +80,7 @@ final class AutoCaptureCoordinator {
     private let clock: () -> Date
     private let delaySleep: (Double) async -> Void
     private let logger: Logger
+    private let browserURLPollerFactory: BrowserURLPollerFactory?
 
     // MARK: State
 
@@ -87,6 +88,7 @@ final class AutoCaptureCoordinator {
     private(set) var lastDecisionReason: AutoCaptureDecisionReason = .noSignal
     private(set) var lastSignal: AutoCaptureSignal?
     private(set) var lastDecisionAt: Date?
+    private(set) var browserURLPoller: BrowserURLPoller?
 
     private var pendingDelayTask: Task<Void, Never>?
     private var hasStarted = false
@@ -105,7 +107,8 @@ final class AutoCaptureCoordinator {
             let nanos = UInt64(max(0, seconds) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: nanos)
         },
-        logger: Logger = Logger(subsystem: "com.muesli.native", category: "AutoCapture")
+        logger: Logger = Logger(subsystem: "com.muesli.native", category: "AutoCapture"),
+        browserURLPollerFactory: BrowserURLPollerFactory? = .production
     ) {
         self.configProvider = config
         self.configWriter = configWriter
@@ -116,17 +119,21 @@ final class AutoCaptureCoordinator {
         self.clock = clock
         self.delaySleep = sleep
         self.logger = logger
+        self.browserURLPollerFactory = browserURLPollerFactory
     }
 
     // MARK: Lifecycle
 
     func start() {
         hasStarted = true
+        installBrowserURLPollerIfNeeded()
     }
 
     func stop() {
         hasStarted = false
         cancelPendingDelay()
+        browserURLPoller?.stop()
+        browserURLPoller = nil
         transition(to: .idle, reason: .detectionCleared)
     }
 
@@ -355,4 +362,48 @@ final class AutoCaptureCoordinator {
         lastDecisionReason = reason
         lastDecisionAt = clock()
     }
+
+    // MARK: Browser URL poller
+
+    /// Notify the coordinator that the user toggled a setting that may affect
+    /// the browser URL poller (per-browser flags, master toggle). Cheap to
+    /// call from the Settings view's binding setter.
+    func configurationChanged() {
+        guard hasStarted else { return }
+        installBrowserURLPollerIfNeeded()
+        browserURLPoller?.configurationChanged()
+    }
+
+    private func installBrowserURLPollerIfNeeded() {
+        guard hasStarted, let factory = browserURLPollerFactory else { return }
+        if browserURLPoller != nil { return }
+        let poller = factory.make(
+            { [weak self] in
+                self?.configProvider().browserUrlPolling ?? .disabled
+            },
+            { [weak self] signal in
+                self?.handle(signal)
+            }
+        )
+        browserURLPoller = poller
+        poller.start()
+    }
+}
+
+// MARK: - BrowserURLPollerFactory
+
+/// Pluggable factory so tests can supply a poller with mocked dependencies
+/// (or opt out of having one altogether by passing `nil` to the coordinator).
+/// Production code uses `.production`.
+struct BrowserURLPollerFactory {
+    let make: @MainActor (
+        _ configProvider: @escaping () -> BrowserURLPollingConfig,
+        _ signalHandler: @escaping @MainActor (AutoCaptureSignal) -> Void
+    ) -> BrowserURLPoller
+
+    /// Real factory backed by `AudioProcessAttributionCollector` for the
+    /// mic-ownership signal and `NSAppleScript` for URL fetching.
+    static let production: BrowserURLPollerFactory = BrowserURLPollerFactory(make: { configProvider, signalHandler in
+        BrowserURLPoller(config: configProvider, signalHandler: signalHandler)
+    })
 }

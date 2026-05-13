@@ -72,7 +72,10 @@ private final class TestHarness {
                 await withCheckedContinuation { continuation in
                     self.releaseSleep = { continuation.resume() }
                 }
-            }
+            },
+            // Opt out of the production browser URL poller — coordinator tests
+            // are about the v0 state machine and don't need a live watchdog.
+            browserURLPollerFactory: nil
         )
     }
 }
