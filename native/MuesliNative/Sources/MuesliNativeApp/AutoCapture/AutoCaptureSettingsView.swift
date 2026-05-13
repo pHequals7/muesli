@@ -10,10 +10,18 @@ struct AutoCaptureSettingsView: View {
     let appState: AppState
     let controller: MuesliController
 
+    @State private var automationStatuses: [String: AutomationPermissionStatus] = [:]
+    @State private var automationProbeTask: Task<Void, Never>?
+
     private static let controlWidth: CGFloat = 275
+    private static let automationRefreshInterval: TimeInterval = 5
 
     private var config: AutoCaptureConfig {
         appState.config.autoCapture
+    }
+
+    private var browserUrlPolling: BrowserURLPollingConfig {
+        config.browserUrlPolling
     }
 
     var body: some View {
@@ -21,8 +29,11 @@ struct AutoCaptureSettingsView: View {
             masterSection
             behaviourSection
             allowedAppsSection
+            browserUrlPollingSection
             footerNotes
         }
+        .onAppear { startAutomationProbe() }
+        .onDisappear { stopAutomationProbe() }
     }
 
     // MARK: Master toggle
@@ -143,6 +154,169 @@ struct AutoCaptureSettingsView: View {
         }
         .buttonStyle(.plain)
         .disabled(!config.enabled)
+    }
+
+    // MARK: Browser URL polling (v1)
+
+    private var browserUrlPollingSection: some View {
+        sectionContainer("Browser URL polling (v1)") {
+            descriptionText(
+                "Detect meetings hosted in browser tabs by reading the active tab's URL via AppleScript. Polling only runs while the browser is using the microphone."
+            )
+            LazyVGrid(columns: [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8),
+            ], alignment: .leading, spacing: 8) {
+                browserPollingToggle(
+                    bundleID: BrowserURLPollingConfig.chromeBundleID,
+                    label: "Chrome",
+                    isOn: Binding(
+                        get: { browserUrlPolling.chrome },
+                        set: { newValue in update { $0.browserUrlPolling.chrome = newValue } }
+                    )
+                )
+                browserPollingToggle(
+                    bundleID: BrowserURLPollingConfig.edgeBundleID,
+                    label: "Edge",
+                    isOn: Binding(
+                        get: { browserUrlPolling.edge },
+                        set: { newValue in update { $0.browserUrlPolling.edge = newValue } }
+                    )
+                )
+                browserPollingToggle(
+                    bundleID: BrowserURLPollingConfig.braveBundleID,
+                    label: "Brave",
+                    isOn: Binding(
+                        get: { browserUrlPolling.brave },
+                        set: { newValue in update { $0.browserUrlPolling.brave = newValue } }
+                    )
+                )
+                browserPollingToggle(
+                    bundleID: BrowserURLPollingConfig.arcBundleID,
+                    label: "Arc",
+                    isOn: Binding(
+                        get: { browserUrlPolling.arc },
+                        set: { newValue in update { $0.browserUrlPolling.arc = newValue } }
+                    )
+                )
+                browserPollingToggle(
+                    bundleID: BrowserURLPollingConfig.safariBundleID,
+                    label: "Safari",
+                    isOn: Binding(
+                        get: { browserUrlPolling.safari },
+                        set: { newValue in update { $0.browserUrlPolling.safari = newValue } }
+                    )
+                )
+            }
+            .padding(.top, 4)
+            .disabled(!config.enabled)
+            automationDeniedBanner
+        }
+    }
+
+    private func browserPollingToggle(bundleID: String, label: String, isOn: Binding<Bool>) -> some View {
+        let denied = automationStatuses[bundleID] == .denied
+        return Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isOn.wrappedValue ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                    .frame(width: 16)
+                Image(systemName: "globe")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(width: 14)
+                Text(label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .lineLimit(1)
+                if denied {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.recording)
+                        .accessibilityLabel("Automation permission denied")
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(MuesliTheme.backgroundBase)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var automationDeniedBanner: some View {
+        if anyAutomationDeniedForEnabledBrowsers {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(MuesliTheme.recording)
+                    Text("Automation permission denied")
+                        .font(MuesliTheme.headline())
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                }
+                Text("macOS denied Muesli permission to read URLs from one or more enabled browsers. Open System Settings → Privacy & Security → Automation to grant access. Until granted, browser URL polling stays inert for the denied browsers.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                Button("Open Automation Settings") {
+                    openAutomationSettings()
+                }
+                .buttonStyle(.link)
+                .font(MuesliTheme.caption())
+            }
+            .padding(MuesliTheme.spacing12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(MuesliTheme.recording.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.recording.opacity(0.35), lineWidth: 1)
+            )
+            .padding(.top, MuesliTheme.spacing8)
+        }
+    }
+
+    private var anyAutomationDeniedForEnabledBrowsers: Bool {
+        for bundleID in BrowserURLPollingConfig.supportedBundleIDs {
+            guard browserUrlPolling.isEnabled(forBundleID: bundleID) else { continue }
+            if automationStatuses[bundleID] == .denied { return true }
+        }
+        return false
+    }
+
+    private func openAutomationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func startAutomationProbe() {
+        refreshAutomationStatuses()
+        automationProbeTask?.cancel()
+        automationProbeTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(Self.automationRefreshInterval * 1_000_000_000))
+                if Task.isCancelled { return }
+                refreshAutomationStatuses()
+            }
+        }
+    }
+
+    private func stopAutomationProbe() {
+        automationProbeTask?.cancel()
+        automationProbeTask = nil
+    }
+
+    private func refreshAutomationStatuses() {
+        var statuses: [String: AutomationPermissionStatus] = [:]
+        for bundleID in BrowserURLPollingConfig.supportedBundleIDs {
+            statuses[bundleID] = AutomationPermissionProbe.status(forBundleID: bundleID)
+        }
+        automationStatuses = statuses
     }
 
     private var footerNotes: some View {
