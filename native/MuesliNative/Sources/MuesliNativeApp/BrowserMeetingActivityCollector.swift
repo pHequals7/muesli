@@ -9,6 +9,7 @@ struct RunningAppSnapshot: Sendable {
     let isActive: Bool
 }
 
+// Not thread-safe; MeetingSignalCollector owns this collector from a single actor context.
 final class BrowserMeetingActivityCollector {
     private let browserBundleIDs = Set(MeetingCandidateResolver.browserApps.keys)
     private let cachedMeetingTTL: TimeInterval
@@ -67,6 +68,8 @@ final class BrowserMeetingActivityCollector {
             liveMeetings.append(context)
         }
 
+        // Refresh passes intentionally return only fresh probe results. Skipped
+        // probes preserve cache entries for later non-refresh passes.
         return liveMeetings
     }
 
