@@ -2562,7 +2562,7 @@ final class MuesliController: NSObject {
     @discardableResult
     func startMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil, openDocument: Bool = false) -> Bool {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return false }
-        guard normalizeMeetingTranscriptionSelectionForAvailability() != nil else {
+        guard let meetingBackend = normalizeMeetingTranscriptionSelectionForAvailability() else {
             presentErrorAlert(
                 title: "Meeting failed to start",
                 message: "Download a transcription model before recording a meeting."
@@ -2603,7 +2603,12 @@ final class MuesliController: NSObject {
             guard let self else { return }
             do {
                 try Task.checkCancellation()
-                try await self.startMeetingRecordingWithSystemAudioRecovery(title: title, calendarEventID: calendarEventID, meetingID: meetingID)
+                try await self.startMeetingRecordingWithSystemAudioRecovery(
+                    title: title,
+                    calendarEventID: calendarEventID,
+                    meetingID: meetingID,
+                    backend: meetingBackend
+                )
             } catch is CancellationError {
                 if self.meetingStartMeetingID == meetingID {
                     self.resolveLiveMeetingAfterStartFailure(id: meetingID)
@@ -2686,13 +2691,18 @@ final class MuesliController: NSObject {
         syncAppState()
     }
 
-    private func startMeetingRecordingWithSystemAudioRecovery(title: String, calendarEventID: String?, meetingID: Int64) async throws {
+    private func startMeetingRecordingWithSystemAudioRecovery(
+        title: String,
+        calendarEventID: String?,
+        meetingID: Int64,
+        backend: BackendOption
+    ) async throws {
         var shouldRetryAfterPermissionRequest = config.useCoreAudioTap
         statusBarController?.setStatus("Preparing meeting transcription...")
         statusBarController?.refresh()
         try Task.checkCancellation()
         try await transcriptionCoordinator.preloadRequired(
-            backend: selectedMeetingTranscriptionBackend,
+            backend: backend,
             enablePostProcessor: false,
             includeMeetingHelpers: true
         )
@@ -2705,7 +2715,7 @@ final class MuesliController: NSObject {
             let meetingSession = MeetingSession(
                 title: title,
                 calendarEventID: calendarEventID,
-                backend: selectedMeetingTranscriptionBackend,
+                backend: backend,
                 runtime: runtime,
                 config: config,
                 transcriptionCoordinator: transcriptionCoordinator
