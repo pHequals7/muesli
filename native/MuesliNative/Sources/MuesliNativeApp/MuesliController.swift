@@ -177,6 +177,7 @@ final class MuesliController: NSObject {
     private var workspaceObserver: NSObjectProtocol?
     private var dataDidChangeObserver: NSObjectProtocol?
     private var isStartingMeetingRecording = false
+    private var meetingStartStatus: String?
     private var isShowingCalendarNotification = false
     private var presentedMeetingCandidate: MeetingCandidate?
     private var meetingEndTimer: Timer?
@@ -551,6 +552,8 @@ final class MuesliController: NSObject {
         appState.config = config
         appState.isMeetingRecording = isMeetingRecording()
         appState.isMeetingRecordingPaused = isMeetingRecordingPaused()
+        appState.isMeetingStarting = isStartingMeetingRecording
+        appState.meetingStartStatus = meetingStartStatus
         indicator.setMeetingRecordingPaused(appState.isMeetingRecordingPaused, config: config)
         appState.isChatGPTAuthenticated = chatGPTAuth.isAuthenticated
         appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
@@ -2567,6 +2570,7 @@ final class MuesliController: NSObject {
             return
         }
         isStartingMeetingRecording = true
+        updateMeetingStartStatus("Preparing meeting transcription...")
         beginMeetingActivity(reason: "Recording and transcribing a meeting")
         meetingMonitor.suppressWhileActive()
         meetingMonitor.refreshState()
@@ -2606,7 +2610,9 @@ final class MuesliController: NSObject {
                 }
             }
             self.isStartingMeetingRecording = false
+            self.updateMeetingStartStatus(nil)
             self.updateMeetingNotificationVisibility()
+            self.syncAppState()
         }
     }
 
@@ -2616,6 +2622,14 @@ final class MuesliController: NSObject {
 
     private func startMeetingRecordingWithSystemAudioRecovery(title: String, calendarEventID: String?, meetingID: Int64) async throws {
         var shouldRetryAfterPermissionRequest = config.useCoreAudioTap
+        updateMeetingStartStatus("Preparing meeting transcription...")
+        statusBarController?.setStatus("Preparing meeting transcription...")
+        statusBarController?.refresh()
+        try await transcriptionCoordinator.preloadRequired(
+            backend: selectedMeetingTranscriptionBackend,
+            enablePostProcessor: false,
+            includeMeetingHelpers: true
+        )
 
         while true {
             let meetingSession = MeetingSession(
@@ -2661,10 +2675,12 @@ final class MuesliController: NSObject {
 
                 shouldRetryAfterPermissionRequest = false
                 meetingSession.discard()
+                updateMeetingStartStatus("Requesting system audio permission...")
                 statusBarController?.setStatus("Requesting system audio permission...")
                 statusBarController?.refresh()
                 let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
                 if granted {
+                    updateMeetingStartStatus("Retrying meeting start...")
                     statusBarController?.setStatus("Retrying meeting start...")
                     statusBarController?.refresh()
                     continue
@@ -3258,6 +3274,12 @@ final class MuesliController: NSObject {
             ],
             reason: reason
         )
+    }
+
+    private func updateMeetingStartStatus(_ status: String?) {
+        meetingStartStatus = status
+        appState.isMeetingStarting = isStartingMeetingRecording
+        appState.meetingStartStatus = status
     }
 
     private func endMeetingActivity() {
