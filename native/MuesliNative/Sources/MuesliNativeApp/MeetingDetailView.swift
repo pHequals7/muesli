@@ -1088,6 +1088,7 @@ struct MeetingDetailView: View {
         if meetingChanged {
             editableManualNotes = meeting?.manualNotes ?? ""
             manualNotesSaveStatus = .saved
+            transcriptResummaryPromptMeetingID = nil
             transcriptEditOriginalTranscript = nil
             transcriptEditHadStructuredNotes = false
         } else {
