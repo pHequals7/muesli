@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UniformTypeIdentifiers
 import MuesliCore
 
 private struct MeetingDetectionAppOption: Identifiable {
@@ -87,10 +88,11 @@ struct SettingsView: View {
     @State private var openRouterFreeModels: [SummaryModelPreset] = []
     @State private var isLoadingOpenRouterFreeModels = false
     @State private var openRouterFreeModelsError: String?
+    @State private var appDisplayNameDraft = ""
 
     // Uniform width for all right-side controls
-    private let controlWidth: CGFloat = 220
-    private let meetingControlWidth: CGFloat = 275
+    private let controlWidth: CGFloat = 240
+    private let meetingControlWidth: CGFloat = 300
     private let screenContextGrantIntentTimeout: TimeInterval = 15 * 60
     private let meetingDetectionAppOptions: [MeetingDetectionAppOption] = [
         MeetingDetectionAppOption(bundleID: "com.google.Chrome", name: "Chrome", icon: "globe"),
@@ -126,7 +128,7 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
+            VStack(alignment: .leading, spacing: MuesliTheme.sectionSpacing) {
                 Text("Settings")
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
@@ -134,10 +136,11 @@ struct SettingsView: View {
                 settingsPanePicker
                 paneContent
             }
-            .padding(MuesliTheme.spacing32)
+            .muesliPageContent(maxWidth: 1080)
         }
         .background(MuesliTheme.backgroundBase)
         .onAppear {
+            appDisplayNameDraft = appState.config.appDisplayName
             refreshDownloadedModelOptions()
             startPermissionPolling()
             if appState.selectedMeetingSummaryBackend == .openRouter {
@@ -164,6 +167,11 @@ struct SettingsView: View {
         .onChange(of: appState.selectedMeetingSummaryBackend) { _, backend in
             if backend == .openRouter {
                 loadOpenRouterFreeModelsIfNeeded()
+            }
+        }
+        .onChange(of: appState.config.appDisplayName) { _, name in
+            if appDisplayNameDraft != name {
+                appDisplayNameDraft = name
             }
         }
         .alert(
@@ -226,7 +234,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func screenContextRow(_ title: String, controlWidth rowControlWidth: CGFloat? = nil) -> some View {
         let width = rowControlWidth ?? controlWidth
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .top, spacing: MuesliTheme.spacing16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(MuesliTheme.body())
@@ -239,21 +247,20 @@ struct SettingsView: View {
             }
             .layoutPriority(1)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: MuesliTheme.spacing20)
 
             ZStack(alignment: .trailing) {
                 Color.clear.frame(width: width, height: 1)
                 screenContextControl(width: width)
             }
         }
-        .frame(minHeight: 52)
+        .frame(minHeight: MuesliTheme.rowMinHeight + MuesliTheme.spacing8)
     }
 
     private let customIndicatorPositionLabel = "Custom (drag to reposition)"
 
     private var settingsPanePicker: some View {
         HStack {
-            Spacer()
             Picker("", selection: $selectedPane) {
                 ForEach(SettingsPane.allCases) { pane in
                     Text(pane.title).tag(pane)
@@ -261,8 +268,8 @@ struct SettingsView: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 680)
-            Spacer()
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -305,7 +312,8 @@ struct SettingsView: View {
 
             permissionsSection
 
-            settingsSection("Data") {
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                settingsSectionLabel("Data")
                 HStack(spacing: MuesliTheme.spacing12) {
                     actionButton("Clear dictation history", role: .destructive) {
                         pendingDataDestruction = .dictations
@@ -316,6 +324,7 @@ struct SettingsView: View {
                     .disabled(controller.isMeetingRecording())
                     .help("Stop the current meeting recording before clearing meeting history.")
                 }
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -450,6 +459,53 @@ struct SettingsView: View {
                             .foregroundStyle(MuesliTheme.textPrimary)
                     }
                 }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Voice feedback", controlWidth: meetingControlWidth) {
+                    settingsSwitch(isOn: appState.config.enableComputerUseVoiceFeedback) { newValue in
+                        controller.updateConfig { $0.enableComputerUseVoiceFeedback = newValue }
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Voice model", controlWidth: meetingControlWidth) {
+                    settingsMenu(
+                        selection: ComputerUseTTSModelOption.resolve(appState.config.computerUseTTSModel).label,
+                        options: ComputerUseTTSModelOption.labels
+                    ) { label in
+                        controller.updateConfig {
+                            $0.computerUseTTSModel = ComputerUseTTSModelOption.option(forLabel: label).rawValue
+                        }
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Voice", controlWidth: meetingControlWidth) {
+                    settingsMenu(
+                        selection: ComputerUseTTSVoiceOption.resolve(appState.config.computerUseTTSVoice).label,
+                        options: ComputerUseTTSVoiceOption.labels
+                    ) { label in
+                        controller.updateConfig {
+                            $0.computerUseTTSVoice = ComputerUseTTSVoiceOption.option(forLabel: label).rawValue
+                        }
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Voice speed", controlWidth: meetingControlWidth) {
+                    Stepper(
+                        value: Binding(
+                            get: { min(max(appState.config.computerUseTTSSpeed, 0.5), 2.0) },
+                            set: { newValue in
+                                controller.updateConfig {
+                                    $0.computerUseTTSSpeed = min(max(newValue, 0.5), 2.0)
+                                }
+                            }
+                        ),
+                        in: 0.5...2.0,
+                        step: 0.05
+                    ) {
+                        Text("\(appState.config.computerUseTTSSpeed.formatted(.number.precision(.fractionLength(2))))x")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+                    }
+                }
             }
         }
     }
@@ -522,7 +578,7 @@ struct SettingsView: View {
                             placeholder: "sk-...",
                             onChange: { val in controller.updateConfig { $0.openAIAPIKey = val } }
                         )
-                        .frame(height: 22)
+                        .frame(height: 26)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Model", controlWidth: meetingControlWidth) {
@@ -539,7 +595,7 @@ struct SettingsView: View {
                             placeholder: "http://localhost:11434",
                             onChange: { val in controller.updateConfig { $0.ollamaURL = val } }
                         )
-                        .frame(height: 22)
+                        .frame(height: 26)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Model", controlWidth: meetingControlWidth) {
@@ -555,7 +611,7 @@ struct SettingsView: View {
                             placeholder: "sk-or-...",
                             onChange: { val in controller.updateConfig { $0.openRouterAPIKey = val } }
                         )
-                        .frame(height: 22)
+                        .frame(height: 26)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Free model", controlWidth: meetingControlWidth) {
@@ -704,6 +760,20 @@ struct SettingsView: View {
             }
 
             settingsSection("Appearance") {
+                settingsRow("App name", controlWidth: 260) {
+                    settingsTextField(
+                        text: appDisplayNameDraft,
+                        placeholder: AppIdentity.bundleDisplayName
+                    ) { value in
+                        appDisplayNameDraft = value
+                        controller.updateConfig { $0.appDisplayName = value }
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Logo", controlWidth: 260) {
+                    customLogoPicker
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
                 settingsRow("Dark mode") {
                     settingsSwitch(isOn: appState.config.darkMode) { newValue in
                         controller.updateConfig { $0.darkMode = newValue }
@@ -755,7 +825,7 @@ struct SettingsView: View {
     }
 
     private var glassTintPicker: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             ForEach(Self.accentPresets, id: \.hex) { preset in
                 let isSelected = appState.config.recordingColorHex.lowercased() == preset.hex
                 Button {
@@ -774,7 +844,85 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .help(preset.name)
             }
+
+            CompactColorWell(
+                color: .muesliHex(appState.config.recordingColorHex),
+                onChange: { color in
+                    if let hex = color.toHexString() {
+                        controller.updateConfig { $0.recordingColorHex = hex }
+                    }
+                }
+            )
+            .frame(width: 24, height: 24)
+            .clipShape(Circle())
+            .overlay(
+                Circle().strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+            .help("Choose any accent color")
         }
+    }
+
+    private var customLogoPicker: some View {
+        HStack(spacing: 6) {
+            logoPreview
+
+            Button {
+                pickCustomLogo()
+            } label: {
+                Image(systemName: "photo")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Upload logo")
+
+            if appState.config.customLogoPath != nil {
+                Button {
+                    let oldPath = appState.config.customLogoPath
+                    controller.updateConfig { $0.customLogoPath = nil }
+                    AppBrandingAssets.removeLogo(at: oldPath)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help("Remove custom logo")
+            }
+        }
+        .frame(width: 260, alignment: .trailing)
+    }
+
+    private var logoPreview: some View {
+        Group {
+            if let img = MenuBarIconRenderer.make(
+                choice: appState.config.menuBarIcon,
+                customLogoPath: appState.config.customLogoPath
+            ) {
+                Image(nsImage: img)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(systemName: "app")
+                    .font(.system(size: 13))
+            }
+        }
+        .frame(width: 20, height: 20)
+        .padding(4)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
     }
 
     private var menuBarIconPicker: some View {
@@ -1048,6 +1196,32 @@ struct SettingsView: View {
         }
     }
 
+    private func pickCustomLogo() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a logo"
+        panel.prompt = "Choose Logo"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        presentOpenPanel(panel) { url in
+            do {
+                let previousPath = appState.config.customLogoPath
+                let importedPath = try AppBrandingAssets.importLogo(from: url)
+                controller.updateConfig {
+                    $0.customLogoPath = importedPath
+                    $0.menuBarIcon = "muesli"
+                }
+                if previousPath != importedPath {
+                    AppBrandingAssets.removeLogo(at: previousPath)
+                }
+            } catch {
+                fputs("[muesli-native] Failed to import custom logo: \(error)\n", stderr)
+            }
+        }
+    }
+
     private func pickMeetingHookFile() {
         let panel = NSOpenPanel()
         panel.title = "Choose a hook script"
@@ -1304,19 +1478,24 @@ struct SettingsView: View {
 
     // MARK: - Layout Primitives
 
+    private func settingsSectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(MuesliTheme.textTertiary)
+            .textCase(.uppercase)
+            .padding(.leading, 2)
+    }
+
     @ViewBuilder
     private func settingsSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .textCase(.uppercase)
-                .padding(.leading, 2)
+            settingsSectionLabel(title)
 
             VStack(alignment: .leading, spacing: 0) {
                 content()
             }
-            .padding(MuesliTheme.spacing16)
+            .padding(.horizontal, MuesliTheme.cardPadding)
+            .padding(.vertical, MuesliTheme.spacing4)
             .background(MuesliTheme.backgroundRaised)
             .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
             .overlay(
@@ -1331,12 +1510,12 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsRow(_ label: String, controlWidth rowControlWidth: CGFloat? = nil, @ViewBuilder control: () -> some View) -> some View {
         let width = rowControlWidth ?? controlWidth
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: MuesliTheme.spacing16) {
             Text(label)
                 .font(MuesliTheme.body())
                 .foregroundStyle(MuesliTheme.textPrimary)
                 .layoutPriority(1)
-            Spacer(minLength: 20)
+            Spacer(minLength: MuesliTheme.spacing20)
             ZStack(alignment: .trailing) {
                 // Invisible spacer forces the ZStack to exactly controlWidth
                 Color.clear.frame(width: width, height: 1)
@@ -1344,14 +1523,14 @@ struct SettingsView: View {
                     .frame(maxWidth: width)
             }
         }
-        .frame(minHeight: 32)
+        .frame(minHeight: MuesliTheme.rowMinHeight)
     }
 
     private func settingsDescription(_ text: String) -> some View {
         Text(text)
             .font(MuesliTheme.caption())
             .foregroundStyle(MuesliTheme.textTertiary)
-            .padding(.horizontal, MuesliTheme.spacing16)
+            .padding(.trailing, MuesliTheme.spacing16)
             .padding(.top, -4)
             .padding(.bottom, MuesliTheme.spacing8)
     }
@@ -1372,7 +1551,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsMenu(selection: String, options: [String], onChange: @escaping (String) -> Void) -> some View {
         FixedWidthPopUp(selection: selection, options: options, onChange: onChange)
-            .frame(height: 24)
+            .frame(height: 28)
     }
 
     private var mutedMeetingDetectionAppsControl: some View {
@@ -1755,7 +1934,7 @@ struct SettingsView: View {
                 onChange(allItems[index].id)
             }
         )
-        .frame(height: 24)
+        .frame(height: 28)
     }
 
     @ViewBuilder
@@ -1772,7 +1951,7 @@ struct SettingsView: View {
                 onChange(selectedId == presets.first?.id ? "" : selectedId)
             }
         )
-        .frame(height: 24)
+        .frame(height: 28)
     }
 
     @ViewBuilder
@@ -1784,7 +1963,17 @@ struct SettingsView: View {
                 onChange(value.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         )
-        .frame(height: 22)
+        .frame(height: 26)
+    }
+
+    @ViewBuilder
+    private func settingsTextField(text: String, placeholder: String, onChange: @escaping (String) -> Void) -> some View {
+        PastableTextField(
+            text: text,
+            placeholder: placeholder,
+            onChange: onChange
+        )
+        .frame(height: 24)
     }
 
     @ViewBuilder
@@ -2014,25 +2203,33 @@ struct PastableSecureField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: EditableNSSecureTextField, context: Context) {
+        context.coordinator.onChange = onChange
         if nsView.stringValue != text {
+            guard nsView.currentEditor() == nil else { return }
             nsView.stringValue = text
+            context.coordinator.lastValue = text
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onChange: onChange)
+        Coordinator(initialValue: text, onChange: onChange)
     }
 
     class Coordinator: NSObject, NSTextFieldDelegate {
-        let onChange: (String) -> Void
+        var lastValue: String
+        var onChange: (String) -> Void
 
-        init(onChange: @escaping (String) -> Void) {
+        init(initialValue: String, onChange: @escaping (String) -> Void) {
+            self.lastValue = initialValue
             self.onChange = onChange
         }
 
         func controlTextDidChange(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
-            onChange(field.stringValue)
+            let value = field.stringValue
+            guard value != lastValue else { return }
+            lastValue = value
+            onChange(value)
         }
     }
 }
@@ -2056,8 +2253,55 @@ struct PastableTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: EditableNSTextField, context: Context) {
+        context.coordinator.onChange = onChange
         if nsView.stringValue != text {
+            guard nsView.currentEditor() == nil else { return }
             nsView.stringValue = text
+            context.coordinator.lastValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(initialValue: text, onChange: onChange)
+    }
+
+    class Coordinator: NSObject, NSTextFieldDelegate {
+        var lastValue: String
+        var onChange: (String) -> Void
+
+        init(initialValue: String, onChange: @escaping (String) -> Void) {
+            self.lastValue = initialValue
+            self.onChange = onChange
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            let value = field.stringValue
+            guard value != lastValue else { return }
+            lastValue = value
+            onChange(value)
+        }
+    }
+}
+
+struct CompactColorWell: NSViewRepresentable {
+    let color: NSColor
+    let onChange: (NSColor) -> Void
+
+    func makeNSView(context: Context) -> CompactColorWellButton {
+        let button = CompactColorWellButton(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        button.swatchColor = color
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.openColorPanel(_:))
+        context.coordinator.button = button
+        return button
+    }
+
+    func updateNSView(_ nsView: CompactColorWellButton, context: Context) {
+        context.coordinator.onChange = onChange
+        context.coordinator.button = nsView
+        if !nsView.swatchColor.isEqual(color) {
+            nsView.swatchColor = color
         }
     }
 
@@ -2065,17 +2309,88 @@ struct PastableTextField: NSViewRepresentable {
         Coordinator(onChange: onChange)
     }
 
-    class Coordinator: NSObject, NSTextFieldDelegate {
-        let onChange: (String) -> Void
+    class Coordinator: NSObject {
+        var onChange: (NSColor) -> Void
+        weak var button: CompactColorWellButton?
+        private var panelObserver: NSObjectProtocol?
 
-        init(onChange: @escaping (String) -> Void) {
+        init(onChange: @escaping (NSColor) -> Void) {
             self.onChange = onChange
         }
 
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            onChange(field.stringValue)
+        deinit {
+            if let panelObserver {
+                NotificationCenter.default.removeObserver(panelObserver)
+            }
         }
+
+        @objc func openColorPanel(_ sender: CompactColorWellButton) {
+            let panel = NSColorPanel.shared
+            panel.showsAlpha = false
+            panel.color = sender.swatchColor
+            observe(panel)
+            panel.makeKeyAndOrderFront(nil)
+        }
+
+        private func observe(_ panel: NSColorPanel) {
+            if let panelObserver {
+                NotificationCenter.default.removeObserver(panelObserver)
+            }
+            panelObserver = NotificationCenter.default.addObserver(
+                forName: NSColorPanel.colorDidChangeNotification,
+                object: panel,
+                queue: .main
+            ) { [weak self] notification in
+                guard let self, let panel = notification.object as? NSColorPanel else { return }
+                button?.swatchColor = panel.color
+                onChange(panel.color)
+            }
+        }
+    }
+}
+
+final class CompactColorWellButton: NSButton {
+    var swatchColor: NSColor = .controlAccentColor {
+        didSet { needsDisplay = true }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        title = ""
+        isBordered = false
+        bezelStyle = .regularSquare
+        setButtonType(.momentaryPushIn)
+        focusRingType = .none
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        title = ""
+        isBordered = false
+        focusRingType = .none
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 24, height: 24)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill()
+
+        let circleRect = bounds.insetBy(dx: 2, dy: 2)
+        let path = NSBezierPath(ovalIn: circleRect)
+        swatchColor.setFill()
+        path.fill()
+
+        NSColor.white.withAlphaComponent(isHighlighted ? 0.95 : 0.7).setStroke()
+        path.lineWidth = 1.5
+        path.stroke()
+
+        NSColor.separatorColor.withAlphaComponent(0.8).setStroke()
+        let border = NSBezierPath(ovalIn: circleRect.insetBy(dx: -0.5, dy: -0.5))
+        border.lineWidth = 1
+        border.stroke()
     }
 }
 
@@ -2095,6 +2410,20 @@ private extension Color {
 }
 
 private extension NSColor {
+    static func muesliHex(_ hex: String) -> NSColor {
+        var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        h = h.hasPrefix("#") ? String(h.dropFirst()) : h
+        guard h.count == 6, let value = UInt64(h, radix: 16) else {
+            return .controlAccentColor
+        }
+        return NSColor(
+            srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
+    }
+
     func toHexString() -> String? {
         guard let rgb = usingColorSpace(.sRGB) else { return nil }
         let r = Int((rgb.redComponent   * 255).rounded())

@@ -30,6 +30,7 @@ final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func reload() {
+        window?.title = AppIdentity.displayName
         controller.syncAppState()
     }
 

@@ -195,6 +195,7 @@ final class MuesliController: NSObject {
         launchAtLoginManager: LaunchAtLoginManaging = SystemLaunchAtLoginManager()
     ) {
         let loadedConfig = configStore.load()
+        AppIdentity.configureDisplayNameOverride(loadedConfig.appDisplayName)
         self.runtime = runtime
         self.dictationStore = dictationStore ?? DictationStore(
             databaseURL: MuesliPaths.defaultDatabaseURL(appName: AppIdentity.supportDirectoryName)
@@ -223,6 +224,7 @@ final class MuesliController: NSObject {
         self.indicator = FloatingIndicatorController(configStore: configStore)
         ComputerUseCursorOverlay.shared.attachIndicator(self.indicator)
         super.init()
+        applyApplicationBranding()
     }
 
     func start() {
@@ -507,7 +509,23 @@ final class MuesliController: NSObject {
         }
     }
 
+    private func applyApplicationBranding() {
+        if let customLogo = AppBrandingAssets.image(at: config.customLogoPath) {
+            NSApplication.shared.applicationIconImage = customLogo
+        } else if let image = AppBrandingAssets.accentedDefaultAppIcon(
+            accentHex: config.recordingColorHex,
+            fallbackURL: runtime.appIcon
+        ) {
+            NSApplication.shared.applicationIconImage = image
+        }
+
+        if let quitItem = NSApplication.shared.mainMenu?.items.first?.submenu?.items.first {
+            quitItem.title = "Quit \(AppIdentity.displayName)"
+        }
+    }
+
     func refreshUI() {
+        applyApplicationBranding()
         statusBarController?.setStatus("Idle")
         statusBarController?.refresh()
         historyWindowController?.updateBackendLabel()
@@ -682,8 +700,11 @@ final class MuesliController: NSObject {
 
     func updateConfig(_ mutate: (inout AppConfig) -> Void) {
         mutate(&config)
+        config.appDisplayName = config.appDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         configStore.save(config)
+        AppIdentity.configureDisplayNameOverride(config.appDisplayName)
         MuesliTheme.accentOverrideHex = config.recordingColorHex == "1e1e2e" ? nil : config.recordingColorHex
+        applyApplicationBranding()
         selectedBackend = BackendOption.all.first(where: {
             $0.backend == config.sttBackend && $0.model == config.sttModel
         }) ?? .whisper

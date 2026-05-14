@@ -430,7 +430,10 @@ final class FloatingIndicatorController: NSObject {
         let config = configStore.load()
         let fallback = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)) ?? NSImage()
-        let newImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? fallback
+        let newImage = MenuBarIconRenderer.make(
+            choice: config.menuBarIcon,
+            customLogoPath: config.customLogoPath
+        ) ?? fallback
         newImage.isTemplate = false
         micIconView?.image = newImage
     }
@@ -1030,7 +1033,10 @@ final class FloatingIndicatorController: NSObject {
         let config = configStore.load()
         let fallbackImage = NSImage(systemSymbolName: "waveform.badge.microphone", accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)) ?? NSImage()
-        let idleImage = MenuBarIconRenderer.make(choice: config.menuBarIcon) ?? fallbackImage
+        let idleImage = MenuBarIconRenderer.make(
+            choice: config.menuBarIcon,
+            customLogoPath: config.customLogoPath
+        ) ?? fallbackImage
         idleImage.isTemplate = false // we tint manually via contentTintColor
         let micView = NSImageView(image: idleImage)
         micView.contentTintColor = .white

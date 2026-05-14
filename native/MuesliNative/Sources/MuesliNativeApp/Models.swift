@@ -643,6 +643,8 @@ struct AppConfig: Codable {
     var folderOrder: [Int64] = []
     var soundEnabled: Bool = true
     var recordingColorHex: String = "1e1e2e"   // Catppuccin Mocha base, without #
+    var appDisplayName: String = ""
+    var customLogoPath: String?
     var menuBarIcon: String = "muesli"
     var showNextMeetingInMenuBar: Bool = true
     var maraudersMapUnlocked: Bool = false
@@ -706,6 +708,8 @@ struct AppConfig: Codable {
         case folderOrder = "folder_order"
         case soundEnabled = "sound_enabled"
         case recordingColorHex = "recording_color_hex"
+        case appDisplayName = "app_display_name"
+        case customLogoPath = "custom_logo_path"
         case menuBarIcon = "menu_bar_icon"
         case showNextMeetingInMenuBar = "show_next_meeting_in_menu_bar"
         case maraudersMapUnlocked = "marauders_map_unlocked"
@@ -791,6 +795,8 @@ struct AppConfig: Codable {
         folderOrder = (try? c.decode([Int64].self, forKey: .folderOrder)) ?? defaults.folderOrder
         soundEnabled = (try? c.decode(Bool.self, forKey: .soundEnabled)) ?? defaults.soundEnabled
         recordingColorHex = (try? c.decode(String.self, forKey: .recordingColorHex)) ?? defaults.recordingColorHex
+        appDisplayName = (try? c.decode(String.self, forKey: .appDisplayName)) ?? defaults.appDisplayName
+        customLogoPath = try? c.decode(String.self, forKey: .customLogoPath)
         menuBarIcon = (try? c.decode(String.self, forKey: .menuBarIcon)) ?? defaults.menuBarIcon
         showNextMeetingInMenuBar = (try? c.decode(Bool.self, forKey: .showNextMeetingInMenuBar)) ?? defaults.showNextMeetingInMenuBar
         maraudersMapUnlocked = (try? c.decode(Bool.self, forKey: .maraudersMapUnlocked)) ?? defaults.maraudersMapUnlocked
@@ -814,6 +820,11 @@ struct AppConfig: Codable {
 
     var resolvedOnboardingUseCase: OnboardingUseCase {
         OnboardingUseCase.resolved(onboardingUseCase)
+    }
+
+    var resolvedDisplayName: String {
+        let trimmed = appDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? AppIdentity.bundleDisplayName : trimmed
     }
 }
 
