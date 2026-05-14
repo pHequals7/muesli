@@ -396,6 +396,7 @@ struct MeetingDetailView: View {
                 controller.updateMeetingNotes(id: meeting.id, notes: editableNotes)
                 isEditingNotes = false
             } else if isEditingTranscript {
+                guard !isRetranscribing else { return }
                 transcriptSaveTask?.cancel()
                 transcriptSaveTask = nil
                 let shouldPromptForResummary = Self.shouldPromptForTranscriptResummary(
@@ -1355,9 +1356,14 @@ struct TranscriptChatMessage: Identifiable, Equatable {
 
 private struct MeetingTranscriptView: View {
     let transcript: String
+    @State private var messages: [TranscriptChatMessage]
+
+    init(transcript: String) {
+        self.transcript = transcript
+        _messages = State(initialValue: TranscriptChatMessage.messages(from: transcript))
+    }
 
     var body: some View {
-        let messages = TranscriptChatMessage.messages(from: transcript)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
                 if messages.isEmpty {
@@ -1376,6 +1382,9 @@ private struct MeetingTranscriptView: View {
             .padding(.horizontal, MuesliTheme.spacing24)
             .padding(.vertical, MuesliTheme.spacing16)
             .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .onChange(of: transcript) { _, newTranscript in
+            messages = TranscriptChatMessage.messages(from: newTranscript)
         }
     }
 }
