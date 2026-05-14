@@ -2536,6 +2536,11 @@ final class MuesliController: NSObject {
     @discardableResult
     func startForegroundMeetingRecording(title: String = "Meeting", calendarEventID: String? = nil) -> Bool {
         guard ensureBasicDictationPermissionsBeforeDashboard() else { return false }
+        if isMeetingRecording() {
+            presentHistoryWindow(tab: .meetings)
+            return false
+        }
+        guard !isStartingMeetingRecording else { return false }
         let didStart = startMeetingRecording(title: title, calendarEventID: calendarEventID, openDocument: true)
         guard didStart else { return false }
         presentHistoryWindow(tab: .meetings)
@@ -2580,8 +2585,6 @@ final class MuesliController: NSObject {
         meetingMonitor.suppressWhileActive()
         meetingMonitor.refreshState()
         updateMeetingNotificationVisibility()
-        statusBarController?.setStatus("Starting meeting: \(title)")
-        statusBarController?.refresh()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -3330,9 +3333,12 @@ final class MuesliController: NSObject {
             platform: MeetingPlatform(candidate.platform),
             onStartRecording: { [weak self] in
                 guard let self else { return }
-                self.meetingMonitor.markRecordingStarted(candidate)
-                self.presentedMeetingCandidate = nil
-                self.startForegroundMeetingRecording(title: title)
+                if self.startForegroundMeetingRecording(title: title) {
+                    self.meetingMonitor.markRecordingStarted(candidate)
+                    self.presentedMeetingCandidate = nil
+                } else {
+                    self.meetingMonitor.refreshState()
+                }
             },
             onDismiss: { [weak self] in
                 guard let self else { return }
