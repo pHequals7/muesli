@@ -112,6 +112,17 @@ struct AutoCaptureSettingsView: View {
                 .labelsHidden()
                 .disabled(!config.enabled)
             }
+            Divider().background(MuesliTheme.surfaceBorder)
+            settingsRow("Auto-stop when call ends (experimental)") {
+                Toggle("", isOn: Binding(
+                    get: { config.autoStopEnabled },
+                    set: { newValue in update { $0.autoStopEnabled = newValue } }
+                ))
+                .toggleStyle(.switch)
+                .tint(MuesliTheme.accent)
+                .labelsHidden()
+                .disabled(!config.enabled)
+            }
         }
     }
 
