@@ -69,14 +69,6 @@ struct MeetingDetailView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header(meeting)
 
-                    if appState.isMeetingStarting {
-                        MeetingPreparationBanner(status: appState.meetingStartStatus)
-                            .frame(maxWidth: 980, alignment: .leading)
-                            .padding(.horizontal, 40)
-                            .padding(.bottom, 20)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                    }
-
                     Divider()
                         .background(MuesliTheme.surfaceBorder)
 
