@@ -2828,7 +2828,7 @@ final class MuesliController: NSObject {
             let accessory = Self.makeDiscardMeetingAccessoryView()
             manualNotesCheckbox = accessory.manualNotesCheckbox
             alert.accessoryView = accessory.view
-            alert.addButton(withTitle: "Discard")
+            alert.addButton(withTitle: "Discard Recording")
             alert.addButton(withTitle: "Cancel")
             alert.buttons.first?.hasDestructiveAction = true
         } else {
@@ -2889,7 +2889,7 @@ final class MuesliController: NSObject {
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let resolution = Self.discardResolution(
                 for: response,
-                deleteManualNotes: manualNotesCheckbox?.state == .on
+                deleteManualNotes: manualNotesCheckbox.map { $0.state == .on }
             ) else { return }
             Task { @MainActor [weak self] in
                 self?.discardMeetingRecording(resolution: resolution)
