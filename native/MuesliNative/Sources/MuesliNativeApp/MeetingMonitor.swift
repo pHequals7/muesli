@@ -283,6 +283,68 @@ private struct MeetingDetectionEvaluationContext {
     )
 }
 
+struct MeetingMediaSignals: Equatable {
+    let micActive: Bool
+    let cameraActive: Bool
+    let audioInputProcesses: [AudioProcessActivity]
+
+    var hasMicOrCameraSignal: Bool {
+        micActive || cameraActive
+    }
+}
+
+enum MeetingMediaSignalFilter {
+    static func apply(
+        deviceMicActive: Bool,
+        cameraActive: Bool,
+        audioInputProcesses: [AudioProcessActivity],
+        sensorAttributions: SensorAttributionSnapshot,
+        selfBundleID: String
+    ) -> MeetingMediaSignals {
+        let externalAudioInputProcesses = audioInputProcesses.filter {
+            !isSelfBundleID($0.bundleID, selfBundleID: selfBundleID)
+        }
+        let selfMicAttributed = audioInputProcesses.contains {
+            isSelfBundleID($0.bundleID, selfBundleID: selfBundleID)
+        } || sensorAttributions.micBundleIDs.contains {
+            isSelfBundleID($0, selfBundleID: selfBundleID)
+        }
+        let hasExternalMicAttribution = !externalAudioInputProcesses.isEmpty
+            || sensorAttributions.micBundleIDs.contains {
+                !isSelfBundleID($0, selfBundleID: selfBundleID)
+            }
+        let externalCameraActive = cameraActive
+            || sensorAttributions.cameraBundleIDs.contains {
+                !isSelfBundleID($0, selfBundleID: selfBundleID)
+            }
+
+        return MeetingMediaSignals(
+            micActive: hasExternalMicAttribution || (deviceMicActive && !selfMicAttributed),
+            cameraActive: externalCameraActive,
+            audioInputProcesses: externalAudioInputProcesses
+        )
+    }
+
+    static func hasExternalSensorAttribution(
+        _ sensorAttributions: SensorAttributionSnapshot,
+        selfBundleID: String
+    ) -> Bool {
+        sensorAttributions.micBundleIDs.contains {
+            !isSelfBundleID($0, selfBundleID: selfBundleID)
+        } || sensorAttributions.cameraBundleIDs.contains {
+            !isSelfBundleID($0, selfBundleID: selfBundleID)
+        }
+    }
+
+    private static func isSelfBundleID(_ bundleID: String, selfBundleID: String) -> Bool {
+        guard !selfBundleID.isEmpty else { return false }
+        let normalizedBundleID = bundleID.lowercased()
+        let normalizedSelfBundleID = selfBundleID.lowercased()
+        return normalizedBundleID == normalizedSelfBundleID
+            || normalizedBundleID.hasPrefix("\(normalizedSelfBundleID).")
+    }
+}
+
 private actor MeetingDetectionService {
     private static let logger = Logger(subsystem: "com.muesli.native", category: "MeetingDetection")
 
@@ -457,8 +519,10 @@ private actor MeetingDetectionService {
         }
 
         signalRefreshState.hasMicOrCameraSignal = context.cameraActive
-            || !context.sensorAttributions.micBundleIDs.isEmpty
-            || !context.sensorAttributions.cameraBundleIDs.isEmpty
+            || MeetingMediaSignalFilter.hasExternalSensorAttribution(
+                context.sensorAttributions,
+                selfBundleID: resolver.selfBundleID
+            )
         signalRefreshState.hasCalendarEvent = context.calendarEvent != nil
         signalRefreshState.hasPromptVisible = context.promptVisibility.isVisible
 
@@ -487,23 +551,26 @@ private actor MeetingDetectionService {
             signalRefreshState.lastAppleScriptAttemptAtByBundleID[bundleID] = now
         }
 
-        let audioInputProcesses = mergedAudioInputProcesses(
+        let rawAudioInputProcesses = mergedAudioInputProcesses(
             audioResult.processes,
             sensorAttributions: context.sensorAttributions,
             runningProcessIDsByBundleID: collectedSignals.runningProcessIDsByBundleID
         )
-        let micActive = collectedSignals.micActive
-            || !audioInputProcesses.isEmpty
-            || !context.sensorAttributions.micBundleIDs.isEmpty
-        let cameraActive = context.cameraActive || !context.sensorAttributions.cameraBundleIDs.isEmpty
+        let mediaSignals = MeetingMediaSignalFilter.apply(
+            deviceMicActive: collectedSignals.micActive,
+            cameraActive: context.cameraActive,
+            audioInputProcesses: rawAudioInputProcesses,
+            sensorAttributions: context.sensorAttributions,
+            selfBundleID: resolver.selfBundleID
+        )
 
         let snapshot = MeetingSignalSnapshot(
-            micActive: micActive,
-            cameraActive: cameraActive,
+            micActive: mediaSignals.micActive,
+            cameraActive: mediaSignals.cameraActive,
             calendarEvent: context.calendarEvent,
             runningApps: collectedSignals.runningApps,
             browserMeetings: collectedSignals.browserMeetings,
-            audioInputProcesses: audioInputProcesses,
+            audioInputProcesses: mediaSignals.audioInputProcesses,
             foregroundBundleID: collectedSignals.foregroundBundleID,
             now: now
         )
@@ -519,8 +586,8 @@ private actor MeetingDetectionService {
         logCandidateIfChanged(candidate)
         updateRefreshState(
             trigger: trigger,
-            micActive: micActive,
-            cameraActive: cameraActive,
+            micActive: mediaSignals.micActive,
+            cameraActive: mediaSignals.cameraActive,
             calendarEvent: context.calendarEvent,
             browserMeetings: collectedSignals.browserMeetings,
             foregroundBundleID: collectedSignals.foregroundBundleID,
