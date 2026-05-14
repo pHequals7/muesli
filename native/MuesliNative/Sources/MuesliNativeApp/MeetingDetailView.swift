@@ -44,6 +44,7 @@ struct MeetingDetailView: View {
     @State private var summaryErrorMessage: String?
     @State private var retranscriptionErrorMessage: String?
     @State private var showDeleteConfirmation = false
+    @State private var transcriptResummaryPromptMeetingID: Int64?
 
     init(
         meeting: MeetingRecord?,
@@ -117,6 +118,16 @@ struct MeetingDetailView: View {
             }
         } message: {
             Text(retranscriptionErrorMessage ?? "The saved recording could not be re-transcribed.")
+        }
+        .alert("Re-summarize Notes?", isPresented: transcriptResummaryPromptBinding) {
+            Button("Re-summarize") {
+                resummarizeAfterTranscriptEdit()
+            }
+            Button("Not Now", role: .cancel) {
+                transcriptResummaryPromptMeetingID = nil
+            }
+        } message: {
+            Text("Your transcript edits may change the generated notes. Re-summarize now to update them from the edited transcript.")
         }
         .alert("Delete Meeting", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
@@ -365,8 +376,15 @@ struct MeetingDetailView: View {
             } else if isEditingTranscript {
                 transcriptSaveTask?.cancel()
                 transcriptSaveTask = nil
+                let shouldPromptForResummary = Self.shouldPromptForTranscriptResummary(
+                    meeting: meeting,
+                    editedTranscript: editableTranscript
+                )
                 controller.updateMeetingTranscript(id: meeting.id, transcript: editableTranscript)
                 isEditingTranscript = false
+                if shouldPromptForResummary {
+                    transcriptResummaryPromptMeetingID = meeting.id
+                }
             } else if documentMode == .transcript {
                 editableTranscript = meeting.rawTranscript
                 isEditingTranscript = true
@@ -965,6 +983,40 @@ struct MeetingDetailView: View {
                 }
             }
         )
+    }
+
+    private var transcriptResummaryPromptBinding: Binding<Bool> {
+        Binding(
+            get: { transcriptResummaryPromptMeetingID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    transcriptResummaryPromptMeetingID = nil
+                }
+            }
+        )
+    }
+
+    private static func shouldPromptForTranscriptResummary(meeting: MeetingRecord, editedTranscript: String) -> Bool {
+        guard meeting.notesState == .structuredNotes else { return false }
+        return meeting.rawTranscript != editedTranscript
+    }
+
+    private func resummarizeAfterTranscriptEdit() {
+        guard let meetingID = transcriptResummaryPromptMeetingID else { return }
+        transcriptResummaryPromptMeetingID = nil
+        guard let updatedMeeting = controller.meeting(id: meetingID) else { return }
+        isSummarizing = true
+        controller.resummarize(meeting: updatedMeeting) { [meetingID] result in
+            isSummarizing = false
+            switch result {
+            case .success:
+                if let refreshed = controller.meeting(id: meetingID) {
+                    syncLocalState(with: refreshed)
+                }
+            case .failure(let error):
+                summaryErrorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func resolvedPendingTemplateDefinition(for meeting: MeetingRecord) -> MeetingTemplateDefinition {
