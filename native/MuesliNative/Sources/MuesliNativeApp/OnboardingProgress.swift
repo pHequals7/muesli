@@ -46,11 +46,12 @@ enum OnboardingPermissionGate {
 }
 
 struct OnboardingProgress: Codable {
-    // v5 adds the Auto-Capture v1 Automation-permission step at the end of
-    // the meeting flow. Older progress files (≤ v4) are migrated forward by
-    // the load() path; their currentStep values still resolve correctly
-    // because the new step is appended rather than inserted.
-    static let currentSchemaVersion = 5
+    // v6 removes the Auto-Capture v1 Automation-permission step (was step 7).
+    // Saved progress at the removed step is discarded by the load() path so
+    // the user re-enters the cleaned-up flow from scratch. Older configs
+    // (≤ v5) that landed on any step still in the flow are migrated forward
+    // without losing progress.
+    static let currentSchemaVersion = 6
 
     var schemaVersion: Int = currentSchemaVersion
     var currentStep: Int
@@ -136,6 +137,12 @@ struct OnboardingProgress: Codable {
             return nil
         }
         guard progress.schemaVersion <= currentSchemaVersion else {
+            clear()
+            return nil
+        }
+        // v6 dropped the Auto-Capture v1 Automation step (was step 7). Saved
+        // progress that landed on the removed step is reset to a fresh start.
+        if progress.currentStep > OnboardingFlow.Step.googleCalendar.rawValue {
             clear()
             return nil
         }

@@ -58,10 +58,6 @@ struct OnboardingView: View {
     @State private var googleCalSignInError: String?
     @State private var hasFinishedOnboarding = false
 
-    // Auto-Capture v1 Automation permission step
-    @State private var automationPermissionStatuses: [String: AutomationPermissionStatus] = [:]
-    @State private var automationPermissionPollTask: Task<Void, Never>?
-
     static let permissionsStep = OnboardingFlow.Step.permissions.rawValue
     static let dictationTestStep = OnboardingFlow.Step.dictationTest.rawValue
 
@@ -154,7 +150,6 @@ struct OnboardingView: View {
                 case 4: dictationTestStep
                 case 5: meetingSummaryStep
                 case 6: googleCalendarStep
-                case 7: automationStep
                 default: EmptyView()
                 }
             }
@@ -300,27 +295,6 @@ struct OnboardingView: View {
                 }
             }
         case 6:
-            // If the Auto-Capture v1 Automation step follows this one in the
-            // useCase-derived step list, advance to it; otherwise this is the
-            // final step and we wrap onboarding up here.
-            let isLastStep = currentStepIndex == orderedSteps.count - 1
-            HStack(spacing: MuesliTheme.spacing12) {
-                skipButton {
-                    if isLastStep {
-                        finishOnboarding(withKey: true)
-                    } else {
-                        goToNextStep()
-                    }
-                }
-                onboardingButton(isLastStep ? "Finish" : "Continue", enabled: true) {
-                    if isLastStep {
-                        finishOnboarding(withKey: true)
-                    } else {
-                        goToNextStep()
-                    }
-                }
-            }
-        case 7:
             HStack(spacing: MuesliTheme.spacing12) {
                 skipButton { finishOnboarding(withKey: true) }
                 onboardingButton("Finish", enabled: true) {
@@ -1934,149 +1908,6 @@ struct OnboardingView: View {
             Spacer()
         }
         .padding(.horizontal, MuesliTheme.spacing32)
-    }
-
-    // MARK: - Step 7: Auto-Capture Automation permission (v1)
-
-    private var automationStep: some View {
-        VStack(spacing: MuesliTheme.spacing24) {
-            Spacer()
-
-            VStack(spacing: MuesliTheme.spacing8) {
-                Text("Browser Auto-Capture")
-                    .font(MuesliTheme.title1())
-                    .foregroundStyle(MuesliTheme.textPrimary)
-
-                Text("Muesli can start recording automatically when you join a meeting in a browser. Grant Automation access for the browsers you use; you can change this any time in Auto-Capture settings.")
-                    .font(MuesliTheme.body())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, MuesliTheme.spacing24)
-            }
-
-            Image(systemName: "rectangle.connected.to.line.below")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(MuesliTheme.accent)
-                .frame(height: 64)
-
-            VStack(spacing: 6) {
-                ForEach(BrowserURLPollingConfig.supportedBundleIDs, id: \.self) { bundleID in
-                    automationStepRow(bundleID: bundleID)
-                }
-            }
-            .frame(maxWidth: 380)
-            .padding(.horizontal, MuesliTheme.spacing24)
-
-            Text("Muesli only polls the URL while a browser is using the microphone. AppleScript runs locally; no data leaves this Mac.")
-                .font(MuesliTheme.caption())
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, MuesliTheme.spacing24)
-
-            Spacer()
-        }
-        .onAppear { startAutomationPermissionPolling() }
-        .onDisappear { stopAutomationPermissionPolling() }
-    }
-
-    private func automationStepRow(bundleID: String) -> some View {
-        let status = automationPermissionStatuses[bundleID] ?? .notDetermined
-        let label = browserLabelForAutomationBundleID(bundleID)
-        return HStack(spacing: MuesliTheme.spacing12) {
-            Image(systemName: "globe")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(MuesliTheme.accent)
-                .frame(width: 24)
-
-            Text(label)
-                .font(MuesliTheme.body())
-                .foregroundStyle(MuesliTheme.textPrimary)
-
-            Spacer()
-
-            switch status {
-            case .granted:
-                HStack(spacing: 4) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(MuesliTheme.success)
-                    Text("Granted")
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.success)
-                }
-            case .denied:
-                HStack(spacing: 4) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(MuesliTheme.recording)
-                    Text("Denied")
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.recording)
-                }
-            case .notDetermined, .error:
-                Button("Request") {
-                    requestAutomationPermission(forBundleID: bundleID)
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(MuesliTheme.accent)
-                .padding(.horizontal, MuesliTheme.spacing12)
-                .padding(.vertical, 4)
-                .background(MuesliTheme.accentSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            case .targetMissing:
-                Text("Not installed")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-            }
-        }
-        .padding(.horizontal, MuesliTheme.spacing12)
-        .padding(.vertical, MuesliTheme.spacing8)
-        .background(MuesliTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-    }
-
-    private func browserLabelForAutomationBundleID(_ bundleID: String) -> String {
-        switch bundleID {
-        case BrowserURLPollingConfig.chromeBundleID: return "Google Chrome"
-        case BrowserURLPollingConfig.edgeBundleID: return "Microsoft Edge"
-        case BrowserURLPollingConfig.braveBundleID: return "Brave"
-        case BrowserURLPollingConfig.arcBundleID: return "Arc"
-        case BrowserURLPollingConfig.safariBundleID: return "Safari"
-        default: return bundleID
-        }
-    }
-
-    private func startAutomationPermissionPolling() {
-        refreshAutomationPermissionStatuses()
-        automationPermissionPollTask?.cancel()
-        automationPermissionPollTask = Task { @MainActor in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                if Task.isCancelled { return }
-                refreshAutomationPermissionStatuses()
-            }
-        }
-    }
-
-    private func stopAutomationPermissionPolling() {
-        automationPermissionPollTask?.cancel()
-        automationPermissionPollTask = nil
-    }
-
-    private func refreshAutomationPermissionStatuses() {
-        var statuses: [String: AutomationPermissionStatus] = [:]
-        for bundleID in BrowserURLPollingConfig.supportedBundleIDs {
-            statuses[bundleID] = AutomationPermissionProbe.status(forBundleID: bundleID)
-        }
-        automationPermissionStatuses = statuses
-    }
-
-    private func requestAutomationPermission(forBundleID bundleID: String) {
-        // Synchronous probe with askUserIfNeeded=true. The system either
-        // returns immediately (granted/denied) or surfaces the prompt and
-        // returns notDetermined; in the latter case we keep polling until
-        // the user picks. Idempotent for repeat clicks.
-        let outcome = AutomationPermissionProbe.requestPermission(forBundleID: bundleID)
-        automationPermissionStatuses[bundleID] = outcome
     }
 
     private func finishOnboarding(withKey: Bool) {

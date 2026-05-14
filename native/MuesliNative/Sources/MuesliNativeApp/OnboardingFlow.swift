@@ -9,11 +9,6 @@ enum OnboardingFlow {
         case dictationTest = 4
         case meetingSummary = 5
         case googleCalendar = 6
-        /// Auto-Capture v1: macOS Automation permission for browser URL polling.
-        /// Inserted at the end of the meeting flow so users on older configs
-        /// (currentStep ≤ 6) can resume cleanly via the schema migration in
-        /// `OnboardingProgress`.
-        case automation = 7
     }
 
     static func orderedSteps(for useCase: OnboardingUseCase) -> [Int] {
@@ -24,7 +19,7 @@ enum OnboardingFlow {
             steps += [Step.permissions.rawValue]
         }
         if useCase.includesMeetings {
-            steps += [Step.meetingSummary.rawValue, Step.googleCalendar.rawValue, Step.automation.rawValue]
+            steps += [Step.meetingSummary.rawValue, Step.googleCalendar.rawValue]
         }
         return steps
     }
