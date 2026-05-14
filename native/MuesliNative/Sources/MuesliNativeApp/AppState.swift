@@ -117,7 +117,7 @@ final class AppState {
     var searchResultDictations: [DictationRecord] = []
     var searchResultMeetings: [MeetingRecord] = []
     var focusSearchField: Bool = false
-    var isSearchActive: Bool { !searchQuery.isEmpty }
+    var isSearchActive: Bool { !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     // Navigation
     var selectedTab: DashboardTab = .dictations

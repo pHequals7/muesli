@@ -39,6 +39,7 @@ final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
     }
 
     func updateBackendLabel() {
+        window?.title = AppIdentity.displayName
         controller.syncAppState()
     }
 
@@ -52,8 +53,8 @@ final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
 
     private func buildWindow() {
         let window = NSWindow(
-            contentRect: NSRect(x: 180, y: 140, width: 1120, height: 790),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 140, y: 110, width: 1280, height: 840),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -62,7 +63,8 @@ final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
         window.delegate = self
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.backgroundColor = NSColor(red: 0.067, green: 0.071, blue: 0.078, alpha: 1) // #111214
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor.windowBackgroundColor
 
         let rootView = DashboardRootView(
             appState: controller.appState,

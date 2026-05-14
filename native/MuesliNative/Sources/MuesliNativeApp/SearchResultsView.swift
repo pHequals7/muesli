@@ -10,7 +10,7 @@ struct SearchResultsView: View {
     let appState: AppState
     let controller: MuesliController
 
-    @State private var selectedTab: SearchTab = .dictations
+    @State private var selectedTab: SearchTab = .meetings
 
     private var totalCount: Int {
         appState.searchResultDictations.count + appState.searchResultMeetings.count
