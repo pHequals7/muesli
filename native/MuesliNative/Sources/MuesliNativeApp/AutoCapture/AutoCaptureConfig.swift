@@ -43,6 +43,9 @@ struct AutoCaptureConfig: Codable, Equatable {
     /// the Settings pane can render before the next refresh completes.
     var pwa: PWAConfig
 
+    /// Auto-stop recording when the browser/PWA releases the microphone. Experimental — see ADR 0009.
+    var autoStopEnabled: Bool
+
     static let defaultStartDelaySeconds: Double = 5
     static let minStartDelaySeconds: Double = 0
     static let maxStartDelaySeconds: Double = 60
@@ -79,7 +82,8 @@ struct AutoCaptureConfig: Codable, Equatable {
         requireCalendarMatch: Bool = false,
         disableDuringFocus: Bool = true,
         browserUrlPolling: BrowserURLPollingConfig = .disabled,
-        pwa: PWAConfig = .empty
+        pwa: PWAConfig = .empty,
+        autoStopEnabled: Bool = true
     ) {
         self.enabled = enabled
         self.allowedAppBundleIDs = allowedAppBundleIDs
@@ -89,6 +93,7 @@ struct AutoCaptureConfig: Codable, Equatable {
         self.disableDuringFocus = disableDuringFocus
         self.browserUrlPolling = browserUrlPolling
         self.pwa = pwa
+        self.autoStopEnabled = autoStopEnabled
     }
 
     /// Returns the start delay clamped to the allowed range. Used at decode
@@ -123,6 +128,7 @@ struct AutoCaptureConfig: Codable, Equatable {
         case disableDuringFocus = "disable_during_focus"
         case browserUrlPolling = "browser_url_polling"
         case pwa
+        case autoStopEnabled = "auto_stop_enabled"
     }
 
     init(from decoder: Decoder) throws {
@@ -142,5 +148,7 @@ struct AutoCaptureConfig: Codable, Equatable {
         self.browserUrlPolling =
             (try? c.decode(BrowserURLPollingConfig.self, forKey: .browserUrlPolling)) ?? defaults.browserUrlPolling
         self.pwa = (try? c.decode(PWAConfig.self, forKey: .pwa)) ?? defaults.pwa
+        self.autoStopEnabled =
+            (try? c.decode(Bool.self, forKey: .autoStopEnabled)) ?? defaults.autoStopEnabled
     }
 }
