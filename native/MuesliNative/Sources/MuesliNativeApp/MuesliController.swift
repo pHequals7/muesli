@@ -2802,10 +2802,15 @@ final class MuesliController: NSObject {
         NSWorkspace.shared.open(meetingURL)
     }
 
-    private enum MeetingDiscardResolution {
+    enum MeetingDiscardResolution: Equatable {
         case discardRecording
         case keepManualNotes
         case deleteDraft
+    }
+
+    private struct MeetingDiscardAccessory {
+        let view: NSView
+        let manualNotesCheckbox: NSButton
     }
 
     @objc func discardMeetingWithConfirmation() {
@@ -2817,31 +2822,55 @@ final class MuesliController: NSObject {
         } ?? false
         alert.messageText = "Discard recording?"
         alert.alertStyle = .warning
+        var manualNotesCheckbox: NSButton?
         if hasManualNotes {
-            alert.informativeText = "This will stop the meeting recording and delete all captured audio. This meeting also has manually written notes."
-            alert.addButton(withTitle: "Keep Notes")
-            alert.addButton(withTitle: "Delete Draft")
+            alert.informativeText = "This will stop the meeting recording. Select what should be deleted."
+            let accessory = Self.makeDiscardMeetingAccessoryView()
+            manualNotesCheckbox = accessory.manualNotesCheckbox
+            alert.accessoryView = accessory.view
+            alert.addButton(withTitle: "Discard")
             alert.addButton(withTitle: "Cancel")
-            alert.buttons.dropFirst().first?.hasDestructiveAction = true
+            alert.buttons.first?.hasDestructiveAction = true
         } else {
             alert.informativeText = "This will stop the meeting recording and delete all captured audio. This cannot be undone."
             alert.addButton(withTitle: "Discard")
             alert.addButton(withTitle: "Cancel")
             alert.buttons.first?.hasDestructiveAction = true
         }
-        presentDiscardMeetingAlert(alert, hasManualNotes: hasManualNotes)
+        presentDiscardMeetingAlert(alert, manualNotesCheckbox: manualNotesCheckbox)
     }
 
-    private func presentDiscardMeetingAlert(_ alert: NSAlert, hasManualNotes: Bool, attempt: Int = 0) {
+    private static func makeDiscardMeetingAccessoryView() -> MeetingDiscardAccessory {
+        let label = NSTextField(labelWithString: "Delete")
+        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.textColor = .secondaryLabelColor
+
+        let recordingCheckbox = NSButton(checkboxWithTitle: "Recording audio", target: nil, action: nil)
+        recordingCheckbox.state = .on
+        recordingCheckbox.isEnabled = false
+
+        let notesCheckbox = NSButton(checkboxWithTitle: "Manual notes", target: nil, action: nil)
+        notesCheckbox.state = .off
+
+        let stack = NSStackView(views: [label, recordingCheckbox, notesCheckbox])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.widthAnchor.constraint(greaterThanOrEqualToConstant: 260).isActive = true
+        return MeetingDiscardAccessory(view: stack, manualNotesCheckbox: notesCheckbox)
+    }
+
+    private func presentDiscardMeetingAlert(_ alert: NSAlert, manualNotesCheckbox: NSButton?, attempt: Int = 0) {
         if let window = confirmationAnchorWindow() {
-            beginDiscardMeetingAlert(alert, for: window, hasManualNotes: hasManualNotes)
+            beginDiscardMeetingAlert(alert, for: window, manualNotesCheckbox: manualNotesCheckbox)
             return
         }
 
         showActiveMeetingDocumentIfNeeded()
         historyWindowController?.show()
         if let window = confirmationAnchorWindow() {
-            beginDiscardMeetingAlert(alert, for: window, hasManualNotes: hasManualNotes)
+            beginDiscardMeetingAlert(alert, for: window, manualNotesCheckbox: manualNotesCheckbox)
             return
         }
 
@@ -2852,31 +2881,28 @@ final class MuesliController: NSObject {
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, alert] in
-            self?.presentDiscardMeetingAlert(alert, hasManualNotes: hasManualNotes, attempt: attempt + 1)
+            self?.presentDiscardMeetingAlert(alert, manualNotesCheckbox: manualNotesCheckbox, attempt: attempt + 1)
         }
     }
 
-    private func beginDiscardMeetingAlert(_ alert: NSAlert, for window: NSWindow, hasManualNotes: Bool) {
+    private func beginDiscardMeetingAlert(_ alert: NSAlert, for window: NSWindow, manualNotesCheckbox: NSButton?) {
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard let resolution = Self.discardResolution(for: response, hasManualNotes: hasManualNotes) else { return }
+            guard let resolution = Self.discardResolution(
+                for: response,
+                deleteManualNotes: manualNotesCheckbox?.state == .on
+            ) else { return }
             Task { @MainActor [weak self] in
                 self?.discardMeetingRecording(resolution: resolution)
             }
         }
     }
 
-    private static func discardResolution(for response: NSApplication.ModalResponse, hasManualNotes: Bool) -> MeetingDiscardResolution? {
-        if hasManualNotes {
-            switch response {
-            case .alertFirstButtonReturn:
-                return .keepManualNotes
-            case .alertSecondButtonReturn:
-                return .deleteDraft
-            default:
-                return nil
-            }
+    static func discardResolution(for response: NSApplication.ModalResponse, deleteManualNotes: Bool?) -> MeetingDiscardResolution? {
+        guard response == .alertFirstButtonReturn else { return nil }
+        if let deleteManualNotes {
+            return deleteManualNotes ? .deleteDraft : .keepManualNotes
         }
-        return response == .alertFirstButtonReturn ? .discardRecording : nil
+        return .discardRecording
     }
 
     private func confirmationAnchorWindow() -> NSWindow? {
