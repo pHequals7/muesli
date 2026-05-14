@@ -32,8 +32,10 @@ struct StatsHeaderView: View {
                 label: "meetings"
             )
         }
-        .padding(.horizontal, MuesliTheme.spacing24)
+        .frame(maxWidth: MuesliTheme.pageMaxWidth)
+        .padding(.horizontal, MuesliTheme.pageHorizontalPadding)
         .padding(.vertical, MuesliTheme.spacing20)
+        .frame(maxWidth: .infinity)
     }
 
     private func formatWordCount(_ count: Int) -> String {
@@ -64,7 +66,7 @@ private struct StatCard: View {
                 .foregroundStyle(MuesliTheme.textTertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(MuesliTheme.spacing16)
+        .padding(MuesliTheme.cardPadding)
         .background(MuesliTheme.backgroundRaised)
         .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
         .overlay(

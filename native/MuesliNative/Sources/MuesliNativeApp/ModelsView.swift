@@ -86,8 +86,7 @@ struct ModelsView: View {
                     }
                 }
             }
-            .padding(MuesliTheme.spacing32)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .muesliPageContent()
         }
         .background(MuesliTheme.backgroundBase)
         .onAppear {

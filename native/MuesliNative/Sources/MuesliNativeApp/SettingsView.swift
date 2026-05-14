@@ -89,8 +89,8 @@ struct SettingsView: View {
     @State private var openRouterFreeModelsError: String?
 
     // Uniform width for all right-side controls
-    private let controlWidth: CGFloat = 220
-    private let meetingControlWidth: CGFloat = 275
+    private let controlWidth: CGFloat = 240
+    private let meetingControlWidth: CGFloat = 300
     private let screenContextGrantIntentTimeout: TimeInterval = 15 * 60
     private let meetingDetectionAppOptions: [MeetingDetectionAppOption] = [
         MeetingDetectionAppOption(bundleID: "com.google.Chrome", name: "Chrome", icon: "globe"),
@@ -126,7 +126,7 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
+            VStack(alignment: .leading, spacing: MuesliTheme.sectionSpacing) {
                 Text("Settings")
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
@@ -134,7 +134,7 @@ struct SettingsView: View {
                 settingsPanePicker
                 paneContent
             }
-            .padding(MuesliTheme.spacing32)
+            .muesliPageContent(maxWidth: 1080)
         }
         .background(MuesliTheme.backgroundBase)
         .onAppear {
@@ -226,7 +226,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func screenContextRow(_ title: String, controlWidth rowControlWidth: CGFloat? = nil) -> some View {
         let width = rowControlWidth ?? controlWidth
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .top, spacing: MuesliTheme.spacing16) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(MuesliTheme.body())
@@ -239,21 +239,20 @@ struct SettingsView: View {
             }
             .layoutPriority(1)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: MuesliTheme.spacing20)
 
             ZStack(alignment: .trailing) {
                 Color.clear.frame(width: width, height: 1)
                 screenContextControl(width: width)
             }
         }
-        .frame(minHeight: 52)
+        .frame(minHeight: MuesliTheme.rowMinHeight + MuesliTheme.spacing8)
     }
 
     private let customIndicatorPositionLabel = "Custom (drag to reposition)"
 
     private var settingsPanePicker: some View {
         HStack {
-            Spacer()
             Picker("", selection: $selectedPane) {
                 ForEach(SettingsPane.allCases) { pane in
                     Text(pane.title).tag(pane)
@@ -261,8 +260,8 @@ struct SettingsView: View {
             }
             .labelsHidden()
             .pickerStyle(.segmented)
-            .frame(width: 680)
-            Spacer()
+            .controlSize(.large)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -305,7 +304,8 @@ struct SettingsView: View {
 
             permissionsSection
 
-            settingsSection("Data") {
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                settingsSectionLabel("Data")
                 HStack(spacing: MuesliTheme.spacing12) {
                     actionButton("Clear dictation history", role: .destructive) {
                         pendingDataDestruction = .dictations
@@ -316,6 +316,7 @@ struct SettingsView: View {
                     .disabled(controller.isMeetingRecording())
                     .help("Stop the current meeting recording before clearing meeting history.")
                 }
+                .frame(maxWidth: .infinity)
             }
         }
     }
@@ -522,7 +523,7 @@ struct SettingsView: View {
                             placeholder: "sk-...",
                             onChange: { val in controller.updateConfig { $0.openAIAPIKey = val } }
                         )
-                        .frame(height: 22)
+                        .frame(height: 26)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Model", controlWidth: meetingControlWidth) {
@@ -539,7 +540,7 @@ struct SettingsView: View {
                             placeholder: "http://localhost:11434",
                             onChange: { val in controller.updateConfig { $0.ollamaURL = val } }
                         )
-                        .frame(height: 22)
+                        .frame(height: 26)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Model", controlWidth: meetingControlWidth) {
@@ -555,7 +556,7 @@ struct SettingsView: View {
                             placeholder: "sk-or-...",
                             onChange: { val in controller.updateConfig { $0.openRouterAPIKey = val } }
                         )
-                        .frame(height: 22)
+                        .frame(height: 26)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Free model", controlWidth: meetingControlWidth) {
@@ -1304,19 +1305,24 @@ struct SettingsView: View {
 
     // MARK: - Layout Primitives
 
+    private func settingsSectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(MuesliTheme.textTertiary)
+            .textCase(.uppercase)
+            .padding(.leading, 2)
+    }
+
     @ViewBuilder
     private func settingsSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-            Text(title)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .textCase(.uppercase)
-                .padding(.leading, 2)
+            settingsSectionLabel(title)
 
             VStack(alignment: .leading, spacing: 0) {
                 content()
             }
-            .padding(MuesliTheme.spacing16)
+            .padding(.horizontal, MuesliTheme.cardPadding)
+            .padding(.vertical, MuesliTheme.spacing4)
             .background(MuesliTheme.backgroundRaised)
             .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
             .overlay(
@@ -1331,12 +1337,12 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsRow(_ label: String, controlWidth rowControlWidth: CGFloat? = nil, @ViewBuilder control: () -> some View) -> some View {
         let width = rowControlWidth ?? controlWidth
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: MuesliTheme.spacing16) {
             Text(label)
                 .font(MuesliTheme.body())
                 .foregroundStyle(MuesliTheme.textPrimary)
                 .layoutPriority(1)
-            Spacer(minLength: 20)
+            Spacer(minLength: MuesliTheme.spacing20)
             ZStack(alignment: .trailing) {
                 // Invisible spacer forces the ZStack to exactly controlWidth
                 Color.clear.frame(width: width, height: 1)
@@ -1344,14 +1350,14 @@ struct SettingsView: View {
                     .frame(maxWidth: width)
             }
         }
-        .frame(minHeight: 32)
+        .frame(minHeight: MuesliTheme.rowMinHeight)
     }
 
     private func settingsDescription(_ text: String) -> some View {
         Text(text)
             .font(MuesliTheme.caption())
             .foregroundStyle(MuesliTheme.textTertiary)
-            .padding(.horizontal, MuesliTheme.spacing16)
+            .padding(.trailing, MuesliTheme.spacing16)
             .padding(.top, -4)
             .padding(.bottom, MuesliTheme.spacing8)
     }
@@ -1372,7 +1378,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsMenu(selection: String, options: [String], onChange: @escaping (String) -> Void) -> some View {
         FixedWidthPopUp(selection: selection, options: options, onChange: onChange)
-            .frame(height: 24)
+            .frame(height: 28)
     }
 
     private var mutedMeetingDetectionAppsControl: some View {
@@ -1755,7 +1761,7 @@ struct SettingsView: View {
                 onChange(allItems[index].id)
             }
         )
-        .frame(height: 24)
+        .frame(height: 28)
     }
 
     @ViewBuilder
@@ -1772,7 +1778,7 @@ struct SettingsView: View {
                 onChange(selectedId == presets.first?.id ? "" : selectedId)
             }
         )
-        .frame(height: 24)
+        .frame(height: 28)
     }
 
     @ViewBuilder
@@ -1784,7 +1790,7 @@ struct SettingsView: View {
                 onChange(value.trimmingCharacters(in: .whitespacesAndNewlines))
             }
         )
-        .frame(height: 22)
+        .frame(height: 26)
     }
 
     @ViewBuilder

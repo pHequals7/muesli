@@ -4,18 +4,18 @@ import MuesliCore
 enum MuesliTheme {
     // MARK: - Colors — Backgrounds (layered)
 
-    static let backgroundDeep   = Color.adaptive(dark: 0x111214, light: 0xF5F5F7)
-    static let backgroundBase   = Color.adaptive(dark: 0x161719, light: 0xFFFFFF)
-    static let backgroundRaised = Color.adaptive(dark: 0x1C1D20, light: 0xF0F0F2)
-    static let backgroundHover  = Color.adaptive(dark: 0x232528, light: 0xE8E8EC)
+    static let backgroundDeep   = Color.adaptive(dark: 0x101114, light: 0xF4F5F7)
+    static let backgroundBase   = Color.adaptive(dark: 0x15161A, light: 0xFAFAFC)
+    static let backgroundRaised = Color.adaptive(dark: 0x1D1F24, light: 0xFFFFFF)
+    static let backgroundHover  = Color.adaptive(dark: 0x262932, light: 0xF2F3F6)
 
     // MARK: - Surfaces (interactive elements)
 
-    static let surfacePrimary   = Color.adaptive(dark: 0x262830, light: 0xE5E5EA)
-    static let surfaceSelected  = Color.adaptive(dark: 0x2E3340, light: 0xD6DFFE)
+    static let surfacePrimary   = Color.adaptive(dark: 0x292C34, light: 0xF2F3F6)
+    static let surfaceSelected  = Color.adaptive(dark: 0x2A3140, light: 0xEEF3FF)
     static let surfaceBorder    = Color.adaptiveAlpha(
         dark: .white, darkAlpha: 0.07,
-        light: .black, lightAlpha: 0.08
+        light: .black, lightAlpha: 0.10
     )
 
     // MARK: - Text hierarchy
@@ -74,13 +74,37 @@ enum MuesliTheme {
     static let spacing20: CGFloat = 20
     static let spacing24: CGFloat = 24
     static let spacing32: CGFloat = 32
+    static let spacing40: CGFloat = 40
+
+    // MARK: - Layout
+
+    static let pageMaxWidth: CGFloat = 1040
+    static let pageHorizontalPadding: CGFloat = 40
+    static let pageVerticalPadding: CGFloat = 32
+    static let sectionSpacing: CGFloat = 24
+    static let cardPadding: CGFloat = 20
+    static let rowMinHeight: CGFloat = 44
+    static let sidebarMinWidth: CGFloat = 244
+    static let sidebarIdealWidth: CGFloat = 260
+    static let sidebarMaxWidth: CGFloat = 288
+    static let sidebarRowHeight: CGFloat = 40
+    static let sidebarChildRowHeight: CGFloat = 32
 
     // MARK: - Corner radii
 
     static let cornerSmall: CGFloat = 6
-    static let cornerMedium: CGFloat = 10
-    static let cornerLarge: CGFloat = 14
-    static let cornerXL: CGFloat = 20
+    static let cornerMedium: CGFloat = 8
+    static let cornerLarge: CGFloat = 10
+    static let cornerXL: CGFloat = 12
+}
+
+extension View {
+    func muesliPageContent(maxWidth: CGFloat = MuesliTheme.pageMaxWidth) -> some View {
+        frame(maxWidth: maxWidth, alignment: .leading)
+            .padding(.horizontal, MuesliTheme.pageHorizontalPadding)
+            .padding(.vertical, MuesliTheme.pageVerticalPadding)
+            .frame(maxWidth: .infinity, alignment: .top)
+    }
 }
 
 // MARK: - Color Helpers

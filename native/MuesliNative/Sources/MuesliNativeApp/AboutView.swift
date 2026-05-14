@@ -117,7 +117,7 @@ struct AboutView: View {
 
                 Spacer(minLength: MuesliTheme.spacing32)
             }
-            .padding(MuesliTheme.spacing32)
+            .muesliPageContent()
         }
         .background(MuesliTheme.backgroundBase)
     }

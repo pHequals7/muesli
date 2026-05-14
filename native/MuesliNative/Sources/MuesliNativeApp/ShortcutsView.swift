@@ -29,8 +29,7 @@ struct ShortcutsView: View {
 
                 resetButton
             }
-            .padding(MuesliTheme.spacing32)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .muesliPageContent()
         }
         .onDisappear {
             stopRecording()

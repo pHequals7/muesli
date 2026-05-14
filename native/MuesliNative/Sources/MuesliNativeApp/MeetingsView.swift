@@ -240,10 +240,7 @@ struct MeetingsView: View {
                     }
                 }
             }
-            .frame(maxWidth: 960, alignment: .leading)
-            .padding(.horizontal, 40)
-            .padding(.vertical, 32)
-            .frame(maxWidth: .infinity, alignment: .center)
+            .muesliPageContent(maxWidth: 960)
         }
     }
 
@@ -321,7 +318,7 @@ struct MeetingsView: View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Coming Up")
-                    .font(.custom("Cormorant Garamond", size: 22).weight(.medium))
+                    .font(MuesliTheme.title3())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
                 if appState.isGoogleCalendarAuthenticated {
@@ -441,11 +438,11 @@ struct MeetingsView: View {
                 }
             }
         }
-        .padding(20)
+        .padding(MuesliTheme.cardPadding)
         .background(MuesliTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
                 .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
         )
     }
@@ -657,11 +654,11 @@ struct MeetingsView: View {
                 .disabled(!appState.isMeetingRecording)
             }
         }
-        .padding(MuesliTheme.spacing12)
+        .padding(MuesliTheme.spacing16)
         .background(MuesliTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerLarge))
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
         .overlay(
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerLarge)
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
                 .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
         )
     }
@@ -766,12 +763,12 @@ struct MeetingsView: View {
             .foregroundStyle(MuesliTheme.textTertiary)
             .frame(maxWidth: 320, alignment: .leading)
         }
-        .padding(MuesliTheme.spacing24)
+        .padding(MuesliTheme.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(MuesliTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerXL))
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
         .overlay(
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerXL)
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
                 .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
         )
     }
