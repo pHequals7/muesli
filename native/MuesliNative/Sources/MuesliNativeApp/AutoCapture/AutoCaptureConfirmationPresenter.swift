@@ -46,6 +46,15 @@ final class AutoCaptureAlertPresenter: AutoCaptureConfirmationPresenting {
     private var pendingCompletion: ((AutoCaptureConfirmationOutcome) -> Void)?
     private var timeoutTask: Task<Void, Never>?
 
+    /// Resolved at present-time so the user's current v2.1 `autoStopEnabled`
+    /// setting determines whether the experimental disclosure sentence appears.
+    /// Defaults to `{ true }` so existing call sites keep the v2.1 default.
+    private let autoStopEnabledProvider: () -> Bool
+
+    init(autoStopEnabledProvider: @escaping () -> Bool = { true }) {
+        self.autoStopEnabledProvider = autoStopEnabledProvider
+    }
+
     func present(
         appName: String,
         bundleID: String?,
@@ -61,7 +70,11 @@ final class AutoCaptureAlertPresenter: AutoCaptureConfirmationPresenting {
         alert.alertStyle = .informational
         alert.messageText = "Start recording this meeting?"
         let subject = meetingTitle?.isEmpty == false ? meetingTitle! : appName
-        alert.informativeText = "Muesli detected \(subject) and is set to auto-capture meetings from \(appName)."
+        var text = "Muesli detected \(subject) and is set to auto-capture meetings from \(appName)."
+        if autoStopEnabledProvider() {
+            text += " Muesli will also try to stop recording automatically when the call ends. Auto-stop is experimental and may not always work."
+        }
+        alert.informativeText = text
 
         let recordButton = alert.addButton(withTitle: "Start Recording")
         recordButton.keyEquivalent = "\r"

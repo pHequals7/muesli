@@ -60,6 +60,7 @@ enum AutoCaptureDecisionReason: String, Equatable {
     case alreadyRecording = "already_recording"
     case startFailed = "start_failed"
     case stoppedExternally = "stopped_externally"
+    case autoStopped = "auto_stopped"
 }
 
 // MARK: - AutoCaptureCoordinator
@@ -74,6 +75,7 @@ final class AutoCaptureCoordinator {
     private let configProvider: () -> AutoCaptureConfig
     private let configWriter: (AutoCaptureConfig) -> Void
     private let recordingStarter: (_ title: String?) -> Bool
+    private let recordingStopper: (() -> Void)?
     private let isRecordingNowProbe: () -> Bool
     private let isFocusModeActiveProbe: () -> Bool
     private let confirmationPresenter: AutoCaptureConfirmationPresenting
@@ -81,6 +83,7 @@ final class AutoCaptureCoordinator {
     private let delaySleep: (Double) async -> Void
     private let logger: Logger
     private let browserURLPollerFactory: BrowserURLPollerFactory?
+    private let browserMicReleaseMonitorFactory: BrowserMicReleaseMonitorFactory?
 
     // MARK: State
 
@@ -89,6 +92,7 @@ final class AutoCaptureCoordinator {
     private(set) var lastSignal: AutoCaptureSignal?
     private(set) var lastDecisionAt: Date?
     private(set) var browserURLPoller: BrowserURLPoller?
+    private(set) var browserMicReleaseMonitor: BrowserMicReleaseMonitoring?
 
     private var pendingDelayTask: Task<Void, Never>?
     private var hasStarted = false
@@ -99,6 +103,7 @@ final class AutoCaptureCoordinator {
         config: @escaping () -> AutoCaptureConfig,
         configWriter: @escaping (AutoCaptureConfig) -> Void,
         recordingStarter: @escaping (_ title: String?) -> Bool,
+        recordingStopper: (() -> Void)? = nil,
         isRecordingNow: @escaping () -> Bool,
         isFocusModeActive: @escaping () -> Bool = { false },
         confirmationPresenter: AutoCaptureConfirmationPresenting,
@@ -108,11 +113,13 @@ final class AutoCaptureCoordinator {
             try? await Task.sleep(nanoseconds: nanos)
         },
         logger: Logger = Logger(subsystem: "com.muesli.native", category: "AutoCapture"),
-        browserURLPollerFactory: BrowserURLPollerFactory? = .production
+        browserURLPollerFactory: BrowserURLPollerFactory? = .production,
+        browserMicReleaseMonitorFactory: BrowserMicReleaseMonitorFactory? = .production
     ) {
         self.configProvider = config
         self.configWriter = configWriter
         self.recordingStarter = recordingStarter
+        self.recordingStopper = recordingStopper
         self.isRecordingNowProbe = isRecordingNow
         self.isFocusModeActiveProbe = isFocusModeActive
         self.confirmationPresenter = confirmationPresenter
@@ -120,6 +127,7 @@ final class AutoCaptureCoordinator {
         self.delaySleep = sleep
         self.logger = logger
         self.browserURLPollerFactory = browserURLPollerFactory
+        self.browserMicReleaseMonitorFactory = browserMicReleaseMonitorFactory
     }
 
     // MARK: Lifecycle
@@ -127,6 +135,7 @@ final class AutoCaptureCoordinator {
     func start() {
         hasStarted = true
         installBrowserURLPollerIfNeeded()
+        installBrowserMicReleaseMonitorIfNeeded()
     }
 
     func stop() {
@@ -134,6 +143,8 @@ final class AutoCaptureCoordinator {
         cancelPendingDelay()
         browserURLPoller?.stop()
         browserURLPoller = nil
+        browserMicReleaseMonitor?.stopWatching()
+        browserMicReleaseMonitor = nil
         transition(to: .idle, reason: .detectionCleared)
     }
 
@@ -335,9 +346,37 @@ final class AutoCaptureCoordinator {
                 to: .recording(bundleID: signal.bundleID, appName: signal.appName),
                 reason: .startedRecording
             )
+            if let bundleID = signal.bundleID,
+               BrowserMicReleaseMonitor.isEligibleForAutoStop(bundleID: bundleID) {
+                browserMicReleaseMonitor?.beginWatching(bundleID: bundleID)
+            }
         } else {
             transition(to: .idle, reason: .startFailed)
         }
+    }
+
+    // MARK: Auto-stop (v2.1)
+
+    /// Called by `BrowserMicReleaseMonitor` when the watched browser has held
+    /// no input device for the debounce window. Stops the recording iff the
+    /// coordinator is in `.recording` for a matching bundle and the user has
+    /// `auto_stop_enabled == true`. See ADR 0009 + `tickets/ticket-v2.1.md`.
+    private func handleAutoStop(bundleID: String) {
+        guard case .recording(let recordingBundleID, _) = state,
+              recordingBundleID == bundleID || resolvedParent(recordingBundleID) == bundleID else {
+            return
+        }
+        let config = configProvider()
+        guard config.autoStopEnabled else {
+            return
+        }
+        recordingStopper?()
+        transition(to: .idle, reason: .autoStopped)
+    }
+
+    private func resolvedParent(_ bundleID: String?) -> String? {
+        guard let bundleID else { return nil }
+        return BrowserMicReleaseMonitor.parentBrowserBundleID(for: bundleID)
     }
 
     private func cancelPendingDelay() {
@@ -352,6 +391,9 @@ final class AutoCaptureCoordinator {
         }
         let previous = state
         state = newState
+        if case .idle = newState {
+            browserMicReleaseMonitor?.stopWatching()
+        }
         recordDecision(reason)
         logger.notice(
             "auto_capture transition from=\(previous.name, privacy: .public) to=\(newState.name, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
@@ -388,6 +430,15 @@ final class AutoCaptureCoordinator {
         browserURLPoller = poller
         poller.start()
     }
+
+    private func installBrowserMicReleaseMonitorIfNeeded() {
+        guard hasStarted, recordingStopper != nil else { return }
+        guard let factory = browserMicReleaseMonitorFactory else { return }
+        if browserMicReleaseMonitor != nil { return }
+        browserMicReleaseMonitor = factory.make { [weak self] bundleID in
+            self?.handleAutoStop(bundleID: bundleID)
+        }
+    }
 }
 
 // MARK: - BrowserURLPollerFactory
@@ -405,5 +456,21 @@ struct BrowserURLPollerFactory {
     /// mic-ownership signal and `NSAppleScript` for URL fetching.
     static let production: BrowserURLPollerFactory = BrowserURLPollerFactory(make: { configProvider, signalHandler in
         BrowserURLPoller(config: configProvider, signalHandler: signalHandler)
+    })
+}
+
+// MARK: - BrowserMicReleaseMonitorFactory
+
+/// Pluggable factory mirroring `BrowserURLPollerFactory`. Tests substitute a
+/// fake monitor so they can drive `onCallEnded` deterministically.
+struct BrowserMicReleaseMonitorFactory {
+    let make: @MainActor (
+        _ onCallEnded: @escaping @MainActor (_ bundleID: String) -> Void
+    ) -> BrowserMicReleaseMonitoring
+
+    /// Production factory using `BrowserMicReleaseMonitor` with the CoreAudio
+    /// HAL backend.
+    static let production: BrowserMicReleaseMonitorFactory = BrowserMicReleaseMonitorFactory(make: { onCallEnded in
+        BrowserMicReleaseMonitor(onCallEnded: onCallEnded)
     })
 }

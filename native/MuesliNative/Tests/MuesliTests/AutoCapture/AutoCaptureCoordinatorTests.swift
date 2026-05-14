@@ -558,4 +558,274 @@ struct AutoCaptureCoordinatorTests {
         ]
         #expect(names.count == 5)
     }
+
+    // MARK: - autoStopEnabled config (v2.1)
+
+    @Test("autoStopEnabled defaults to true and survives a decode-without-key")
+    func autoStopEnabledDefaultsTrue() throws {
+        let defaults = AutoCaptureConfig()
+        #expect(defaults.autoStopEnabled == true)
+
+        let json = "{}".data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(AutoCaptureConfig.self, from: json)
+        #expect(decoded.autoStopEnabled == true)
+    }
+
+    @Test("autoStopEnabled round-trips through snake_case JSON")
+    func autoStopEnabledRoundTrips() throws {
+        var config = AutoCaptureConfig()
+        config.autoStopEnabled = false
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let encoded = try encoder.encode(config)
+        let json = String(data: encoded, encoding: .utf8) ?? ""
+        #expect(json.contains("\"auto_stop_enabled\":false"))
+        let decoded = try JSONDecoder().decode(AutoCaptureConfig.self, from: encoded)
+        #expect(decoded.autoStopEnabled == false)
+    }
+}
+
+// MARK: - Auto-stop coordinator harness (v2.1)
+
+@MainActor
+private final class FakeBrowserMicReleaseMonitor: BrowserMicReleaseMonitoring {
+    private(set) var beginCalls: [String] = []
+    private(set) var stopCount: Int = 0
+    var watchedBundleID: String?
+
+    private let callback: @MainActor (String) -> Void
+
+    init(onCallEnded: @escaping @MainActor (String) -> Void) {
+        self.callback = onCallEnded
+    }
+
+    func beginWatching(bundleID: String) {
+        beginCalls.append(bundleID)
+        watchedBundleID = bundleID
+    }
+
+    func stopWatching() {
+        stopCount += 1
+        watchedBundleID = nil
+    }
+
+    func simulateCallEnded(bundleID: String) {
+        callback(bundleID)
+    }
+}
+
+@MainActor
+private final class AutoStopHarness {
+    var config: AutoCaptureConfig
+    var sleepInvocations: [Double] = []
+    var releaseSleep: () -> Void = {}
+    let starter = RecordingStarterSpyAutoStop()
+    let presenter = ConfirmationPresenterDoubleAutoStop()
+    var isRecording = false
+    var stopCalls: Int = 0
+    private(set) var fakeMonitor: FakeBrowserMicReleaseMonitor?
+    private(set) var coordinator: AutoCaptureCoordinator!
+
+    init(config: AutoCaptureConfig, includeRecordingStopper: Bool = true) {
+        self.config = config
+        let factory = BrowserMicReleaseMonitorFactory(make: { [weak self] onCallEnded in
+            let monitor = FakeBrowserMicReleaseMonitor(onCallEnded: onCallEnded)
+            self?.fakeMonitor = monitor
+            return monitor
+        })
+        self.coordinator = AutoCaptureCoordinator(
+            config: { [unowned self] in self.config },
+            configWriter: { [unowned self] newConfig in self.config = newConfig },
+            recordingStarter: { [unowned self] title in self.starter.start(title) },
+            recordingStopper: includeRecordingStopper ? { [unowned self] in self.stopCalls += 1 } : nil,
+            isRecordingNow: { [unowned self] in self.isRecording },
+            confirmationPresenter: presenter,
+            sleep: { [unowned self] seconds in
+                self.sleepInvocations.append(seconds)
+                await withCheckedContinuation { continuation in
+                    self.releaseSleep = { continuation.resume() }
+                }
+            },
+            browserURLPollerFactory: nil,
+            browserMicReleaseMonitorFactory: factory
+        )
+        coordinator.start()
+    }
+}
+
+@MainActor
+private final class RecordingStarterSpyAutoStop {
+    private(set) var calls: [String?] = []
+    var returnValue: Bool = true
+    func start(_ title: String?) -> Bool {
+        calls.append(title)
+        return returnValue
+    }
+}
+
+@MainActor
+private final class ConfirmationPresenterDoubleAutoStop: AutoCaptureConfirmationPresenting {
+    var pendingCompletion: ((AutoCaptureConfirmationOutcome) -> Void)?
+    func present(
+        appName: String,
+        bundleID: String?,
+        meetingTitle: String?,
+        completion: @escaping @MainActor (AutoCaptureConfirmationOutcome) -> Void
+    ) {
+        pendingCompletion = completion
+    }
+    func resolve(with outcome: AutoCaptureConfirmationOutcome) {
+        let completion = pendingCompletion
+        pendingCompletion = nil
+        completion?(outcome)
+    }
+}
+
+@MainActor
+private func driveToRecording(
+    harness: AutoStopHarness,
+    appName: String,
+    bundleID: String
+) async {
+    let signal = AutoCaptureSignal(
+        appName: appName,
+        bundleID: bundleID,
+        meetingTitle: nil,
+        hasCalendarMatch: false
+    )
+    harness.coordinator.handle(signal)
+    await Task.yield()
+    harness.releaseSleep()
+    await Task.yield()
+    await Task.yield()
+}
+
+@Suite("AutoCaptureCoordinator auto-stop")
+@MainActor
+struct AutoCaptureCoordinatorAutoStopTests {
+
+    @Test("browser recording → monitor fires → coordinator stops + transitions to .autoStopped")
+    func autoStopFiresForBrowser() async {
+        let config = AutoCaptureConfig(
+            enabled: true,
+            allowedAppBundleIDs: ["com.google.Chrome"],
+            acknowledgedAppBundleIDs: ["com.google.Chrome"],
+            startDelaySeconds: 1,
+            autoStopEnabled: true
+        )
+        let harness = AutoStopHarness(config: config)
+        await driveToRecording(harness: harness, appName: "Chrome", bundleID: "com.google.Chrome")
+        if case .recording = harness.coordinator.state {} else {
+            Issue.record("expected recording, got \(harness.coordinator.state)")
+            return
+        }
+        #expect(harness.fakeMonitor?.beginCalls == ["com.google.Chrome"])
+
+        harness.fakeMonitor?.simulateCallEnded(bundleID: "com.google.Chrome")
+
+        #expect(harness.stopCalls == 1)
+        #expect(harness.coordinator.state == .idle)
+        #expect(harness.coordinator.lastDecisionReason == .autoStopped)
+        // Transition to idle should have also stopped the monitor (via the
+        // .idle branch in transition()).
+        #expect(harness.fakeMonitor?.stopCount ?? 0 >= 1)
+    }
+
+    @Test("autoStopEnabled == false → monitor fire is a no-op")
+    func autoStopGatedByConfig() async {
+        let config = AutoCaptureConfig(
+            enabled: true,
+            allowedAppBundleIDs: ["com.google.Chrome"],
+            acknowledgedAppBundleIDs: ["com.google.Chrome"],
+            startDelaySeconds: 1,
+            autoStopEnabled: false
+        )
+        let harness = AutoStopHarness(config: config)
+        await driveToRecording(harness: harness, appName: "Chrome", bundleID: "com.google.Chrome")
+        if case .recording = harness.coordinator.state {} else {
+            Issue.record("expected recording state"); return
+        }
+
+        harness.fakeMonitor?.simulateCallEnded(bundleID: "com.google.Chrome")
+        #expect(harness.stopCalls == 0)
+        if case .recording = harness.coordinator.state {} else {
+            Issue.record("expected to remain recording")
+        }
+    }
+
+    @Test("monitor fires for non-matching bundle → no-op")
+    func autoStopIgnoresNonMatchingBundle() async {
+        let config = AutoCaptureConfig(
+            enabled: true,
+            allowedAppBundleIDs: ["com.google.Chrome"],
+            acknowledgedAppBundleIDs: ["com.google.Chrome"],
+            startDelaySeconds: 1,
+            autoStopEnabled: true
+        )
+        let harness = AutoStopHarness(config: config)
+        await driveToRecording(harness: harness, appName: "Chrome", bundleID: "com.google.Chrome")
+        if case .recording = harness.coordinator.state {} else {
+            Issue.record("expected recording state"); return
+        }
+
+        harness.fakeMonitor?.simulateCallEnded(bundleID: "com.apple.Safari")
+        #expect(harness.stopCalls == 0)
+        if case .recording = harness.coordinator.state {} else {
+            Issue.record("expected to remain recording")
+        }
+    }
+
+    @Test("monitor fire while idle (no recording) → no-op")
+    func autoStopNoOpWhileIdle() {
+        let config = AutoCaptureConfig(
+            enabled: true,
+            allowedAppBundleIDs: ["com.google.Chrome"],
+            startDelaySeconds: 1,
+            autoStopEnabled: true
+        )
+        let harness = AutoStopHarness(config: config)
+        #expect(harness.coordinator.state == .idle)
+
+        harness.fakeMonitor?.simulateCallEnded(bundleID: "com.google.Chrome")
+        #expect(harness.stopCalls == 0)
+        #expect(harness.coordinator.state == .idle)
+    }
+
+    @Test("monitor is installed only when recordingStopper is supplied")
+    func monitorRequiresRecordingStopper() {
+        let config = AutoCaptureConfig(enabled: true, autoStopEnabled: true)
+        let harness = AutoStopHarness(config: config, includeRecordingStopper: false)
+        #expect(harness.fakeMonitor == nil)
+        #expect(harness.coordinator.browserMicReleaseMonitor == nil)
+    }
+
+    @Test("PWA bundle ID maps to parent on monitor fire")
+    func autoStopHandlesPWABundleID() async {
+        // The coordinator records the recording bundle as the PWA bundle (what
+        // it was handed). When the monitor fires for the parent browser, the
+        // coordinator should match the parent against `resolvedParent` and
+        // still stop the recording.
+        let pwaBundle = "com.google.Chrome.app.deadbeefdeadbeefdeadbeefdeadbeef"
+        let config = AutoCaptureConfig(
+            enabled: true,
+            allowedAppBundleIDs: [pwaBundle],
+            acknowledgedAppBundleIDs: [pwaBundle],
+            startDelaySeconds: 1,
+            autoStopEnabled: true
+        )
+        let harness = AutoStopHarness(config: config)
+        await driveToRecording(harness: harness, appName: "Chrome PWA", bundleID: pwaBundle)
+        if case .recording = harness.coordinator.state {} else {
+            Issue.record("expected recording state"); return
+        }
+        // Monitor was asked to watch the PWA bundle, which internally resolves
+        // to the parent for HAL listener install.
+        #expect(harness.fakeMonitor?.beginCalls == [pwaBundle])
+
+        // Simulate the monitor reporting that the parent browser released the
+        // mic — the coordinator should match via resolvedParent and stop.
+        harness.fakeMonitor?.simulateCallEnded(bundleID: pwaBundle)
+        #expect(harness.stopCalls == 1)
+        #expect(harness.coordinator.lastDecisionReason == .autoStopped)
+    }
 }

@@ -122,7 +122,11 @@ final class MuesliController: NSObject {
     private let meetingMonitor = MeetingMonitor()
     private let meetingNotification = MeetingNotificationController()
     private let meetingSourceWindowLocator = MeetingSourceWindowLocator()
-    private let autoCaptureConfirmationPresenter: AutoCaptureConfirmationPresenting = AutoCaptureAlertPresenter()
+    private lazy var autoCaptureConfirmationPresenter: AutoCaptureConfirmationPresenting = AutoCaptureAlertPresenter(
+        autoStopEnabledProvider: { [weak self] in
+            self?.config.autoCapture.autoStopEnabled ?? true
+        }
+    )
     private var autoCaptureCoordinator: AutoCaptureCoordinator?
 
     private let chatGPTAuth = ChatGPTAuthManager.shared
@@ -3272,6 +3276,11 @@ final class MuesliController: NSObject {
                 guard !self.isMeetingRecording(), !self.isStartingMeetingRecording else { return false }
                 self.startMeetingRecording(title: title ?? "Meeting")
                 return true
+            },
+            recordingStopper: { [weak self] in
+                guard let self else { return }
+                guard self.isMeetingRecording() else { return }
+                self.stopMeetingRecording()
             },
             isRecordingNow: { [weak self] in
                 guard let self else { return false }
