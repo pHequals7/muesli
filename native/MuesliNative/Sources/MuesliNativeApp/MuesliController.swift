@@ -2813,6 +2813,22 @@ final class MuesliController: NSObject {
         let manualNotesCheckbox: NSButton
     }
 
+    private final class MeetingDiscardAccessoryView: NSView {
+        var titleUpdater: AnyObject?
+    }
+
+    private final class MeetingDiscardButtonTitleUpdater: NSObject {
+        weak var discardButton: NSButton?
+
+        init(discardButton: NSButton?) {
+            self.discardButton = discardButton
+        }
+
+        @MainActor @objc func manualNotesCheckboxChanged(_ sender: NSButton) {
+            discardButton?.title = sender.state == .on ? "Discard" : "Discard Recording"
+        }
+    }
+
     @objc func discardMeetingWithConfirmation() {
         NSApp.activate(ignoringOtherApps: true)
 
@@ -2831,6 +2847,10 @@ final class MuesliController: NSObject {
             alert.addButton(withTitle: "Discard Recording")
             alert.addButton(withTitle: "Cancel")
             alert.buttons.first?.hasDestructiveAction = true
+            let titleUpdater = MeetingDiscardButtonTitleUpdater(discardButton: alert.buttons.first)
+            manualNotesCheckbox?.target = titleUpdater
+            manualNotesCheckbox?.action = #selector(MeetingDiscardButtonTitleUpdater.manualNotesCheckboxChanged(_:))
+            (accessory.view as? MeetingDiscardAccessoryView)?.titleUpdater = titleUpdater
         } else {
             alert.informativeText = "This will stop the meeting recording and delete all captured audio. This cannot be undone."
             alert.addButton(withTitle: "Discard")
@@ -2852,7 +2872,7 @@ final class MuesliController: NSObject {
         let notesCheckbox = NSButton(checkboxWithTitle: "Manual notes", target: nil, action: nil)
         notesCheckbox.state = .off
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 230, height: 76))
+        let container = MeetingDiscardAccessoryView(frame: NSRect(x: 0, y: 0, width: 230, height: 76))
         let stack = NSStackView(views: [label, recordingCheckbox, notesCheckbox])
         stack.frame = container.bounds
         stack.orientation = .vertical
