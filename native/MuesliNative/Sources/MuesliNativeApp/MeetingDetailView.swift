@@ -421,6 +421,7 @@ struct MeetingDetailView: View {
                 isEditingNotes = true
             }
         }
+        .disabled(isRetranscribing && !isEditingNotes && !isEditingTranscript)
     }
 
     @ViewBuilder
