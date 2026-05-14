@@ -184,6 +184,8 @@ final class MuesliController: NSObject {
     private var activeMeetingCalendarEndDate: Date?
     private var meetingActivity: NSObjectProtocol?
     private var isStoppingMeetingRecording = false
+    private var meetingStartTask: Task<Void, Never>?
+    private var meetingStartMeetingID: Int64?
 
     init(
         runtime: RuntimePaths,
@@ -2482,6 +2484,9 @@ final class MuesliController: NSObject {
 
         activeMeetingSession?.discard()
         activeMeetingSession = nil
+        meetingStartTask?.cancel()
+        meetingStartTask = nil
+        meetingStartMeetingID = nil
         isStartingMeetingRecording = false
         isStoppingMeetingRecording = false
         endMeetingActivity()
@@ -2580,47 +2585,58 @@ final class MuesliController: NSObject {
             return false
         }
         isStartingMeetingRecording = true
+        meetingStartMeetingID = meetingID
         updateMeetingStartStatus("Preparing meeting transcription...")
         beginMeetingActivity(reason: "Recording and transcribing a meeting")
         meetingMonitor.suppressWhileActive()
         meetingMonitor.refreshState()
         updateMeetingNotificationVisibility()
 
-        Task { @MainActor [weak self] in
+        meetingStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
+                try Task.checkCancellation()
                 try await self.startMeetingRecordingWithSystemAudioRecovery(title: title, calendarEventID: calendarEventID, meetingID: meetingID)
+            } catch is CancellationError {
+                if self.meetingStartMeetingID == meetingID {
+                    self.resolveLiveMeetingAfterStartFailure(id: meetingID)
+                    self.meetingMonitor.resumeAfterCooldown()
+                    self.meetingMonitor.refreshState()
+                    self.statusBarController?.setStatus("Idle")
+                    self.statusBarController?.refresh()
+                    self.setState(.idle)
+                    self.endMeetingActivity()
+                }
             } catch {
-                fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
-                self.resolveLiveMeetingAfterStartFailure(id: meetingID)
-                self.meetingMonitor.resumeAfterCooldown()
-                self.meetingMonitor.refreshState()
-                self.statusBarController?.setStatus("Idle")
-                self.statusBarController?.refresh()
-                self.setState(.idle)
-                self.endMeetingActivity()
+                if self.meetingStartMeetingID == meetingID {
+                    fputs("[muesli-native] failed to start meeting: \(error)\n", stderr)
+                    self.resolveLiveMeetingAfterStartFailure(id: meetingID)
+                    self.meetingMonitor.resumeAfterCooldown()
+                    self.meetingMonitor.refreshState()
+                    self.statusBarController?.setStatus("Idle")
+                    self.statusBarController?.refresh()
+                    self.setState(.idle)
+                    self.endMeetingActivity()
 
-                let isSystemAudioError = error is CoreAudioSystemRecorder.RecorderError
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                if isSystemAudioError {
-                    alert.messageText = "System audio capture failed"
-                    alert.informativeText = "Could not start system audio recording. Open System Settings > Privacy & Security > Screen & System Audio Recording and enable \(AppIdentity.displayName) under \"System Audio Recording Only\".\n\nError: \(error.localizedDescription)"
-                    alert.addButton(withTitle: "Open System Settings")
-                    alert.addButton(withTitle: "OK")
-                    if alert.runModal() == .alertFirstButtonReturn {
-                        CoreAudioSystemRecorder.openSystemAudioSettings()
+                    let isSystemAudioError = error is CoreAudioSystemRecorder.RecorderError
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    if isSystemAudioError {
+                        alert.messageText = "System audio capture failed"
+                        alert.informativeText = "Could not start system audio recording. Open System Settings > Privacy & Security > Screen & System Audio Recording and enable \(AppIdentity.displayName) under \"System Audio Recording Only\".\n\nError: \(error.localizedDescription)"
+                        alert.addButton(withTitle: "Open System Settings")
+                        alert.addButton(withTitle: "OK")
+                        if alert.runModal() == .alertFirstButtonReturn {
+                            CoreAudioSystemRecorder.openSystemAudioSettings()
+                        }
+                    } else {
+                        alert.messageText = "Meeting failed to start"
+                        alert.informativeText = error.localizedDescription
+                        alert.runModal()
                     }
-                } else {
-                    alert.messageText = "Meeting failed to start"
-                    alert.informativeText = error.localizedDescription
-                    alert.runModal()
                 }
             }
-            self.isStartingMeetingRecording = false
-            self.updateMeetingStartStatus(nil)
-            self.updateMeetingNotificationVisibility()
-            self.syncAppState()
+            self.finishMeetingStartAttempt(meetingID: meetingID)
         }
         return true
     }
@@ -2629,17 +2645,48 @@ final class MuesliController: NSObject {
         startForegroundMeetingRecording(title: "Meeting")
     }
 
+    func cancelMeetingPreparation() {
+        guard isStartingMeetingRecording,
+              activeMeetingSession == nil,
+              let meetingID = meetingStartMeetingID else {
+            return
+        }
+        meetingStartTask?.cancel()
+        updateMeetingStartStatus("Canceling meeting start...")
+        resolveLiveMeetingAfterStartFailure(id: meetingID)
+        meetingMonitor.resumeAfterCooldown()
+        meetingMonitor.refreshState()
+        statusBarController?.setStatus("Idle")
+        statusBarController?.refresh()
+        setState(.idle)
+        endMeetingActivity()
+        finishMeetingStartAttempt(meetingID: meetingID)
+    }
+
+    private func finishMeetingStartAttempt(meetingID: Int64) {
+        guard meetingStartMeetingID == meetingID else { return }
+        meetingStartTask = nil
+        meetingStartMeetingID = nil
+        isStartingMeetingRecording = false
+        updateMeetingStartStatus(nil)
+        updateMeetingNotificationVisibility()
+        syncAppState()
+    }
+
     private func startMeetingRecordingWithSystemAudioRecovery(title: String, calendarEventID: String?, meetingID: Int64) async throws {
         var shouldRetryAfterPermissionRequest = config.useCoreAudioTap
         statusBarController?.setStatus("Preparing meeting transcription...")
         statusBarController?.refresh()
+        try Task.checkCancellation()
         try await transcriptionCoordinator.preloadRequired(
             backend: selectedMeetingTranscriptionBackend,
             enablePostProcessor: false,
             includeMeetingHelpers: true
         )
+        try Task.checkCancellation()
 
         while true {
+            try Task.checkCancellation()
             let meetingSession = MeetingSession(
                 title: title,
                 calendarEventID: calendarEventID,
@@ -2663,6 +2710,10 @@ final class MuesliController: NSObject {
                     }
                 }
                 try await meetingSession.start()
+                if Task.isCancelled {
+                    meetingSession.discard()
+                    throw CancellationError()
+                }
                 activeMeetingSession = meetingSession
                 activeMeetingID = meetingID
                 meetingMonitor.suppressWhileActive()
@@ -2683,10 +2734,12 @@ final class MuesliController: NSObject {
 
                 shouldRetryAfterPermissionRequest = false
                 meetingSession.discard()
+                try Task.checkCancellation()
                 updateMeetingStartStatus("Requesting system audio permission...")
                 statusBarController?.setStatus("Requesting system audio permission...")
                 statusBarController?.refresh()
                 let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
+                try Task.checkCancellation()
                 if granted {
                     updateMeetingStartStatus("Retrying meeting start...")
                     statusBarController?.setStatus("Retrying meeting start...")

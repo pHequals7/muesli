@@ -204,7 +204,10 @@ struct MeetingsView: View {
                 }
 
                 if appState.isMeetingStarting {
-                    MeetingPreparationBanner(status: appState.meetingStartStatus)
+                    MeetingPreparationBanner(
+                        status: appState.meetingStartStatus,
+                        onCancel: { controller.cancelMeetingPreparation() }
+                    )
                 }
 
                 if let activeLiveMeeting {

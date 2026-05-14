@@ -598,6 +598,37 @@ struct AppConfigTests {
         }
     }
 
+    @Test("incomplete onboarding defaults malformed use case to dictation")
+    func incompleteOnboardingDefaultsMalformedUseCaseToDictation() throws {
+        let jsonCases = [
+            """
+            {
+              "has_completed_onboarding": false
+            }
+            """,
+            """
+            {
+              "has_completed_onboarding": false,
+              "onboarding_use_case": null
+            }
+            """,
+            """
+            {
+              "has_completed_onboarding": false,
+              "onboarding_use_case": "future-meeting-mode"
+            }
+            """
+        ]
+
+        for json in jsonCases {
+            let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+
+            #expect(!config.hasCompletedOnboarding)
+            #expect(config.resolvedOnboardingUseCase == .dictation)
+            #expect(!config.resolvedOnboardingUseCase.includesMeetings)
+        }
+    }
+
     @Test("explicit completed dictation-only onboarding remains dictation-only")
     func explicitCompletedDictationOnlyOnboardingRemainsDictationOnly() throws {
         let json = """

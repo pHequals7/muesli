@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MeetingPreparationBanner: View {
     let status: String?
+    let onCancel: () -> Void
 
     var body: some View {
         HStack(spacing: MuesliTheme.spacing12) {
@@ -20,6 +21,14 @@ struct MeetingPreparationBanner: View {
             }
 
             Spacer(minLength: MuesliTheme.spacing12)
+
+            Button(action: onCancel) {
+                Label("Cancel", systemImage: "xmark.circle")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+            }
+            .buttonStyle(.plain)
+            .help("Cancel meeting preparation")
         }
         .padding(MuesliTheme.spacing12)
         .background(MuesliTheme.backgroundRaised)
