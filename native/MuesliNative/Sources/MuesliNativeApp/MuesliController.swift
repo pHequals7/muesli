@@ -186,6 +186,7 @@ final class MuesliController: NSObject {
     private var isStoppingMeetingRecording = false
     private var meetingStartTask: Task<Void, Never>?
     private var meetingStartMeetingID: Int64?
+    private var canceledMeetingStartIDs = Set<Int64>()
 
     init(
         runtime: RuntimePaths,
@@ -2484,12 +2485,18 @@ final class MuesliController: NSObject {
 
         activeMeetingSession?.discard()
         activeMeetingSession = nil
+        if let meetingStartMeetingID {
+            canceledMeetingStartIDs.insert(meetingStartMeetingID)
+        }
         meetingStartTask?.cancel()
         meetingStartTask = nil
         meetingStartMeetingID = nil
         isStartingMeetingRecording = false
         isStoppingMeetingRecording = false
+        updateMeetingStartStatus(nil)
+        updateMeetingNotificationVisibility()
         endMeetingActivity()
+        syncAppState()
         return true
     }
 
@@ -2651,8 +2658,8 @@ final class MuesliController: NSObject {
               let meetingID = meetingStartMeetingID else {
             return
         }
+        canceledMeetingStartIDs.insert(meetingID)
         meetingStartTask?.cancel()
-        updateMeetingStartStatus("Canceling meeting start...")
         resolveLiveMeetingAfterStartFailure(id: meetingID)
         meetingMonitor.resumeAfterCooldown()
         meetingMonitor.refreshState()
@@ -2660,10 +2667,16 @@ final class MuesliController: NSObject {
         statusBarController?.refresh()
         setState(.idle)
         endMeetingActivity()
-        finishMeetingStartAttempt(meetingID: meetingID)
+        meetingStartTask = nil
+        meetingStartMeetingID = nil
+        isStartingMeetingRecording = false
+        updateMeetingStartStatus(nil)
+        updateMeetingNotificationVisibility()
+        syncAppState()
     }
 
     private func finishMeetingStartAttempt(meetingID: Int64) {
+        canceledMeetingStartIDs.remove(meetingID)
         guard meetingStartMeetingID == meetingID else { return }
         meetingStartTask = nil
         meetingStartMeetingID = nil
@@ -2684,9 +2697,11 @@ final class MuesliController: NSObject {
             includeMeetingHelpers: true
         )
         try Task.checkCancellation()
+        try checkMeetingStartStillCurrent(meetingID)
 
         while true {
             try Task.checkCancellation()
+            try checkMeetingStartStillCurrent(meetingID)
             let meetingSession = MeetingSession(
                 title: title,
                 calendarEventID: calendarEventID,
@@ -2710,7 +2725,7 @@ final class MuesliController: NSObject {
                     }
                 }
                 try await meetingSession.start()
-                if Task.isCancelled {
+                if Task.isCancelled || canceledMeetingStartIDs.contains(meetingID) {
                     meetingSession.discard()
                     throw CancellationError()
                 }
@@ -2735,11 +2750,13 @@ final class MuesliController: NSObject {
                 shouldRetryAfterPermissionRequest = false
                 meetingSession.discard()
                 try Task.checkCancellation()
+                try checkMeetingStartStillCurrent(meetingID)
                 updateMeetingStartStatus("Requesting system audio permission...")
                 statusBarController?.setStatus("Requesting system audio permission...")
                 statusBarController?.refresh()
                 let granted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
                 try Task.checkCancellation()
+                try checkMeetingStartStillCurrent(meetingID)
                 if granted {
                     updateMeetingStartStatus("Retrying meeting start...")
                     statusBarController?.setStatus("Retrying meeting start...")
@@ -2748,6 +2765,12 @@ final class MuesliController: NSObject {
                 }
                 throw error
             }
+        }
+    }
+
+    private func checkMeetingStartStillCurrent(_ meetingID: Int64) throws {
+        if canceledMeetingStartIDs.contains(meetingID) || meetingStartMeetingID != meetingID {
+            throw CancellationError()
         }
     }
 
