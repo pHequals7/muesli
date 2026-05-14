@@ -43,3 +43,29 @@ All notable changes to this fork are documented here. Format follows
   Applications/`. Results are cached in `auto_capture.pwa.cached_entries`,
   refreshed off the main actor on app launch and on user-driven Refresh.
   Filesystem work only — no AppleScript, no spawned processes.
+- Auto-Capture v2.1: experimental auto-stop for browser-hosted and PWA-hosted
+  meetings. New `BrowserMicReleaseMonitor` installs CoreAudio HAL listeners
+  (`kAudioProcessPropertyIsRunningInput`) on every per-process AudioObject
+  owned by the watched browser-family bundle, plus a global
+  `kAudioHardwarePropertyProcessObjectList` listener for reattach. PWAs roll
+  up to the parent browser bundle before listener install. When the bundle
+  releases the mic for ≥ 8 seconds, the monitor fires `onCallEnded`;
+  `AutoCaptureCoordinator.handleAutoStop` checks `auto_capture.auto_stop_enabled`
+  (default `true`, snake-case JSON key, decodes-without-key for back-compat),
+  invokes the new `recordingStopper` closure (`MuesliController.stopMeetingRecording()`),
+  and transitions to `.idle` with `AutoCaptureDecisionReason.autoStopped`.
+  Settings adds one toggle: "Auto-stop when call ends (experimental)" in the
+  Behaviour section. The first-run modal appends one sentence disclosing the
+  feature as experimental. Native meeting-app auto-stop is unchanged — v0's
+  existing `isRecordingNowProbe` path still handles Zoom/Teams desktop. See
+  `docs/decisions/0009-coreaudio-hal-mic-release-stop-detection.md`.
+
+### Removed
+
+- Auto-Capture v1 Browser Auto-Capture onboarding step. Its 1 Hz
+  `AutomationPermissionProbe.status` poll raced the synchronous interactive
+  `requestPermission` call, making the per-browser Request pill flip Request
+  → Denied → Request. Users who later enable browser URL polling in Settings
+  still get a persistent Automation-denied banner there.
+  `OnboardingProgress.currentSchemaVersion` bumped from 5 to 6; saved progress
+  at the removed step is reset to a fresh start.
