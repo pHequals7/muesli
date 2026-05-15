@@ -1925,15 +1925,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .trailing)
         } else if !lmStudioModels.isEmpty {
             let savedModel = appState.config.lmStudioModel
-            let effectiveModel: String
-            if savedModel.isEmpty {
-                effectiveModel = lmStudioModels[0]
-                controller.updateConfig { $0.lmStudioModel = lmStudioModels[0] }
-            } else if lmStudioModels.contains(savedModel) {
-                effectiveModel = savedModel
-            } else {
-                effectiveModel = lmStudioModels[0]
-            }
+            let effectiveModel = lmStudioModels.contains(savedModel) ? savedModel : lmStudioModels[0]
 
             FixedWidthPopUp(
                 selection: effectiveModel,

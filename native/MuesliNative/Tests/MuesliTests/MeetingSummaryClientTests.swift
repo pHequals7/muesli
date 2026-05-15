@@ -364,6 +364,7 @@ struct MeetingSummaryClientTests {
         var config = AppConfig()
         config.meetingSummaryBackend = "lmstudio"
         config.lmStudioURL = "http://localhost:1" // invalid port to force connection failure
+        config.lmStudioModel = "test-model" // set model to pass validation and reach network
 
         do {
             _ = try await MeetingSummaryClient.summarize(

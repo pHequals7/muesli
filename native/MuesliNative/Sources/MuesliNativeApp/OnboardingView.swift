@@ -1533,7 +1533,7 @@ struct OnboardingView: View {
 
                     Text("Select a model in Settings after setup.")
                         .font(.system(size: 11))
-                        .foregroundStyle(MuesliTheme.warning)
+                        .foregroundStyle(MuesliTheme.transcribing)
                         .padding(.top, 4)
                 }
             } else {
