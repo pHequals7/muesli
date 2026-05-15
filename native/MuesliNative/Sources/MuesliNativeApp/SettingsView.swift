@@ -571,6 +571,7 @@ struct SettingsView: View {
                                 controller.updateConfig { $0.ollamaURL = val }
                                 ollamaModels = []
                                 ollamaModelsError = nil
+                                isLoadingOllamaModels = false
                             }
                         )
                         .frame(height: 22)
@@ -588,6 +589,7 @@ struct SettingsView: View {
                                 controller.updateConfig { $0.lmStudioURL = val }
                                 lmStudioModels = []
                                 lmStudioModelsError = nil
+                                isLoadingLMStudioModels = false
                             }
                         )
                         .frame(height: 22)
@@ -1922,11 +1924,19 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         } else if !lmStudioModels.isEmpty {
-            let selectedModel = appState.config.lmStudioModel
-            let selectedLabel = lmStudioModels.contains(selectedModel) ? selectedModel : lmStudioModels[0]
+            let savedModel = appState.config.lmStudioModel
+            let effectiveModel: String
+            if savedModel.isEmpty {
+                effectiveModel = lmStudioModels[0]
+                controller.updateConfig { $0.lmStudioModel = lmStudioModels[0] }
+            } else if lmStudioModels.contains(savedModel) {
+                effectiveModel = savedModel
+            } else {
+                effectiveModel = lmStudioModels[0]
+            }
 
             FixedWidthPopUp(
-                selection: selectedLabel,
+                selection: effectiveModel,
                 options: lmStudioModels,
                 onSelectIndex: { index in
                     guard index >= 0 && index < lmStudioModels.count else { return }
