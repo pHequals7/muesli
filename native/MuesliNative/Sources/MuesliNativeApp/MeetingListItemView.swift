@@ -22,13 +22,13 @@ struct MeetingListItemView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-            HStack(alignment: .top) {
+            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
                 Text(record.title)
-                    .font(MuesliTheme.headline())
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(MuesliTheme.textPrimary)
                     .lineLimit(2)
 
-                Spacer(minLength: 4)
+                Spacer(minLength: MuesliTheme.spacing12)
 
                 HStack(spacing: 6) {
                     if !folders.isEmpty {
@@ -37,6 +37,10 @@ struct MeetingListItemView: View {
                     if onDelete != nil {
                         deleteButton
                     }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .frame(width: 22, height: 22)
                 }
             }
 
@@ -71,17 +75,19 @@ struct MeetingListItemView: View {
                 .foregroundStyle(MuesliTheme.textTertiary)
                 .lineLimit(2)
         }
-        .padding(MuesliTheme.spacing16)
+        .padding(.horizontal, MuesliTheme.spacing20)
+        .padding(.vertical, MuesliTheme.spacing20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(isSelected ? MuesliTheme.surfaceSelected : MuesliTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerLarge))
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerXL))
         .overlay(
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerLarge)
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerXL)
                 .strokeBorder(
-                    isSelected ? MuesliTheme.accent.opacity(0.35) : MuesliTheme.surfaceBorder,
+                    isSelected ? MuesliTheme.accent.opacity(0.28) : MuesliTheme.surfaceBorder,
                     lineWidth: 1
                 )
         )
+        .shadow(color: Color.black.opacity(isSelected ? 0.055 : 0.035), radius: 14, x: 0, y: 6)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }

@@ -1225,6 +1225,17 @@ struct AppConfigAppearanceTests {
         #expect(decoded.recordingColorHex == "303446")
     }
 
+    @Test("branding fields round-trip through JSON")
+    func brandingFieldsRoundTrip() throws {
+        var config = AppConfig()
+        config.appDisplayName = "Acme Notes"
+        config.customLogoPath = "/tmp/acme-logo.png"
+        let data = try JSONEncoder().encode(config)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
+        #expect(decoded.appDisplayName == "Acme Notes")
+        #expect(decoded.customLogoPath == "/tmp/acme-logo.png")
+    }
+
     @Test("unknown JSON keys are ignored — soundEnabled falls back to default")
     func soundEnabledFallsBackOnMissingKey() throws {
         let json = Data("{}".utf8)
@@ -1237,6 +1248,14 @@ struct AppConfigAppearanceTests {
         let json = Data("{}".utf8)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: json)
         #expect(decoded.recordingColorHex == "1e1e2e")
+    }
+
+    @Test("branding fields fall back when missing")
+    func brandingFieldsFallBackOnMissingKey() throws {
+        let json = Data("{}".utf8)
+        let decoded = try JSONDecoder().decode(AppConfig.self, from: json)
+        #expect(decoded.appDisplayName == "")
+        #expect(decoded.customLogoPath == nil)
     }
 
     @Test("soundEnabled CodingKey is sound_enabled")
@@ -1255,5 +1274,16 @@ struct AppConfigAppearanceTests {
         let data = try JSONEncoder().encode(config)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(json?["recording_color_hex"] as? String == "eff1f5")
+    }
+
+    @Test("branding CodingKeys are snake case")
+    func brandingCodingKeys() throws {
+        var config = AppConfig()
+        config.appDisplayName = "Acme Notes"
+        config.customLogoPath = "/tmp/acme-logo.png"
+        let data = try JSONEncoder().encode(config)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(json?["app_display_name"] as? String == "Acme Notes")
+        #expect(json?["custom_logo_path"] as? String == "/tmp/acme-logo.png")
     }
 }

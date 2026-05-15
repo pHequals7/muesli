@@ -10,10 +10,24 @@ struct SearchResultsView: View {
     let appState: AppState
     let controller: MuesliController
 
-    @State private var selectedTab: SearchTab = .dictations
+    @State private var selectedTab: SearchTab = .meetings
 
     private var totalCount: Int {
         appState.searchResultDictations.count + appState.searchResultMeetings.count
+    }
+
+    private var activeTab: SearchTab {
+        if selectedTab == .meetings,
+           appState.searchResultMeetings.isEmpty,
+           !appState.searchResultDictations.isEmpty {
+            return .dictations
+        }
+        if selectedTab == .dictations,
+           appState.searchResultDictations.isEmpty,
+           !appState.searchResultMeetings.isEmpty {
+            return .meetings
+        }
+        return selectedTab
     }
 
     var body: some View {
@@ -53,7 +67,7 @@ struct SearchResultsView: View {
 
     @ViewBuilder
     private func tabButton(_ tab: SearchTab, count: Int) -> some View {
-        let isSelected = selectedTab == tab
+        let isSelected = activeTab == tab
         Button {
             withAnimation(.easeInOut(duration: 0.15)) { selectedTab = tab }
         } label: {
@@ -81,7 +95,7 @@ struct SearchResultsView: View {
 
     @ViewBuilder
     private var tabContent: some View {
-        switch selectedTab {
+        switch activeTab {
         case .dictations:
             if appState.searchResultDictations.isEmpty {
                 noResultsForTab("dictations")

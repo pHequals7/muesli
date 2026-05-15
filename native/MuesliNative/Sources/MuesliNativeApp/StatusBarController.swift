@@ -40,7 +40,11 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     func refreshIcon() {
-        statusItem.button?.image = MenuBarIconRenderer.make(choice: controller.config.menuBarIcon)
+        statusItem.button?.image = MenuBarIconRenderer.make(
+            choice: controller.config.menuBarIcon,
+            customLogoPath: controller.config.customLogoPath
+        )
+        statusItem.button?.toolTip = AppIdentity.displayName
         updateMenuBarTitle()
     }
 
@@ -78,7 +82,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     private func build() {
         if let button = statusItem.button {
-            button.image = MenuBarIconRenderer.make(choice: controller.config.menuBarIcon)
+            button.image = MenuBarIconRenderer.make(
+                choice: controller.config.menuBarIcon,
+                customLogoPath: controller.config.customLogoPath
+            )
             button.imageScaling = .scaleProportionallyDown
             button.toolTip = AppIdentity.displayName
         }
