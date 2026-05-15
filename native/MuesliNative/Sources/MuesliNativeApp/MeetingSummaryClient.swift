@@ -26,6 +26,7 @@ enum MeetingSummaryClient {
     private static let openRouterURL = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
     private static let whamURL = URL(string: "https://chatgpt.com/backend-api/wham/responses")!
     private static let defaultOllamaBaseURL = URL(string: "http://localhost:11434")!
+    private static let defaultLMStudioBaseURL = URL(string: "http://localhost:1234")!
     private static let defaultOpenAIModel = "gpt-5.4-mini"
     private static let defaultOpenRouterModel = "stepfun/step-3.5-flash:free"
     private static let defaultChatGPTModel = "gpt-5.4-mini"
@@ -33,6 +34,8 @@ enum MeetingSummaryClient {
     private static let defaultSummaryMaxOutputTokens = 2500
     private static let ollamaSummaryTimeout: TimeInterval = 300
     private static let ollamaTitleTimeout: TimeInterval = 120
+    private static let lmStudioSummaryTimeout: TimeInterval = 300
+    private static let lmStudioTitleTimeout: TimeInterval = 120
 
     private static let titleInstructions = """
     Generate a short, descriptive meeting title (3-7 words) from this transcript. \
@@ -84,6 +87,18 @@ enum MeetingSummaryClient {
         }
         if backend == MeetingSummaryBackendOption.ollama.backend {
             generatedNotes = try await summarizeWithOllama(
+                transcript: transcript,
+                meetingTitle: meetingTitle,
+                existingNotes: existingNotes,
+                manualNotes: manualNotesToRetain,
+                config: config,
+                template: template,
+                visualContext: visualContext
+            )
+            return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
+        }
+        if backend == MeetingSummaryBackendOption.lmStudio.backend {
+            generatedNotes = try await summarizeWithLMStudio(
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
@@ -481,6 +496,70 @@ enum MeetingSummaryClient {
         }
     }
 
+    private static func summarizeWithLMStudio(
+        transcript: String,
+        meetingTitle: String,
+        existingNotes: String?,
+        manualNotes: String?,
+        config: AppConfig,
+        template: MeetingTemplateSnapshot,
+        visualContext: String? = nil
+    ) async throws -> String {
+        let baseURLString = config.lmStudioURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURL: URL
+        if baseURLString.isEmpty {
+            baseURL = defaultLMStudioBaseURL
+        } else {
+            guard let url = URL(string: baseURLString) else {
+                throw MeetingSummaryError.backendFailed(backend: "LM Studio", statusCode: nil, message: "Invalid LM Studio URL: \(baseURLString)")
+            }
+            baseURL = url
+        }
+        let chatURL = baseURL.appendingPathComponent("v1/chat/completions")
+
+        let configuredModel = config.lmStudioModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes)
+        let userPrompt = summaryUserPrompt(
+            transcript: transcript,
+            meetingTitle: meetingTitle,
+            existingNotes: existingNotes,
+            manualNotes: manualNotes,
+            visualContext: visualContext
+        )
+        let body: [String: Any] = [
+            "model": configuredModel,
+            "messages": [
+                ["role": "system", "content": instructions],
+                ["role": "user", "content": userPrompt],
+            ],
+            "max_tokens": defaultSummaryMaxOutputTokens,
+        ]
+
+        var request = URLRequest(url: chatURL)
+        request.timeoutInterval = lmStudioSummaryTimeout
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validateHTTPResponse(response, data: data, backend: "LM Studio")
+            guard
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let text = extractOpenRouterText(from: json),
+                !text.isEmpty
+            else {
+                if let message = extractErrorMessage(from: data) {
+                    throw MeetingSummaryError.backendFailed(backend: "LM Studio", statusCode: nil, message: message)
+                }
+                throw MeetingSummaryError.emptyResponse(backend: "LM Studio")
+            }
+            return text
+        } catch {
+            throw summaryRequestError(backend: "LM Studio", error: error)
+        }
+    }
+
     /// Call the WHAM streaming API and collect the full response text.
     private static func callWHAM(systemPrompt: String, userPrompt: String, model: String) async throws -> String? {
         let (token, accountId) = try await ChatGPTAuthManager.shared.validAccessToken()
@@ -664,6 +743,10 @@ enum MeetingSummaryClient {
             return await generateTitleWithOllama(transcript: truncated, config: config)
         }
 
+        if backend == MeetingSummaryBackendOption.lmStudio.backend {
+            return await generateTitleWithLMStudio(transcript: truncated, config: config)
+        }
+
         let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? config.openAIAPIKey
         guard !apiKey.isEmpty else { return nil }
         let model = config.openAIModel.isEmpty ? defaultOpenAIModel : config.openAIModel
@@ -803,6 +886,61 @@ enum MeetingSummaryClient {
             return nil
         } catch {
             fputs("[summary] Ollama title generation failed: \(error)\n", stderr)
+            return nil
+        }
+    }
+
+    private static func generateTitleWithLMStudio(transcript: String, config: AppConfig) async -> String? {
+        let baseURLString = config.lmStudioURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURL: URL
+        if baseURLString.isEmpty {
+            baseURL = defaultLMStudioBaseURL
+        } else {
+            guard let url = URL(string: baseURLString) else {
+                fputs("[summary] LM Studio title generation: invalid URL \(baseURLString)\n", stderr)
+                return nil
+            }
+            baseURL = url
+        }
+        let chatURL = baseURL.appendingPathComponent("v1/chat/completions")
+        let configuredModel = config.lmStudioModel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let body: [String: Any] = [
+            "model": configuredModel,
+            "messages": [
+                ["role": "system", "content": titleInstructions],
+                ["role": "user", "content": transcript],
+            ],
+            "max_tokens": 100,
+        ]
+
+        var request = URLRequest(url: chatURL)
+        request.timeoutInterval = lmStudioTitleTimeout
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            try validateHTTPResponse(response, data: data, backend: "LM Studio")
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let text = extractOpenRouterText(from: json),
+                  !text.isEmpty else {
+                fputs("[summary] LM Studio title generation: empty or invalid response\n", stderr)
+                return nil
+            }
+            let title = text.trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"")))
+            guard !title.isEmpty else {
+                fputs("[summary] LM Studio title generation: trimmed response is empty\n", stderr)
+                return nil
+            }
+            fputs("[summary] LM Studio generated title: \(title)\n", stderr)
+            return title
+        } catch let error as MeetingSummaryError {
+            fputs("[summary] LM Studio title generation failed: \(error.localizedDescription)\n", stderr)
+            return nil
+        } catch {
+            fputs("[summary] LM Studio title generation failed: \(error)\n", stderr)
             return nil
         }
     }

@@ -548,6 +548,22 @@ struct SettingsView: View {
                             placeholder: "qwen3.5"
                         ) { val in controller.updateConfig { $0.ollamaModel = val } }
                     }
+                } else if appState.selectedMeetingSummaryBackend == .lmStudio {
+                    settingsRow("LM Studio URL", controlWidth: meetingControlWidth) {
+                        PastableTextField(
+                            text: appState.config.lmStudioURL,
+                            placeholder: "http://localhost:1234",
+                            onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
+                        )
+                        .frame(height: 22)
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Model", controlWidth: meetingControlWidth) {
+                        settingsModelTextField(
+                            currentModel: appState.config.lmStudioModel,
+                            placeholder: "model-name"
+                        ) { val in controller.updateConfig { $0.lmStudioModel = val } }
+                    }
                 } else {
                     settingsRow("API Key", controlWidth: meetingControlWidth) {
                         PastableSecureField(
