@@ -2,6 +2,22 @@ import AVFoundation
 import SwiftUI
 import MuesliCore
 
+private struct OllamaModelInfo: Codable {
+    let name: String
+}
+
+private struct OllamaTagsResponse: Codable {
+    let models: [OllamaModelInfo]
+}
+
+private struct LMStudioModelInfo: Codable {
+    let id: String
+}
+
+private struct LMStudioModelsResponse: Codable {
+    let data: [LMStudioModelInfo]
+}
+
 private struct MeetingDetectionAppOption: Identifiable {
     let bundleID: String
     let name: String
@@ -87,6 +103,12 @@ struct SettingsView: View {
     @State private var openRouterFreeModels: [SummaryModelPreset] = []
     @State private var isLoadingOpenRouterFreeModels = false
     @State private var openRouterFreeModelsError: String?
+    @State private var ollamaModels: [String] = []
+    @State private var isLoadingOllamaModels = false
+    @State private var ollamaModelsError: String?
+    @State private var lmStudioModels: [String] = []
+    @State private var isLoadingLMStudioModels = false
+    @State private var lmStudioModelsError: String?
 
     // Uniform width for all right-side controls
     private let controlWidth: CGFloat = 220
@@ -142,6 +164,10 @@ struct SettingsView: View {
             startPermissionPolling()
             if appState.selectedMeetingSummaryBackend == .openRouter {
                 loadOpenRouterFreeModelsIfNeeded()
+            } else if appState.selectedMeetingSummaryBackend == .ollama {
+                loadOllamaModelsIfNeeded()
+            } else if appState.selectedMeetingSummaryBackend == .lmStudio {
+                loadLMStudioModelsIfNeeded()
             }
         }
         .onDisappear {
@@ -164,6 +190,10 @@ struct SettingsView: View {
         .onChange(of: appState.selectedMeetingSummaryBackend) { _, backend in
             if backend == .openRouter {
                 loadOpenRouterFreeModelsIfNeeded()
+            } else if backend == .ollama {
+                loadOllamaModelsIfNeeded()
+            } else if backend == .lmStudio {
+                loadLMStudioModelsIfNeeded()
             }
         }
         .alert(
@@ -537,32 +567,34 @@ struct SettingsView: View {
                         PastableTextField(
                             text: appState.config.ollamaURL,
                             placeholder: "http://localhost:11434",
-                            onChange: { val in controller.updateConfig { $0.ollamaURL = val } }
+                            onChange: { val in
+                                controller.updateConfig { $0.ollamaURL = val }
+                                ollamaModels = []
+                                ollamaModelsError = nil
+                            }
                         )
                         .frame(height: 22)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Model", controlWidth: meetingControlWidth) {
-                        settingsModelTextField(
-                            currentModel: appState.config.ollamaModel,
-                            placeholder: "qwen3.5"
-                        ) { val in controller.updateConfig { $0.ollamaModel = val } }
+                        ollamaModelPicker
                     }
                 } else if appState.selectedMeetingSummaryBackend == .lmStudio {
                     settingsRow("LM Studio URL", controlWidth: meetingControlWidth) {
                         PastableTextField(
                             text: appState.config.lmStudioURL,
                             placeholder: "http://localhost:1234",
-                            onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
+                            onChange: { val in
+                                controller.updateConfig { $0.lmStudioURL = val }
+                                lmStudioModels = []
+                                lmStudioModelsError = nil
+                            }
                         )
                         .frame(height: 22)
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Model", controlWidth: meetingControlWidth) {
-                        settingsModelTextField(
-                            currentModel: appState.config.lmStudioModel,
-                            placeholder: "model-name"
-                        ) { val in controller.updateConfig { $0.lmStudioModel = val } }
+                        lmStudioModelPicker
                     }
                 } else {
                     settingsRow("API Key", controlWidth: meetingControlWidth) {
@@ -1836,6 +1868,90 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var ollamaModelPicker: some View {
+        if isLoadingOllamaModels {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading models")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else if !ollamaModels.isEmpty {
+            let allOptions = ["(Default)"] + ollamaModels
+            let currentIndex = appState.config.ollamaModel.isEmpty ? 0 : (ollamaModels.firstIndex(of: appState.config.ollamaModel).map { $0 + 1 } ?? 0)
+            let selectedLabel = currentIndex < allOptions.count ? allOptions[currentIndex] : allOptions[0]
+
+            FixedWidthPopUp(
+                selection: selectedLabel,
+                options: allOptions,
+                onSelectIndex: { index in
+                    let selected = index == 0 ? "" : ollamaModels[index - 1]
+                    controller.updateConfig { $0.ollamaModel = selected }
+                }
+            )
+            .frame(height: 24)
+        } else {
+            HStack(spacing: 8) {
+                if let ollamaModelsError {
+                    Text(ollamaModelsError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Button("Load") {
+                    loadOllamaModels(force: true)
+                }
+                .font(.system(size: 12, weight: .medium))
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private var lmStudioModelPicker: some View {
+        if isLoadingLMStudioModels {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading models")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else if !lmStudioModels.isEmpty {
+            let allOptions = ["(Default)"] + lmStudioModels
+            let currentIndex = appState.config.lmStudioModel.isEmpty ? 0 : (lmStudioModels.firstIndex(of: appState.config.lmStudioModel).map { $0 + 1 } ?? 0)
+            let selectedLabel = currentIndex < allOptions.count ? allOptions[currentIndex] : allOptions[0]
+
+            FixedWidthPopUp(
+                selection: selectedLabel,
+                options: allOptions,
+                onSelectIndex: { index in
+                    let selected = index == 0 ? "" : lmStudioModels[index - 1]
+                    controller.updateConfig { $0.lmStudioModel = selected }
+                }
+            )
+            .frame(height: 24)
+        } else {
+            HStack(spacing: 8) {
+                if let lmStudioModelsError {
+                    Text(lmStudioModelsError)
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Button("Load") {
+                    loadLMStudioModels(force: true)
+                }
+                .font(.system(size: 12, weight: .medium))
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
     private func loadOpenRouterFreeModelsIfNeeded() {
         guard openRouterFreeModels.isEmpty, !isLoadingOpenRouterFreeModels else { return }
         loadOpenRouterFreeModels(force: false)
@@ -1867,6 +1983,114 @@ struct SettingsView: View {
                     openRouterFreeModels = []
                     openRouterFreeModelsError = "Could not load"
                     isLoadingOpenRouterFreeModels = false
+                }
+            }
+        }
+    }
+
+    private func loadOllamaModelsIfNeeded() {
+        guard ollamaModels.isEmpty, !isLoadingOllamaModels else { return }
+        loadOllamaModels(force: false)
+    }
+
+    private func loadOllamaModels(force: Bool) {
+        guard force || ollamaModels.isEmpty else { return }
+        isLoadingOllamaModels = true
+        ollamaModelsError = nil
+
+        let baseURLString = appState.config.ollamaURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURL: URL
+        if baseURLString.isEmpty {
+            baseURL = URL(string: "http://localhost:11434")!
+        } else {
+            guard let url = URL(string: baseURLString) else {
+                ollamaModelsError = "Invalid URL"
+                isLoadingOllamaModels = false
+                return
+            }
+            baseURL = url
+        }
+
+        Task {
+            do {
+                let tagsURL = baseURL.appendingPathComponent("api/tags")
+                var request = URLRequest(url: tagsURL)
+                request.timeoutInterval = 10
+
+                let (data, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse,
+                   !(200..<300).contains(httpResponse.statusCode) {
+                    throw URLError(.badServerResponse)
+                }
+
+                let decoder = JSONDecoder()
+                let tagsResponse = try decoder.decode(OllamaTagsResponse.self, from: data)
+                let modelNames = tagsResponse.models.map { $0.name }.sorted()
+
+                await MainActor.run {
+                    ollamaModels = modelNames
+                    ollamaModelsError = modelNames.isEmpty ? "No models found" : nil
+                    isLoadingOllamaModels = false
+                }
+            } catch {
+                await MainActor.run {
+                    ollamaModels = []
+                    ollamaModelsError = "Could not load"
+                    isLoadingOllamaModels = false
+                }
+            }
+        }
+    }
+
+    private func loadLMStudioModelsIfNeeded() {
+        guard lmStudioModels.isEmpty, !isLoadingLMStudioModels else { return }
+        loadLMStudioModels(force: false)
+    }
+
+    private func loadLMStudioModels(force: Bool) {
+        guard force || lmStudioModels.isEmpty else { return }
+        isLoadingLMStudioModels = true
+        lmStudioModelsError = nil
+
+        let baseURLString = appState.config.lmStudioURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURL: URL
+        if baseURLString.isEmpty {
+            baseURL = URL(string: "http://localhost:1234")!
+        } else {
+            guard let url = URL(string: baseURLString) else {
+                lmStudioModelsError = "Invalid URL"
+                isLoadingLMStudioModels = false
+                return
+            }
+            baseURL = url
+        }
+
+        Task {
+            do {
+                let modelsURL = baseURL.appendingPathComponent("api/v0/models")
+                var request = URLRequest(url: modelsURL)
+                request.timeoutInterval = 10
+
+                let (data, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse,
+                   !(200..<300).contains(httpResponse.statusCode) {
+                    throw URLError(.badServerResponse)
+                }
+
+                let decoder = JSONDecoder()
+                let modelsResponse = try decoder.decode(LMStudioModelsResponse.self, from: data)
+                let modelNames = modelsResponse.data.map { $0.id }.sorted()
+
+                await MainActor.run {
+                    lmStudioModels = modelNames
+                    lmStudioModelsError = modelNames.isEmpty ? "No models found" : nil
+                    isLoadingLMStudioModels = false
+                }
+            } catch {
+                await MainActor.run {
+                    lmStudioModels = []
+                    lmStudioModelsError = "Could not load"
+                    isLoadingLMStudioModels = false
                 }
             }
         }

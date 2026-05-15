@@ -518,6 +518,13 @@ enum MeetingSummaryClient {
         let chatURL = baseURL.appendingPathComponent("v1/chat/completions")
 
         let configuredModel = config.lmStudioModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !configuredModel.isEmpty else {
+            throw MeetingSummaryError.backendFailed(
+                backend: "LM Studio",
+                statusCode: nil,
+                message: "No model selected. Please select a model from the dropdown in Settings."
+            )
+        }
         let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes)
         let userPrompt = summaryUserPrompt(
             transcript: transcript,
@@ -904,6 +911,10 @@ enum MeetingSummaryClient {
         }
         let chatURL = baseURL.appendingPathComponent("v1/chat/completions")
         let configuredModel = config.lmStudioModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !configuredModel.isEmpty else {
+            fputs("[summary] LM Studio title generation: no model selected\n", stderr)
+            return nil
+        }
 
         let body: [String: Any] = [
             "model": configuredModel,
