@@ -313,14 +313,16 @@ enum MeetingMediaSignalFilter {
             || sensorAttributions.micBundleIDs.contains {
                 !isSelfBundleID($0, selfBundleID: selfBundleID)
             }
-        let externalCameraActive = cameraActive
-            || sensorAttributions.cameraBundleIDs.contains {
-                !isSelfBundleID($0, selfBundleID: selfBundleID)
-            }
+        let selfCameraAttributed = sensorAttributions.cameraBundleIDs.contains {
+            isSelfBundleID($0, selfBundleID: selfBundleID)
+        }
+        let hasExternalCameraAttribution = sensorAttributions.cameraBundleIDs.contains {
+            !isSelfBundleID($0, selfBundleID: selfBundleID)
+        }
 
         return MeetingMediaSignals(
             micActive: hasExternalMicAttribution || (deviceMicActive && !selfMicAttributed),
-            cameraActive: externalCameraActive,
+            cameraActive: hasExternalCameraAttribution || (cameraActive && !selfCameraAttributed),
             audioInputProcesses: externalAudioInputProcesses
         )
     }
@@ -518,11 +520,13 @@ private actor MeetingDetectionService {
             return
         }
 
-        signalRefreshState.hasMicOrCameraSignal = context.cameraActive
-            || MeetingMediaSignalFilter.hasExternalSensorAttribution(
-                context.sensorAttributions,
-                selfBundleID: resolver.selfBundleID
-            )
+        signalRefreshState.hasMicOrCameraSignal = MeetingMediaSignalFilter.apply(
+            deviceMicActive: false,
+            cameraActive: context.cameraActive,
+            audioInputProcesses: [],
+            sensorAttributions: context.sensorAttributions,
+            selfBundleID: resolver.selfBundleID
+        ).hasMicOrCameraSignal
         signalRefreshState.hasCalendarEvent = context.calendarEvent != nil
         signalRefreshState.hasPromptVisible = context.promptVisibility.isVisible
 

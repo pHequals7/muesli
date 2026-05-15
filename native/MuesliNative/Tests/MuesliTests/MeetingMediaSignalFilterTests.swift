@@ -103,6 +103,49 @@ struct MeetingMediaSignalFilterTests {
         #expect(candidate?.sourceBundleID == "com.microsoft.teams2")
     }
 
+    @Test("Muesli camera does not satisfy calendar meeting activity")
+    func muesliCameraDoesNotSatisfyCalendarMeetingActivity() {
+        let media = MeetingMediaSignalFilter.apply(
+            deviceMicActive: false,
+            cameraActive: true,
+            audioInputProcesses: [],
+            sensorAttributions: sensorAttributions(cameraBundleIDs: [selfBundleID]),
+            selfBundleID: selfBundleID
+        )
+
+        #expect(media.cameraActive == false)
+        #expect(media.hasMicOrCameraSignal == false)
+
+        let candidate = resolver().resolve(MeetingSignalSnapshot(
+            micActive: media.micActive,
+            cameraActive: media.cameraActive,
+            calendarEvent: CalendarEventContext(id: "evt-standup", title: "Standup"),
+            runningApps: [
+                RunningAppInfo(bundleID: "us.zoom.xos", isActive: false),
+            ],
+            browserMeetings: [],
+            audioInputProcesses: media.audioInputProcesses,
+            foregroundBundleID: nil,
+            now: now
+        ))
+
+        #expect(candidate == nil)
+    }
+
+    @Test("external camera attribution still counts")
+    func externalCameraAttributionStillCounts() {
+        let media = MeetingMediaSignalFilter.apply(
+            deviceMicActive: false,
+            cameraActive: true,
+            audioInputProcesses: [],
+            sensorAttributions: sensorAttributions(cameraBundleIDs: [selfBundleID, "us.zoom.xos"]),
+            selfBundleID: selfBundleID
+        )
+
+        #expect(media.cameraActive == true)
+        #expect(media.hasMicOrCameraSignal == true)
+    }
+
     @Test("legacy global mic signal is preserved without self attribution")
     func legacyGlobalMicSignalIsPreservedWithoutSelfAttribution() {
         let media = MeetingMediaSignalFilter.apply(
