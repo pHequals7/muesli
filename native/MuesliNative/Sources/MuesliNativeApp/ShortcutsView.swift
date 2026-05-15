@@ -113,7 +113,7 @@ struct ShortcutsView: View {
             }
 
             if appState.config.enableComputerUseHotkey,
-               appState.config.computerUseHotkey.keyCode == appState.config.dictationHotkey.keyCode {
+               ShortcutHotkeyPolicy.hotkeysConflict(appState.config.computerUseHotkey, appState.config.dictationHotkey) {
                 shortcutMessage(ShortcutHotkeyPolicy.conflictMessage)
             } else if let computerUseShortcutMessage {
                 shortcutMessage(computerUseShortcutMessage)
@@ -156,7 +156,7 @@ struct ShortcutsView: View {
                 startRecording(target)
             }
         } label: {
-            Text(recordingTarget == target ? "Press a modifier key..." : "Change Shortcut")
+            Text(recordingTarget == target ? "Press a key or modifier..." : "Change Shortcut")
                 .font(MuesliTheme.body())
                 .foregroundStyle(recordingTarget == target ? MuesliTheme.accent : MuesliTheme.textPrimary)
         }
@@ -225,7 +225,31 @@ struct ShortcutsView: View {
         stopRecording()
         clearShortcutMessage(for: target)
         recordingTarget = target
-        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [self] event in
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [self] event in
+            if event.type == .keyDown {
+                if event.keyCode == 53 {
+                    stopRecording()
+                    return nil
+                }
+                let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+                let hasModifiers = mods.contains(.command) || mods.contains(.control)
+                    || mods.contains(.option)
+                guard hasModifiers, HotkeyConfig.letterLabel(for: event.keyCode) != nil else {
+                    return event
+                }
+                let newConfig = HotkeyConfig.combination(modifiers: mods, keyCode: event.keyCode)
+                let result: ShortcutHotkeyUpdateResult
+                switch target {
+                case .dictation:
+                    result = controller.updateDictationHotkey(newConfig)
+                case .computerUse:
+                    result = controller.updateComputerUseHotkey(newConfig)
+                }
+                setShortcutMessage(result.message, for: target)
+                stopRecording()
+                return nil
+            }
+
             let keyCode = event.keyCode
             if let label = HotkeyConfig.label(for: keyCode) {
                 let newConfig = HotkeyConfig(keyCode: keyCode, label: label)
@@ -238,6 +262,7 @@ struct ShortcutsView: View {
                 }
                 setShortcutMessage(result.message, for: target)
                 stopRecording()
+                return nil
             }
             return event
         }

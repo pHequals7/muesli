@@ -13,6 +13,14 @@ final class HotkeyMonitor {
     var targetKeyCode: UInt16 = 55
     var doubleTapEnabled: Bool = true
 
+    // Combination mode (e.g. Cmd+Shift+R)
+    var combinationModifiers: NSEvent.ModifierFlags?
+    var combinationKeyCode: UInt16?
+
+    var isCombinationMode: Bool {
+        combinationModifiers != nil && combinationKeyCode != nil
+    }
+
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var prepareWorkItem: DispatchWorkItem?
@@ -57,7 +65,8 @@ final class HotkeyMonitor {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
             guard let self else { return event }
             if self.shouldHandleLocalEvent(event) {
-                self.handle(event)
+                let consumed = self.handle(event)
+                if consumed { return nil }
             }
             return event
         }
@@ -87,9 +96,27 @@ final class HotkeyMonitor {
     }
 
     func configure(keyCode: UInt16) {
+        combinationModifiers = nil
+        combinationKeyCode = nil
         targetKeyCode = keyCode
-        if isRunning {
-            restart()
+        if isRunning { restart() }
+    }
+
+    func configure(combination config: HotkeyConfig) {
+        guard config.isCombination,
+              let mods = config.resolvedCombinationModifiers,
+              let kc = config.combinationKeyCode else { return }
+        targetKeyCode = UInt16.max
+        combinationModifiers = mods
+        combinationKeyCode = kc
+        if isRunning { restart() }
+    }
+
+    func configure(_ config: HotkeyConfig) {
+        if config.isCombination {
+            configure(combination: config)
+        } else {
+            configure(keyCode: config.keyCode)
         }
     }
 
@@ -123,7 +150,11 @@ final class HotkeyMonitor {
         toggleActive
     }
 
-    private func handle(_ event: NSEvent) {
+    @discardableResult
+    private func handle(_ event: NSEvent) -> Bool {
+        if isCombinationMode {
+            return handleCombination(event)
+        }
         switch event.type {
         case .flagsChanged:
             handleFlagsChanged(keyCode: event.keyCode, flags: event.modifierFlags)
@@ -132,6 +163,36 @@ final class HotkeyMonitor {
         default:
             break
         }
+        return false
+    }
+
+    @discardableResult
+    private func handleCombination(_ event: NSEvent) -> Bool {
+        if event.type == .keyDown && event.keyCode == 53 && toggleActive {
+            toggleActive = false
+            fputs("[hotkey] escape → cancel combination toggle\n", stderr)
+            onCancel?()
+            return true
+        }
+
+        guard event.type == .keyDown,
+              !event.isARepeat,
+              let targetMods = combinationModifiers,
+              let targetKey = combinationKeyCode,
+              event.keyCode == targetKey,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask) == targetMods
+        else { return false }
+
+        if toggleActive {
+            fputs("[hotkey] combination → toggle stop\n", stderr)
+            toggleActive = false
+            onToggleStop?()
+        } else {
+            fputs("[hotkey] combination → toggle start\n", stderr)
+            toggleActive = true
+            onToggleStart?()
+        }
+        return true
     }
 
     private func shouldHandleLocalEvent(_ event: NSEvent) -> Bool {
