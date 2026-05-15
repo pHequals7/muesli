@@ -4,6 +4,16 @@ import MuesliCore
 
 private struct OllamaModelInfo: Codable {
     let name: String
+    let model: String?
+    let size: Int64?
+    let digest: String?
+    let details: OllamaModelDetails?
+}
+
+private struct OllamaModelDetails: Codable {
+    let format: String?
+    let family: String?
+    let families: [String]?
 }
 
 private struct OllamaTagsResponse: Codable {
@@ -12,6 +22,9 @@ private struct OllamaTagsResponse: Codable {
 
 private struct LMStudioModelInfo: Codable {
     let id: String
+    let object: String?
+    let type: String?
+    let quantization: String?
 }
 
 private struct LMStudioModelsResponse: Codable {
@@ -2028,7 +2041,10 @@ struct SettingsView: View {
 
                 let decoder = JSONDecoder()
                 let tagsResponse = try decoder.decode(OllamaTagsResponse.self, from: data)
-                let modelNames = tagsResponse.models.map { $0.name }.sorted()
+                let modelNames = tagsResponse.models
+                    .map { $0.name }
+                    .filter { !$0.lowercased().contains("embed") }
+                    .sorted()
 
                 await MainActor.run {
                     guard appState.config.ollamaURL.trimmingCharacters(in: .whitespacesAndNewlines) == urlAtStart else { return }
@@ -2086,7 +2102,10 @@ struct SettingsView: View {
 
                 let decoder = JSONDecoder()
                 let modelsResponse = try decoder.decode(LMStudioModelsResponse.self, from: data)
-                let modelNames = modelsResponse.data.map { $0.id }.sorted()
+                let modelNames = modelsResponse.data
+                    .filter { $0.type != "embeddings" }
+                    .map { $0.id }
+                    .sorted()
 
                 await MainActor.run {
                     guard appState.config.lmStudioURL.trimmingCharacters(in: .whitespacesAndNewlines) == urlAtStart else { return }
