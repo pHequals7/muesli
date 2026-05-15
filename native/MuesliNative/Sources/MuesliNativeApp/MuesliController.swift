@@ -3060,7 +3060,11 @@ final class MuesliController: NSObject {
                 if !self.isDictationActivityInProgress {
                     self.setState(.idle)
                 }
-                self.meetingMonitor.resumeAfterCooldown()
+                if self.isDictationActivityInProgress {
+                    self.meetingMonitor.suppressWhileActive()
+                } else {
+                    self.meetingMonitor.resumeAfterCooldown()
+                }
                 self.meetingMonitor.refreshState()
                 self.statusBarController?.refresh()
                 self.historyWindowController?.reload()
@@ -3476,7 +3480,9 @@ final class MuesliController: NSObject {
     private func setMeetingProcessingStatus(_ status: String) {
         statusBarController?.setStatus(status)
         statusBarController?.refresh()
+        guard !isDictationActivityInProgress else { return }
         indicator.setTranscribingTitle(status, config: config)
+        indicator.setState(.transcribing, config: config)
     }
 
     private func handleComputerUsePrepare() {
