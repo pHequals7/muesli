@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import MuesliCore
 
@@ -537,6 +538,16 @@ struct HotkeyConfig: Codable, Equatable {
     var keyCode: UInt16 = 61
     var label: String = "Right Option"
 
+    // Key combination support (e.g. Cmd+Shift+R).
+    // When set, the hotkey fires on keyDown with these modifiers held.
+    // When nil, the hotkey is a single modifier key (existing behavior).
+    var combinationModifiers: UInt? = nil
+    var combinationKeyCode: UInt16? = nil
+
+    var isCombination: Bool {
+        combinationModifiers != nil && combinationKeyCode != nil
+    }
+
     static func label(for keyCode: UInt16) -> String? {
         switch keyCode {
         case 55: return "Left Cmd"
@@ -552,8 +563,49 @@ struct HotkeyConfig: Codable, Equatable {
         }
     }
 
+    static func letterLabel(for keyCode: UInt16) -> String? {
+        let letters: [UInt16: String] = [
+            0: "A", 1: "S", 2: "D", 3: "F", 4: "H", 5: "G", 6: "Z", 7: "X",
+            8: "C", 9: "V", 11: "B", 12: "Q", 13: "W", 14: "E", 15: "R",
+            16: "Y", 17: "T", 31: "O", 32: "U", 34: "I", 35: "P", 37: "L",
+            38: "J", 40: "K", 45: "N", 46: "M",
+        ]
+        return letters[keyCode]
+    }
+
+    static func combinationLabel(modifiers: NSEvent.ModifierFlags, keyCode: UInt16) -> String {
+        var parts: [String] = []
+        if modifiers.contains(.control) { parts.append("⌃") }
+        if modifiers.contains(.option) { parts.append("⌥") }
+        if modifiers.contains(.shift) { parts.append("⇧") }
+        if modifiers.contains(.command) { parts.append("⌘") }
+        parts.append(letterLabel(for: keyCode) ?? "?")
+        return parts.joined()
+    }
+
+    static func combination(modifiers: NSEvent.ModifierFlags, keyCode: UInt16) -> HotkeyConfig {
+        let lbl = combinationLabel(modifiers: modifiers, keyCode: keyCode)
+        return HotkeyConfig(
+            keyCode: UInt16.max,
+            label: lbl,
+            combinationModifiers: UInt(modifiers.rawValue),
+            combinationKeyCode: keyCode
+        )
+    }
+
+    var resolvedCombinationModifiers: NSEvent.ModifierFlags? {
+        guard let raw = combinationModifiers else { return nil }
+        return NSEvent.ModifierFlags(rawValue: raw)
+    }
+
     static let `default` = HotkeyConfig()
     static let computerUseDefault = HotkeyConfig(keyCode: 54, label: "Right Cmd")
+    static let meetingRecordingDefault = HotkeyConfig(
+        keyCode: UInt16.max,
+        label: "⌘⇧R",
+        combinationModifiers: UInt(NSEvent.ModifierFlags([.command, .shift]).rawValue),
+        combinationKeyCode: 15
+    )
 
     static func computerUseDefault(avoiding dictationHotkey: HotkeyConfig) -> HotkeyConfig {
         dictationHotkey.keyCode == computerUseDefault.keyCode ? .default : .computerUseDefault
@@ -598,6 +650,8 @@ struct AppConfig: Codable {
     var dictationHotkey: HotkeyConfig = .default
     var computerUseHotkey: HotkeyConfig = .computerUseDefault
     var enableComputerUseHotkey: Bool = false
+    var meetingRecordingHotkey: HotkeyConfig = .meetingRecordingDefault
+    var enableMeetingRecordingHotkey: Bool = false
     var computerUseHotkeyDefaultDisabledMigrationApplied: Bool = true
     var enableComputerUsePlanner: Bool = true
     var computerUsePlannerModel: String = ""
@@ -663,6 +717,8 @@ struct AppConfig: Codable {
         case dictationHotkey = "dictation_hotkey"
         case computerUseHotkey = "computer_use_hotkey"
         case enableComputerUseHotkey = "enable_computer_use_hotkey"
+        case meetingRecordingHotkey = "meeting_recording_hotkey"
+        case enableMeetingRecordingHotkey = "enable_meeting_recording_hotkey"
         case computerUseHotkeyDefaultDisabledMigrationApplied = "computer_use_hotkey_default_disabled_migration_applied"
         case enableComputerUsePlanner = "enable_computer_use_planner"
         case computerUsePlannerModel = "computer_use_planner_model"
@@ -736,6 +792,8 @@ struct AppConfig: Codable {
             ? ((try? c.decode(Bool.self, forKey: .enableComputerUseHotkey)) ?? defaults.enableComputerUseHotkey)
             : false
         computerUseHotkeyDefaultDisabledMigrationApplied = true
+        meetingRecordingHotkey = (try? c.decode(HotkeyConfig.self, forKey: .meetingRecordingHotkey)) ?? defaults.meetingRecordingHotkey
+        enableMeetingRecordingHotkey = (try? c.decode(Bool.self, forKey: .enableMeetingRecordingHotkey)) ?? defaults.enableMeetingRecordingHotkey
         enableComputerUsePlanner = (try? c.decode(Bool.self, forKey: .enableComputerUsePlanner)) ?? defaults.enableComputerUsePlanner
         computerUsePlannerModel = (try? c.decode(String.self, forKey: .computerUsePlannerModel)) ?? defaults.computerUsePlannerModel
         computerUseTimeoutSeconds = (try? c.decode(Int.self, forKey: .computerUseTimeoutSeconds)) ?? defaults.computerUseTimeoutSeconds

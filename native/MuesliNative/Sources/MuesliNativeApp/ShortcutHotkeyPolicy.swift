@@ -26,14 +26,28 @@ enum ShortcutHotkeyUpdateResult: Equatable {
 }
 
 struct ShortcutHotkeyPolicy {
-    static let conflictMessage = "Push to Talk and Computer Use Command need different keys."
+    static let conflictMessage = "These shortcuts need different keys."
+
+    static func hotkeysConflict(_ a: HotkeyConfig, _ b: HotkeyConfig) -> Bool {
+        if a.isCombination != b.isCombination { return false }
+        if a.isCombination {
+            return a.combinationModifiers == b.combinationModifiers
+                && a.combinationKeyCode == b.combinationKeyCode
+        }
+        return a.keyCode == b.keyCode
+    }
 
     static func validateDictationHotkey(
         _ hotkey: HotkeyConfig,
         computerUseHotkey: HotkeyConfig,
-        isComputerUseEnabled: Bool
+        isComputerUseEnabled: Bool,
+        meetingRecordingHotkey: HotkeyConfig = .meetingRecordingDefault,
+        isMeetingRecordingEnabled: Bool = false
     ) -> ShortcutHotkeyUpdateResult {
-        guard !isComputerUseEnabled || hotkey.keyCode != computerUseHotkey.keyCode else {
+        if isComputerUseEnabled && hotkeysConflict(hotkey, computerUseHotkey) {
+            return .conflict(message: conflictMessage)
+        }
+        if isMeetingRecordingEnabled && hotkeysConflict(hotkey, meetingRecordingHotkey) {
             return .conflict(message: conflictMessage)
         }
         return .updated
@@ -42,9 +56,29 @@ struct ShortcutHotkeyPolicy {
     static func validateComputerUseHotkey(
         _ hotkey: HotkeyConfig,
         dictationHotkey: HotkeyConfig,
+        isComputerUseEnabled: Bool,
+        meetingRecordingHotkey: HotkeyConfig = .meetingRecordingDefault,
+        isMeetingRecordingEnabled: Bool = false
+    ) -> ShortcutHotkeyUpdateResult {
+        if isComputerUseEnabled && hotkeysConflict(hotkey, dictationHotkey) {
+            return .conflict(message: conflictMessage)
+        }
+        if isMeetingRecordingEnabled && hotkeysConflict(hotkey, meetingRecordingHotkey) {
+            return .conflict(message: conflictMessage)
+        }
+        return .updated
+    }
+
+    static func validateMeetingRecordingHotkey(
+        _ hotkey: HotkeyConfig,
+        dictationHotkey: HotkeyConfig,
+        computerUseHotkey: HotkeyConfig,
         isComputerUseEnabled: Bool
     ) -> ShortcutHotkeyUpdateResult {
-        guard !isComputerUseEnabled || hotkey.keyCode != dictationHotkey.keyCode else {
+        if hotkeysConflict(hotkey, dictationHotkey) {
+            return .conflict(message: conflictMessage)
+        }
+        if isComputerUseEnabled && hotkeysConflict(hotkey, computerUseHotkey) {
             return .conflict(message: conflictMessage)
         }
         return .updated
@@ -52,16 +86,25 @@ struct ShortcutHotkeyPolicy {
 
     static func resolvedComputerUseHotkeyWhenEnabling(
         currentHotkey: HotkeyConfig,
-        dictationHotkey: HotkeyConfig
+        dictationHotkey: HotkeyConfig,
+        meetingRecordingHotkey: HotkeyConfig = .meetingRecordingDefault,
+        isMeetingRecordingEnabled: Bool = false
     ) -> (hotkey: HotkeyConfig, result: ShortcutHotkeyUpdateResult) {
-        guard currentHotkey.keyCode == dictationHotkey.keyCode else {
-            return (currentHotkey, .updated)
-        }
+        var resolved = currentHotkey
+        var notice: String?
 
-        let fallback = HotkeyConfig.computerUseDefault(avoiding: dictationHotkey)
-        return (
-            fallback,
-            .updated(notice: "Computer Use Command moved to \(fallback.label) to avoid matching Push to Talk.")
-        )
+        if hotkeysConflict(resolved, dictationHotkey) {
+            resolved = HotkeyConfig.computerUseDefault(avoiding: dictationHotkey)
+            notice = "Computer Use Command moved to \(resolved.label) to avoid matching Push to Talk."
+        }
+        if isMeetingRecordingEnabled && hotkeysConflict(resolved, meetingRecordingHotkey) {
+            if notice != nil {
+                // Already moved to avoid dictation but still conflicts with meeting recording — no fallback left
+                return (currentHotkey, .conflict(message: conflictMessage))
+            }
+            resolved = HotkeyConfig.computerUseDefault(avoiding: dictationHotkey)
+            notice = "Computer Use Command moved to \(resolved.label) to avoid matching Meeting Recording."
+        }
+        return (resolved, .updated(notice: notice))
     }
 }
