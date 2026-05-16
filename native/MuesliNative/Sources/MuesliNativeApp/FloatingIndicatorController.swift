@@ -91,6 +91,7 @@ final class FloatingIndicatorController: NSObject {
     private var amplitudeTimer: Timer?
     private var smoothedAmplitude: CGFloat = 0
     private var waveformAnimationMode: WaveformAnimationMode = .level
+    private var recordingWaveformMode: WaveformAnimationMode = .level
     private var waveformAnimationStartedAt = Date()
     fileprivate var isDragging = false
     var powerProvider: (() -> Float)?
@@ -197,6 +198,7 @@ final class FloatingIndicatorController: NSObject {
 
     func setMeetingRecording(_ recording: Bool, config: AppConfig) {
         isMeetingRecording = recording
+        recordingWaveformMode = .level
         if !recording {
             isMeetingRecordingPaused = false
         }
@@ -204,6 +206,27 @@ final class FloatingIndicatorController: NSObject {
             setState(.recording, config: config)
         } else {
             setState(.idle, config: config)
+        }
+    }
+
+    func setRecordingWaveformWaiting(config: AppConfig) {
+        recordingWaveformMode = .waiting
+        guard state == .recording else { return }
+        if let panel {
+            setupWaveformBars(in: panel.frame.size)
+            startWaveformAnimation(mode: .waiting)
+        }
+    }
+
+    func setRecordingWaveformLevel(config: AppConfig) {
+        recordingWaveformMode = .level
+        guard state == .recording else {
+            setState(.recording, config: config)
+            return
+        }
+        if let panel {
+            setupWaveformBars(in: panel.frame.size)
+            startWaveformAnimation(mode: .level)
         }
     }
 
@@ -238,6 +261,9 @@ final class FloatingIndicatorController: NSObject {
         if state != .transcribing {
             transcribingTitle = "Transcribing"
             computerUseTranscriptText = nil
+        }
+        if state != .recording {
+            recordingWaveformMode = .level
         }
         if state != .idle {
             isHovered = false
@@ -340,7 +366,7 @@ final class FloatingIndicatorController: NSObject {
         switch state {
         case .recording:
             setupWaveformBars(in: targetFrame.size)
-            startWaveformAnimation(mode: .level)
+            startWaveformAnimation(mode: recordingWaveformMode)
             addStopLayer(in: targetFrame.size)
         case .transcribing:
             if #available(macOS 15, *) {
@@ -716,13 +742,15 @@ final class FloatingIndicatorController: NSObject {
         amplitudeTimer?.invalidate()
         waveformAnimationMode = mode
         waveformAnimationStartedAt = Date()
-        amplitudeTimer = Timer.scheduledTimer(
+        let timer = Timer(
             timeInterval: 1.0 / 30.0,
             target: self,
             selector: #selector(waveformTimerFired(_:)),
             userInfo: nil,
             repeats: true
         )
+        RunLoop.main.add(timer, forMode: .common)
+        amplitudeTimer = timer
     }
 
     @objc private func waveformTimerFired(_ timer: Timer) {
@@ -735,8 +763,8 @@ final class FloatingIndicatorController: NSObject {
         let levelAmplitude: CGFloat
         if waveformAnimationMode == .level {
             let dB = CGFloat(powerProvider?() ?? -160)
-            let raw = max(0, min(1, (dB + 50) / 50))
-            smoothedAmplitude = 0.35 * raw + 0.65 * smoothedAmplitude
+            let raw = max(0, min(1, (dB + 68) / 38))
+            smoothedAmplitude = 0.48 * raw + 0.52 * smoothedAmplitude
             levelAmplitude = smoothedAmplitude
         } else {
             levelAmplitude = 0

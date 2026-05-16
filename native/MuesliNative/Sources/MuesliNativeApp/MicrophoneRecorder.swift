@@ -7,6 +7,8 @@ final class MicrophoneRecorder: @unchecked Sendable {
     var preferredInputDeviceID: AudioObjectID?
     var keepsAudioGraphWarm = false
     var onFirstCapturedAudioBuffer: ((Date) -> Void)?
+    var onFirstSpeechDetected: ((Date) -> Void)?
+    var onNoAudioTimeout: ((Date) -> Void)?
 
     private struct FileState {
         var fileHandle: FileHandle?
@@ -16,20 +18,26 @@ final class MicrophoneRecorder: @unchecked Sendable {
         var isPaused = false
         var isCapturing = false
         var hasReceivedFirstAudioBuffer = false
+        var hasDetectedSpeech = false
+        var hasReportedNoAudioTimeout = false
     }
 
     private static let sampleRate: Double = 16_000
-    private static let bufferSize: AVAudioFrameCount = 1024
+    private static let bufferSize: AVAudioFrameCount = 640
+    private static let speechThresholdDB: Float = -58
+    private static let noAudioTimeout: TimeInterval = 1.5
 
     private let engine = AVAudioEngine()
     private let lock = OSAllocatedUnfairLock(initialState: FileState())
     private let lifecycleLock = NSRecursiveLock()
     private let writerQueue = DispatchQueue(label: "com.muesli.microphone-recorder-writer")
+    private let timeoutQueue = DispatchQueue(label: "com.muesli.microphone-recorder-timeout")
     private var isPrepared = false
     private var isRunning = false
     private var isGraphPrepared = false
     private var tapInstalled = false
     private var preparedInputDeviceID: AudioObjectID?
+    private var noAudioTimeoutWorkItem: DispatchWorkItem?
 
     func prepare() throws {
         lifecycleLock.lock()
@@ -158,6 +166,8 @@ final class MicrophoneRecorder: @unchecked Sendable {
                     state.isPaused = false
                     state.latestPowerDB = -160
                     state.hasReceivedFirstAudioBuffer = false
+                    state.hasDetectedSpeech = false
+                    state.hasReportedNoAudioTimeout = false
                 }
                 try engine.start()
             } else {
@@ -166,15 +176,19 @@ final class MicrophoneRecorder: @unchecked Sendable {
                     state.isPaused = false
                     state.latestPowerDB = -160
                     state.hasReceivedFirstAudioBuffer = false
+                    state.hasDetectedSpeech = false
+                    state.hasReportedNoAudioTimeout = false
                 }
             }
             isRunning = true
+            scheduleNoAudioTimeout()
         } catch {
             isRunning = false
             lock.withLock { state in
                 state.isCapturing = false
                 state.latestPowerDB = -160
             }
+            cancelNoAudioTimeout()
             stopWarmGraphLocked()
             throw error
         }
@@ -186,6 +200,7 @@ final class MicrophoneRecorder: @unchecked Sendable {
 
         guard isPrepared else { return nil }
         isRunning = false
+        cancelNoAudioTimeout()
 
         let finalState = lock.withLock { state -> FileState in
             let old = state
@@ -235,6 +250,7 @@ final class MicrophoneRecorder: @unchecked Sendable {
 
         isRunning = false
         isPrepared = false
+        cancelNoAudioTimeout()
 
         let state = lock.withLock { state -> FileState in
             let old = state
@@ -312,18 +328,22 @@ final class MicrophoneRecorder: @unchecked Sendable {
         let pcmByteCount = pcmData.count
         let dataToWrite = pcmData
 
-        let writeTarget = lock.withLock { state -> (FileHandle?, Bool) in
+        let writeTarget = lock.withLock { state -> (FileHandle?, Bool, Bool) in
             guard state.isCapturing, !state.isPaused else {
                 state.latestPowerDB = -160
-                return (nil, false)
+                return (nil, false, false)
             }
             let shouldNotifyFirstBuffer = !state.hasReceivedFirstAudioBuffer
             if !state.hasReceivedFirstAudioBuffer {
                 state.hasReceivedFirstAudioBuffer = true
             }
+            let shouldNotifySpeech = !state.hasDetectedSpeech && powerDB >= Self.speechThresholdDB
+            if shouldNotifySpeech {
+                state.hasDetectedSpeech = true
+            }
             state.bytesWritten += pcmByteCount
             state.latestPowerDB = powerDB
-            return (state.fileHandle, shouldNotifyFirstBuffer)
+            return (state.fileHandle, shouldNotifyFirstBuffer, shouldNotifySpeech)
         }
         if let handle = writeTarget.0 {
             writerQueue.async { [dataToWrite] in
@@ -332,6 +352,9 @@ final class MicrophoneRecorder: @unchecked Sendable {
         }
         if writeTarget.1 {
             onFirstCapturedAudioBuffer?(capturedAt)
+        }
+        if writeTarget.2 {
+            onFirstSpeechDetected?(capturedAt)
         }
     }
 
@@ -365,6 +388,32 @@ final class MicrophoneRecorder: @unchecked Sendable {
 
     private func waitForPendingWrites() {
         writerQueue.sync {}
+    }
+
+    private func scheduleNoAudioTimeout() {
+        cancelNoAudioTimeout()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let shouldNotify = self.lock.withLock { state -> Bool in
+                guard state.isCapturing,
+                      !state.hasDetectedSpeech,
+                      !state.hasReportedNoAudioTimeout else {
+                    return false
+                }
+                state.hasReportedNoAudioTimeout = true
+                return true
+            }
+            if shouldNotify {
+                self.onNoAudioTimeout?(Date())
+            }
+        }
+        noAudioTimeoutWorkItem = workItem
+        timeoutQueue.asyncAfter(deadline: .now() + Self.noAudioTimeout, execute: workItem)
+    }
+
+    private func cancelNoAudioTimeout() {
+        noAudioTimeoutWorkItem?.cancel()
+        noAudioTimeoutWorkItem = nil
     }
 
     private func removeTapIfNeeded() {
