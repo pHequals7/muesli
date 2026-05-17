@@ -64,6 +64,7 @@ final class AudioDuckingController: AudioDuckingManaging {
     private var duckingEnabledForSession = false
     private var snapshots: [AudioObjectID: DeviceSnapshot] = [:]
     private var restoreGeneration = 0
+    private var isRestorePending = false
 
     init(
         client: AudioDuckingDeviceClient = CoreAudioDuckingDeviceClient(),
@@ -84,7 +85,7 @@ final class AudioDuckingController: AudioDuckingManaging {
                 self.restoreLocked()
                 return
             }
-            self.restoreGeneration += 1
+            self.cancelPendingRestoreLocked()
             self.duckingEnabledForSession = true
             guard self.shouldDuckCurrentOutput() else { return }
             self.duckCurrentDefaultDevice()
@@ -154,10 +155,17 @@ final class AudioDuckingController: AudioDuckingManaging {
 
     private func restoreLocked() {
         restoreGeneration += 1
+        isRestorePending = true
         scheduleRestoreAfterCodecStabilizationLocked(
             generation: restoreGeneration,
             deadline: Date().addingTimeInterval(stabilizationTimeout)
         )
+    }
+
+    private func cancelPendingRestoreLocked() {
+        guard isRestorePending else { return }
+        restoreGeneration += 1
+        isRestorePending = false
     }
 
     private func scheduleRestoreAfterCodecStabilizationLocked(generation: Int, deadline: Date) {
@@ -176,6 +184,7 @@ final class AudioDuckingController: AudioDuckingManaging {
         let pendingSnapshots = snapshots.values
         snapshots.removeAll()
         duckingEnabledForSession = false
+        isRestorePending = false
 
         for snapshot in pendingSnapshots {
             guard client.isDeviceAvailable(snapshot.deviceID) else { continue }

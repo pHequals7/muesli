@@ -119,6 +119,7 @@ final class HotkeyMonitor {
     }
 
     func configure(keyCode: UInt16) {
+        finishActiveSessionBeforeReconfigure()
         targetKeyCode = keyCode
         if isRunning {
             restart()
@@ -133,6 +134,32 @@ final class HotkeyMonitor {
     private func restartIfRunning() {
         if isRunning {
             restart()
+        }
+    }
+
+    private func finishActiveSessionBeforeReconfigure() {
+        guard targetKeyDown || armed || prepared || active || toggleActive else { return }
+
+        let wasToggleActive = toggleActive
+        let wasActive = active
+        let wasPreparedOrArmed = prepared || armed
+
+        targetKeyDown = false
+        otherKeyPressed = false
+        armed = false
+        prepared = false
+        active = false
+        toggleActive = false
+        lastTapWasShort = false
+        lastTapUpTime = nil
+        cancelTimers()
+
+        if wasToggleActive {
+            onToggleStop?()
+        } else if wasActive {
+            onStop?()
+        } else if wasPreparedOrArmed {
+            onCancel?()
         }
     }
 

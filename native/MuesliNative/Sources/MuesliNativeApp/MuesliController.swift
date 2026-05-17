@@ -4541,6 +4541,9 @@ final class MuesliController: NSObject {
         }
 
         markDictationLatency("sound_release_requested:stop")
+        // This cue is intentionally key-up feedback, not a transcription-success
+        // signal. Keeping it off the network/transcription path preserves the
+        // lower perceived release latency of dictation.
         SoundController.playDictationInsert(enabled: shouldPlayDictationLifecycleSounds && !isDictationTestMode)
         pendingDictationStopSessionID = dictationAudioSessionManager.currentSessionID
         pendingDictationStopStartedAt = startedAt

@@ -224,6 +224,7 @@ final class MicrophoneRecorder: @unchecked Sendable {
         // callbacks that already reached the dispatch group.
         tapCallbackGroup.wait()
         waitForPendingWrites()
+        waitForPendingWrites()
         if keepsAudioGraphWarm {
             lock.withLock { $0.latestPowerDB = -160 }
         } else {

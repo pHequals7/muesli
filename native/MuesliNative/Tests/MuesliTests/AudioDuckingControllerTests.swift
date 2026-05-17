@@ -281,6 +281,44 @@ struct AudioDuckingControllerTests {
         ])
     }
 
+    @Test("rapid second dictation preserves original volume while restore is pending")
+    func rapidSecondDictationPreservesOriginalVolumeWhileRestoreIsPending() {
+        let client = FakeAudioDuckingDeviceClient()
+        client.activityStatus = .active
+        client.defaultDeviceID = 1
+        client.availableDevices = [1]
+        client.volumeElementsByDevice[1] = [kAudioObjectPropertyElementMain]
+        client.volumeValues[.init(1, kAudioObjectPropertyElementMain)] = 0.65
+        client.sampleRateValues[1] = [48_000, 24_000, 24_000, 24_000]
+
+        let controller = AudioDuckingController(
+            client: client,
+            queue: DispatchQueue(label: "test.audio-ducking.rapid-volume-turnover"),
+            stabilizationTimeout: 0.05,
+            stabilizationPollInterval: 0.001
+        )
+
+        controller.beginDictationDucking(enabled: true)
+        controller.waitForIdle()
+        controller.restoreDictationDucking()
+        controller.beginDictationDucking(enabled: true)
+        controller.waitForIdle()
+        Thread.sleep(forTimeInterval: 0.07)
+        controller.waitForIdle()
+
+        #expect(client.volumeValues[.init(1, kAudioObjectPropertyElementMain)] == 0)
+
+        controller.restoreDictationDucking()
+        Thread.sleep(forTimeInterval: 0.07)
+        controller.waitForIdle()
+
+        #expect(client.volumeValues[.init(1, kAudioObjectPropertyElementMain)] == 0.65)
+        #expect(client.volumeSetCalls == [
+            .init(deviceID: 1, element: kAudioObjectPropertyElementMain, value: 0),
+            .init(deviceID: 1, element: kAudioObjectPropertyElementMain, value: 0.65),
+        ])
+    }
+
     private func makeController(client: FakeAudioDuckingDeviceClient) -> AudioDuckingController {
         AudioDuckingController(
             client: client,
@@ -307,6 +345,12 @@ private struct MuteSetCall: Equatable {
     let value: Bool
 }
 
+private struct VolumeSetCall: Equatable {
+    let deviceID: AudioObjectID
+    let element: AudioObjectPropertyElement
+    let value: Float32
+}
+
 private final class FakeAudioDuckingDeviceClient: AudioDuckingDeviceClient {
     var activityStatus: AudioOutputActivityStatus = .inactive
     var outputRouteKind: AudioOutputRouteKind = .speakerLike
@@ -319,6 +363,7 @@ private final class FakeAudioDuckingDeviceClient: AudioDuckingDeviceClient {
     var sampleRateValues: [AudioObjectID: [Double]] = [:]
     var sampleRateReadCount: [AudioObjectID: Int] = [:]
     var muteSetCalls: [MuteSetCall] = []
+    var volumeSetCalls: [VolumeSetCall] = []
 
     func outputActivityStatus() -> AudioOutputActivityStatus {
         activityStatus
@@ -369,6 +414,7 @@ private final class FakeAudioDuckingDeviceClient: AudioDuckingDeviceClient {
     func setVolume(_ volume: Float32, deviceID: AudioObjectID, element: AudioObjectPropertyElement) -> Bool {
         guard isDeviceAvailable(deviceID) else { return false }
         volumeValues[.init(deviceID, element)] = volume
+        volumeSetCalls.append(VolumeSetCall(deviceID: deviceID, element: element, value: volume))
         return true
     }
 }

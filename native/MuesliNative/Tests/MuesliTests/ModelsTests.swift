@@ -1055,6 +1055,26 @@ struct HotkeyMonitorTests {
 
         #expect(startCount == 1)
     }
+
+    @Test("reconfiguring hotkey during active recording stops cleanly")
+    func configureKeyCodeDuringActiveRecordingStopsCleanly() {
+        let monitor = HotkeyMonitor()
+        var stopCount = 0
+        var cancelCount = 0
+        monitor.onStop = {
+            stopCount += 1
+        }
+        monitor.onCancel = {
+            cancelCount += 1
+        }
+
+        monitor.setHoldRecordingActiveForTests()
+        monitor.configure(keyCode: 56)
+
+        #expect(stopCount == 1)
+        #expect(cancelCount == 0)
+        #expect(monitor.targetKeyCode == 56)
+    }
 }
 
 @Suite("MeetingResummarizationPolicy")
