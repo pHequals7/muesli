@@ -4400,6 +4400,7 @@ final class MuesliController: NSObject {
         resetDictationOutputMode()
         setState(.idle)
         meetingMonitor.resumeAfterCooldown()
+        meetingMonitor.refreshState()
         finishDictationLatencyTrace("nemotron_start_failed")
         syncDictationRecorderWarmup(reason: "nemotron-start-failed")
     }

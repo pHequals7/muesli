@@ -180,6 +180,10 @@ final class StreamingDictationController {
                 sessionID: sessionID,
                 timeout: Self.stopStreamStateTimeout
             )
+            guard self.isCurrentSession(sessionID) else {
+                completion(self.fullTranscript)
+                return
+            }
             self.startDrainIfNeeded(sessionID: sessionID)
             await self.waitForDrain(sessionID: sessionID, timeout: Self.stopDrainTimeout)
             let transcript = self.finishStoppedSession(sessionID: sessionID)
