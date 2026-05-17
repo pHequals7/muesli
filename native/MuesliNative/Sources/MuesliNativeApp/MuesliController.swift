@@ -4585,7 +4585,11 @@ final class MuesliController: NSObject {
         pendingReleaseSoundSessionID = nil
         resetDictationOutputMode()
         setState(.idle)
-        meetingMonitor.resumeAfterCooldown()
+        if activeMeetingID != nil || isStartingMeetingRecording || isMeetingRecording() {
+            meetingMonitor.suppressWhileActive()
+        } else {
+            meetingMonitor.resumeAfterCooldown()
+        }
         meetingMonitor.refreshState()
         finishDictationLatencyTrace("meeting_active_cancel")
         syncDictationRecorderWarmup(reason: "meeting-active")

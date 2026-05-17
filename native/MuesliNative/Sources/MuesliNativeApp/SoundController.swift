@@ -149,7 +149,7 @@ private enum SystemSoundPlayer {
     }
 
     private static func disposeCachedSoundsBestEffort() {
-        queue.sync {
+        queue.async {
             for soundID in soundIDs.values {
                 AudioServicesDisposeSystemSoundID(soundID)
             }
