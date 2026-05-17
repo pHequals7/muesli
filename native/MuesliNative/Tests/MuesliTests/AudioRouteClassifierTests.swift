@@ -19,19 +19,33 @@ struct AudioRouteClassifierTests {
         #expect(route == .headphoneLike)
     }
 
-    @Test("Bluetooth low-rate generic input profile is unknown")
-    func bluetoothLowRateGenericInputProfileIsUnknown() {
+    @Test("Bluetooth input without terminal metadata is unknown")
+    func bluetoothInputWithoutTerminalMetadataIsUnknown() {
         let route = AudioRouteClassifier.outputRouteKind(
             for: AudioOutputDeviceDescription(
                 name: nil,
                 transportType: kAudioDeviceTransportTypeBluetooth,
                 hasOutputStreams: true,
-                hasInputStreams: true,
-                nominalSampleRate: 16_000
+                hasInputStreams: true
             )
         )
 
         #expect(route == .unknown)
+    }
+
+    @Test("Bluetooth input without terminal metadata is marked ambiguous")
+    func bluetoothInputWithoutTerminalMetadataIsMarkedAmbiguous() {
+        let classification = AudioRouteClassifier.outputRouteClassification(
+            for: AudioOutputDeviceDescription(
+                name: nil,
+                transportType: kAudioDeviceTransportTypeBluetooth,
+                hasOutputStreams: true,
+                hasInputStreams: true
+            )
+        )
+
+        #expect(classification.kind == .unknown)
+        #expect(classification.isAmbiguousBluetooth)
     }
 
     @Test("generic Bluetooth output with input is unknown")

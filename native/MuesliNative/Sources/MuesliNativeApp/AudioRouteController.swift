@@ -46,6 +46,18 @@ struct AudioOutputDeviceDescription: Equatable {
 }
 
 enum AudioRouteClassifier {
+    struct Classification: Equatable {
+        let kind: AudioOutputRouteKind
+        let isAmbiguousBluetooth: Bool
+    }
+
+    static func outputRouteClassification(for device: AudioOutputDeviceDescription) -> Classification {
+        Classification(
+            kind: outputRouteKind(for: device),
+            isAmbiguousBluetooth: isAmbiguousBluetoothWithoutRouteMetadata(device)
+        )
+    }
+
     static func outputRouteKind(for device: AudioOutputDeviceDescription) -> AudioOutputRouteKind {
         guard device.hasOutputStreams else { return .unknown }
 
@@ -81,6 +93,13 @@ enum AudioRouteClassifier {
         kAudioStreamTerminalTypeLFESpeaker,
         kAudioStreamTerminalTypeReceiverSpeaker,
     ]
+
+    private static func isAmbiguousBluetoothWithoutRouteMetadata(_ device: AudioOutputDeviceDescription) -> Bool {
+        guard device.hasOutputStreams, device.hasInputStreams else { return false }
+        guard device.transportType == kAudioDeviceTransportTypeBluetooth
+            || device.transportType == kAudioDeviceTransportTypeBluetoothLE else { return false }
+        return device.outputTerminalTypes.union(device.outputDataSourceKinds).isEmpty
+    }
 }
 
 protocol DictationAudioRouting: AnyObject {
@@ -98,6 +117,7 @@ protocol DictationAudioRouting: AnyObject {
 final class DictationAudioRouteController: DictationAudioRouting {
     private struct RouteSnapshot {
         var outputRouteKind: AudioOutputRouteKind = .unknown
+        var outputIsAmbiguousBluetooth: Bool = false
         var builtInInputDeviceID: AudioObjectID?
     }
 
@@ -118,10 +138,12 @@ final class DictationAudioRouteController: DictationAudioRouting {
         self.inspector = inspector
         self.queue = queue
         self.queue.setSpecific(key: queueKey, value: ())
+        let initialOutputClassification = inspector.defaultOutputDeviceID().map {
+            inspector.outputRouteClassification(for: $0)
+        }
         self.snapshot = RouteSnapshot(
-            outputRouteKind: inspector.defaultOutputDeviceID().map {
-                inspector.outputRouteKind(for: $0)
-            } ?? .unknown,
+            outputRouteKind: initialOutputClassification?.kind ?? .unknown,
+            outputIsAmbiguousBluetooth: initialOutputClassification?.isAmbiguousBluetooth ?? false,
             builtInInputDeviceID: inspector.builtInInputDeviceID()
         )
         if observesDefaultOutputChanges {
@@ -223,20 +245,30 @@ final class DictationAudioRouteController: DictationAudioRouting {
     }
 
     private static func preferredInputDeviceID(for snapshot: RouteSnapshot) -> AudioObjectID? {
-        guard snapshot.outputRouteKind != .speakerLike else { return nil }
-        return snapshot.builtInInputDeviceID
+        switch snapshot.outputRouteKind {
+        case .headphoneLike:
+            return snapshot.builtInInputDeviceID
+        case .speakerLike:
+            return nil
+        case .unknown:
+            return snapshot.outputIsAmbiguousBluetooth ? snapshot.builtInInputDeviceID : nil
+        }
     }
 
     private func makeRouteSnapshot() -> RouteSnapshot {
-        RouteSnapshot(
-            outputRouteKind: currentOutputRouteKind(),
+        let outputClassification = currentOutputRouteClassification()
+        return RouteSnapshot(
+            outputRouteKind: outputClassification.kind,
+            outputIsAmbiguousBluetooth: outputClassification.isAmbiguousBluetooth,
             builtInInputDeviceID: inspector.builtInInputDeviceID()
         )
     }
 
-    private func currentOutputRouteKind() -> AudioOutputRouteKind {
-        guard let outputDeviceID = inspector.defaultOutputDeviceID() else { return .unknown }
-        return inspector.outputRouteKind(for: outputDeviceID)
+    private func currentOutputRouteClassification() -> AudioRouteClassifier.Classification {
+        guard let outputDeviceID = inspector.defaultOutputDeviceID() else {
+            return AudioRouteClassifier.Classification(kind: .unknown, isAmbiguousBluetooth: false)
+        }
+        return inspector.outputRouteClassification(for: outputDeviceID)
     }
 
     private func installDefaultOutputListener() {
@@ -294,7 +326,7 @@ protocol CoreAudioDeviceInspecting {
     func setDefaultInputDeviceID(_ deviceID: AudioObjectID) -> Bool
     func isDeviceAvailable(_ deviceID: AudioObjectID) -> Bool
     func nominalSampleRate(for deviceID: AudioObjectID) -> Double?
-    func outputRouteKind(for deviceID: AudioObjectID) -> AudioOutputRouteKind
+    func outputRouteClassification(for deviceID: AudioObjectID) -> AudioRouteClassifier.Classification
     func builtInInputDeviceID() -> AudioObjectID?
 }
 
@@ -349,17 +381,23 @@ final class CoreAudioDeviceInspector: CoreAudioDeviceInspecting {
         return sampleRate
     }
 
+    func outputRouteClassification(for deviceID: AudioObjectID) -> AudioRouteClassifier.Classification {
+        AudioRouteClassifier.outputRouteClassification(for: outputDeviceDescription(for: deviceID))
+    }
+
     func outputRouteKind(for deviceID: AudioObjectID) -> AudioOutputRouteKind {
-        AudioRouteClassifier.outputRouteKind(
-            for: AudioOutputDeviceDescription(
-                name: deviceName(for: deviceID),
-                transportType: transportType(for: deviceID),
-                hasOutputStreams: hasStreams(deviceID: deviceID, scope: kAudioDevicePropertyScopeOutput),
-                hasInputStreams: hasStreams(deviceID: deviceID, scope: kAudioDevicePropertyScopeInput),
-                outputTerminalTypes: outputTerminalTypes(for: deviceID),
-                outputDataSourceKinds: outputDataSourceKinds(for: deviceID),
-                nominalSampleRate: nominalSampleRate(for: deviceID)
-            )
+        outputRouteClassification(for: deviceID).kind
+    }
+
+    private func outputDeviceDescription(for deviceID: AudioObjectID) -> AudioOutputDeviceDescription {
+        AudioOutputDeviceDescription(
+            name: deviceName(for: deviceID),
+            transportType: transportType(for: deviceID),
+            hasOutputStreams: hasStreams(deviceID: deviceID, scope: kAudioDevicePropertyScopeOutput),
+            hasInputStreams: hasStreams(deviceID: deviceID, scope: kAudioDevicePropertyScopeInput),
+            outputTerminalTypes: outputTerminalTypes(for: deviceID),
+            outputDataSourceKinds: outputDataSourceKinds(for: deviceID),
+            nominalSampleRate: nominalSampleRate(for: deviceID)
         )
     }
 

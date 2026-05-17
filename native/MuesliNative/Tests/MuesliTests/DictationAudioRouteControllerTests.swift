@@ -38,11 +38,12 @@ struct DictationAudioRouteControllerTests {
         #expect(controller.cachedPreferredInputDeviceIDForDictation() == nil)
     }
 
-    @Test("dictation prefers built-in mic for unknown output")
-    func dictationPrefersBuiltInMicForUnknownOutput() {
+    @Test("dictation prefers built-in mic for ambiguous Bluetooth unknown output")
+    func dictationPrefersBuiltInMicForAmbiguousBluetoothUnknownOutput() {
         let inspector = FakeCoreAudioDeviceInspector(
             defaultOutputDeviceID: 10,
             outputRouteKind: .unknown,
+            outputIsAmbiguousBluetooth: true,
             builtInInputDeviceID: 82
         )
         let controller = DictationAudioRouteController(
@@ -53,6 +54,24 @@ struct DictationAudioRouteControllerTests {
 
         #expect(controller.preferredInputDeviceIDForDictation() == 82)
         #expect(controller.cachedPreferredInputDeviceIDForDictation() == 82)
+    }
+
+    @Test("dictation preserves default input for non-Bluetooth unknown output")
+    func dictationPreservesDefaultInputForNonBluetoothUnknownOutput() {
+        let inspector = FakeCoreAudioDeviceInspector(
+            defaultOutputDeviceID: 10,
+            outputRouteKind: .unknown,
+            outputIsAmbiguousBluetooth: false,
+            builtInInputDeviceID: 82
+        )
+        let controller = DictationAudioRouteController(
+            inspector: inspector,
+            queue: DispatchQueue(label: "test.dictation-audio-route.unknown-non-bluetooth"),
+            observesDefaultOutputChanges: false
+        )
+
+        #expect(controller.preferredInputDeviceIDForDictation() == nil)
+        #expect(controller.cachedPreferredInputDeviceIDForDictation() == nil)
     }
 
     @Test("dictation falls back to default input when built-in mic is unavailable")
@@ -76,15 +95,18 @@ struct DictationAudioRouteControllerTests {
 private final class FakeCoreAudioDeviceInspector: CoreAudioDeviceInspecting {
     var defaultOutputDeviceIDValue: AudioObjectID?
     var outputRouteKindValue: AudioOutputRouteKind
+    var outputIsAmbiguousBluetoothValue: Bool
     var builtInInputDeviceIDValue: AudioObjectID?
 
     init(
         defaultOutputDeviceID: AudioObjectID?,
         outputRouteKind: AudioOutputRouteKind,
+        outputIsAmbiguousBluetooth: Bool = false,
         builtInInputDeviceID: AudioObjectID?
     ) {
         self.defaultOutputDeviceIDValue = defaultOutputDeviceID
         self.outputRouteKindValue = outputRouteKind
+        self.outputIsAmbiguousBluetoothValue = outputIsAmbiguousBluetooth
         self.builtInInputDeviceIDValue = builtInInputDeviceID
     }
 
@@ -108,8 +130,11 @@ private final class FakeCoreAudioDeviceInspector: CoreAudioDeviceInspecting {
         nil
     }
 
-    func outputRouteKind(for deviceID: AudioObjectID) -> AudioOutputRouteKind {
-        outputRouteKindValue
+    func outputRouteClassification(for deviceID: AudioObjectID) -> AudioRouteClassifier.Classification {
+        AudioRouteClassifier.Classification(
+            kind: outputRouteKindValue,
+            isAmbiguousBluetooth: outputIsAmbiguousBluetoothValue
+        )
     }
 
     func builtInInputDeviceID() -> AudioObjectID? {

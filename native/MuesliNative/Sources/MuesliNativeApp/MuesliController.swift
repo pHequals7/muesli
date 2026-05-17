@@ -4516,7 +4516,10 @@ final class MuesliController: NSObject {
     }
 
     private func handleStop() {
-        if isMeetingRecording() { return }
+        if isMeetingRecording() {
+            cancelDictationAudioSessionForMeetingRecordingIfNeeded()
+            return
+        }
         fputs("[muesli-native] stop\n", stderr)
         let startedAt = dictationStartedAt ?? Date()
         dictationStartedAt = nil
@@ -4554,6 +4557,21 @@ final class MuesliController: NSObject {
             : nil
         pendingDictationStopStartedAt = startedAt
         dictationAudioSessionManager.stop()
+    }
+
+    private func cancelDictationAudioSessionForMeetingRecordingIfNeeded() {
+        guard dictationAudioSessionManager.hasActiveSession else { return }
+        fputs("[muesli-native] cancelling dictation audio session because meeting is active\n", stderr)
+        dictationAudioSessionManager.cancel(reason: "meeting-active")
+        dictationStartedAt = nil
+        capturedDictationContext = nil
+        pendingDictationStopSessionID = nil
+        pendingDictationStopStartedAt = nil
+        pendingReleaseSoundSessionID = nil
+        resetDictationOutputMode()
+        setState(.idle)
+        finishDictationLatencyTrace("meeting_active_cancel")
+        syncDictationRecorderWarmup(reason: "meeting-active")
     }
 
     private func finishNemotronStreamingStop(
