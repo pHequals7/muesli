@@ -43,11 +43,11 @@ enum AudioRouteClassifier {
     static func outputRouteKind(for device: AudioOutputDeviceDescription) -> AudioOutputRouteKind {
         guard device.hasOutputStreams else { return .unknown }
 
-        if device.outputTerminalTypes.contains(kAudioStreamTerminalTypeHeadphones) {
-            return .headphoneLike
-        }
         if !device.outputTerminalTypes.isDisjoint(with: speakerTerminalTypes) {
             return .speakerLike
+        }
+        if device.outputTerminalTypes.contains(kAudioStreamTerminalTypeHeadphones) {
+            return .headphoneLike
         }
 
         if device.transportType == kAudioDeviceTransportTypeBluetooth
@@ -57,6 +57,12 @@ enum AudioRouteClassifier {
             return device.hasInputStreams ? .headphoneLike : .speakerLike
         }
 
+        if let transportType = device.transportType,
+           inputCapableWiredTransports.contains(transportType),
+           device.hasInputStreams {
+            return .headphoneLike
+        }
+
         return .speakerLike
     }
 
@@ -64,6 +70,11 @@ enum AudioRouteClassifier {
         kAudioStreamTerminalTypeSpeaker,
         kAudioStreamTerminalTypeLFESpeaker,
         kAudioStreamTerminalTypeReceiverSpeaker,
+    ]
+
+    private static let inputCapableWiredTransports: Set<UInt32> = [
+        kAudioDeviceTransportTypeUSB,
+        kAudioDeviceTransportTypeThunderbolt,
     ]
 }
 

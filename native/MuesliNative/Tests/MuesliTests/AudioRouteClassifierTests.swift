@@ -120,6 +120,52 @@ struct AudioRouteClassifierTests {
         #expect(route == .speakerLike)
     }
 
+    @Test("mixed headphone and speaker terminals are speaker-like")
+    func mixedHeadphoneAndSpeakerTerminalsAreSpeakerLike() {
+        let route = AudioRouteClassifier.outputRouteKind(
+            for: AudioOutputDeviceDescription(
+                name: "Mixed Output",
+                transportType: kAudioDeviceTransportTypeUSB,
+                hasOutputStreams: true,
+                hasInputStreams: true,
+                outputTerminalTypes: [
+                    kAudioStreamTerminalTypeHeadphones,
+                    kAudioStreamTerminalTypeSpeaker,
+                ]
+            )
+        )
+
+        #expect(route == .speakerLike)
+    }
+
+    @Test("USB headset without terminal metadata is headphone-like when input capable")
+    func usbHeadsetWithoutTerminalMetadataIsHeadphoneLikeWhenInputCapable() {
+        let route = AudioRouteClassifier.outputRouteKind(
+            for: AudioOutputDeviceDescription(
+                name: "USB Audio Device",
+                transportType: kAudioDeviceTransportTypeUSB,
+                hasOutputStreams: true,
+                hasInputStreams: true
+            )
+        )
+
+        #expect(route == .headphoneLike)
+    }
+
+    @Test("Thunderbolt headset without terminal metadata is headphone-like when input capable")
+    func thunderboltHeadsetWithoutTerminalMetadataIsHeadphoneLikeWhenInputCapable() {
+        let route = AudioRouteClassifier.outputRouteKind(
+            for: AudioOutputDeviceDescription(
+                name: "Thunderbolt Audio Device",
+                transportType: kAudioDeviceTransportTypeThunderbolt,
+                hasOutputStreams: true,
+                hasInputStreams: true
+            )
+        )
+
+        #expect(route == .headphoneLike)
+    }
+
     @Test("device names do not override transport classification")
     func deviceNamesDoNotOverrideTransportClassification() {
         let route = AudioRouteClassifier.outputRouteKind(

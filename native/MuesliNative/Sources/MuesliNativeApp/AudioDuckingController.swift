@@ -63,6 +63,7 @@ final class AudioDuckingController: AudioDuckingManaging {
     private let stabilizationPollInterval: TimeInterval
     private var duckingEnabledForSession = false
     private var snapshots: [AudioObjectID: DeviceSnapshot] = [:]
+    private var restoreGeneration = 0
 
     init(
         client: AudioDuckingDeviceClient = CoreAudioDuckingDeviceClient(),
@@ -83,6 +84,7 @@ final class AudioDuckingController: AudioDuckingManaging {
                 self.restoreLocked()
                 return
             }
+            self.restoreGeneration += 1
             self.duckingEnabledForSession = true
             guard self.shouldDuckCurrentOutput() else { return }
             self.duckCurrentDefaultDevice()
@@ -151,7 +153,26 @@ final class AudioDuckingController: AudioDuckingManaging {
     }
 
     private func restoreLocked() {
-        waitForCodecStabilization()
+        restoreGeneration += 1
+        scheduleRestoreAfterCodecStabilizationLocked(
+            generation: restoreGeneration,
+            deadline: Date().addingTimeInterval(stabilizationTimeout)
+        )
+    }
+
+    private func scheduleRestoreAfterCodecStabilizationLocked(generation: Int, deadline: Date) {
+        guard generation == restoreGeneration else { return }
+        guard shouldWaitForCodecStabilizationLocked(until: deadline) else {
+            applyRestoreLocked(generation: generation)
+            return
+        }
+        queue.asyncAfter(deadline: .now() + stabilizationPollInterval) { [self] in
+            scheduleRestoreAfterCodecStabilizationLocked(generation: generation, deadline: deadline)
+        }
+    }
+
+    private func applyRestoreLocked(generation: Int) {
+        guard generation == restoreGeneration else { return }
         let pendingSnapshots = snapshots.values
         snapshots.removeAll()
         duckingEnabledForSession = false
@@ -174,19 +195,16 @@ final class AudioDuckingController: AudioDuckingManaging {
         }
     }
 
-    private func waitForCodecStabilization() {
-        guard stabilizationTimeout > 0, stabilizationPollInterval > 0 else { return }
-        let deadline = Date().addingTimeInterval(stabilizationTimeout)
-        while Date() < deadline {
-            guard let defaultDeviceID = client.defaultOutputDeviceID(),
-                  let snapshot = snapshots[defaultDeviceID],
-                  let previousSampleRate = snapshot.sampleRate,
-                  let currentSampleRate = client.nominalSampleRate(for: defaultDeviceID),
-                  abs(currentSampleRate - previousSampleRate) > 0.5 else {
-                return
-            }
-            Thread.sleep(forTimeInterval: stabilizationPollInterval)
+    private func shouldWaitForCodecStabilizationLocked(until deadline: Date) -> Bool {
+        guard stabilizationTimeout > 0, stabilizationPollInterval > 0, Date() < deadline else { return false }
+        guard let defaultDeviceID = client.defaultOutputDeviceID(),
+              let snapshot = snapshots[defaultDeviceID],
+              let previousSampleRate = snapshot.sampleRate,
+              let currentSampleRate = client.nominalSampleRate(for: defaultDeviceID),
+              abs(currentSampleRate - previousSampleRate) > 0.5 else {
+            return false
         }
+        return true
     }
 }
 

@@ -233,6 +233,7 @@ struct AudioDuckingControllerTests {
         controller.beginDictationDucking(enabled: true)
         controller.waitForIdle()
         controller.restoreDictationDucking()
+        Thread.sleep(forTimeInterval: 0.02)
         controller.waitForIdle()
 
         #expect(client.sampleRateReadCount[1, default: 0] >= 3)
@@ -261,12 +262,22 @@ struct AudioDuckingControllerTests {
         controller.restoreDictationDucking()
         controller.beginDictationDucking(enabled: true)
         controller.waitForIdle()
+        Thread.sleep(forTimeInterval: 0.07)
+        controller.waitForIdle()
 
         #expect(client.muteValues[.init(1, kAudioObjectPropertyElementMain)] == true)
         #expect(client.muteSetCalls == [
             .init(deviceID: 1, element: kAudioObjectPropertyElementMain, value: true),
-            .init(deviceID: 1, element: kAudioObjectPropertyElementMain, value: false),
+        ])
+
+        controller.restoreDictationDucking()
+        Thread.sleep(forTimeInterval: 0.07)
+        controller.waitForIdle()
+
+        #expect(client.muteValues[.init(1, kAudioObjectPropertyElementMain)] == false)
+        #expect(client.muteSetCalls == [
             .init(deviceID: 1, element: kAudioObjectPropertyElementMain, value: true),
+            .init(deviceID: 1, element: kAudioObjectPropertyElementMain, value: false),
         ])
     }
 
