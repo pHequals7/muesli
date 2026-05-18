@@ -470,6 +470,13 @@ final class MuesliController: NSObject {
             }
         }
 
+        // Calendar monitor runs unconditionally so the "Coming Up" section
+        // is always populated, even when meeting detection is turned off.
+        if canRunMainApp {
+            calendarMonitor.start()
+            startCalendarMonitoring()
+        }
+
         // Defer permission-triggering monitors until after onboarding
         if canRunMainApp && shouldRunMeetingFeatureMonitors {
             startMeetingFeatureMonitors(includeMaraudersMap: true)
@@ -1234,8 +1241,6 @@ final class MuesliController: NSObject {
     }
 
     private func startMeetingFeatureMonitors(includeMaraudersMap: Bool) {
-        calendarMonitor.start()
-        startCalendarMonitoring()
         if includeMaraudersMap, config.maraudersMapUnlocked {
             startMaraudersMapMonitoring()
         }
@@ -1750,6 +1755,8 @@ final class MuesliController: NSObject {
                 hotkeyMonitor.start()
                 startComputerUseHotkeyMonitorIfNeeded()
             }
+            calendarMonitor.start()
+            startCalendarMonitoring()
             // Start monitors that were deferred during onboarding
             if shouldRunMeetingFeatureMonitors {
                 startMeetingFeatureMonitors(includeMaraudersMap: false)
