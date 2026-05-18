@@ -79,8 +79,10 @@ struct DictationsView: View {
                     Spacer()
                     voiceNoteButton
                 }
-                .padding(.horizontal, MuesliTheme.spacing24)
+                .frame(maxWidth: MuesliTheme.pageMaxWidth)
+                .padding(.horizontal, MuesliTheme.pageHorizontalPadding)
                 .padding(.bottom, MuesliTheme.spacing12)
+                .frame(maxWidth: .infinity)
             }
 
             if appState.dictationRows.isEmpty {
@@ -164,8 +166,10 @@ struct DictationsView: View {
                                 }
                         }
                     }
-                    .padding(.horizontal, MuesliTheme.spacing24)
-                    .padding(.bottom, MuesliTheme.spacing24)
+                    .frame(maxWidth: MuesliTheme.pageMaxWidth, alignment: .leading)
+                    .padding(.horizontal, MuesliTheme.pageHorizontalPadding)
+                    .padding(.bottom, MuesliTheme.pageVerticalPadding)
+                    .frame(maxWidth: .infinity)
                 }
             }
         }

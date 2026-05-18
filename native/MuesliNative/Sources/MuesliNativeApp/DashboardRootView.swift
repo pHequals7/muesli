@@ -8,7 +8,11 @@ struct DashboardRootView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView(appState: appState, controller: controller)
-            .navigationSplitViewColumnWidth(min: 240, ideal: 260, max: 300)
+            .navigationSplitViewColumnWidth(
+                min: MuesliTheme.sidebarMinWidth,
+                ideal: MuesliTheme.sidebarIdealWidth,
+                max: MuesliTheme.sidebarMaxWidth
+            )
         } detail: {
             Group {
                 if appState.isSearchActive,

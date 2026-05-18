@@ -47,7 +47,7 @@ struct SearchResultsView: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, MuesliTheme.spacing20)
+        .padding(.horizontal, MuesliTheme.pageHorizontalPadding)
         .padding(.vertical, MuesliTheme.spacing12)
     }
 
@@ -195,7 +195,7 @@ private struct SearchDictationRow: View {
             }
             .opacity(isHovered ? 1 : 0)
         }
-        .padding(.horizontal, MuesliTheme.spacing20)
+        .padding(.horizontal, MuesliTheme.pageHorizontalPadding)
         .padding(.vertical, MuesliTheme.spacing12)
         .background(isHovered ? MuesliTheme.backgroundHover : Color.clear)
         .onHover { hovering in
@@ -245,7 +245,7 @@ private struct SearchMeetingRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, MuesliTheme.spacing20)
+        .padding(.horizontal, MuesliTheme.pageHorizontalPadding)
         .padding(.vertical, MuesliTheme.spacing12)
         .background(isHovered ? MuesliTheme.backgroundHover : Color.clear)
         .onHover { hovering in

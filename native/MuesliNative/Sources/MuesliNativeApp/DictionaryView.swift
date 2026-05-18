@@ -16,8 +16,7 @@ struct DictionaryView: View {
                 header
                 wordList
             }
-            .padding(MuesliTheme.spacing32)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .muesliPageContent()
         }
         .background(MuesliTheme.backgroundBase)
     }
@@ -96,7 +95,7 @@ struct DictionaryView: View {
                 .foregroundStyle(MuesliTheme.textTertiary)
         }
         .frame(maxWidth: .infinity)
-        .padding(MuesliTheme.spacing32)
+        .padding(MuesliTheme.cardPadding)
     }
 
     private var addWordRow: some View {
